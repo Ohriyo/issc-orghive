@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.vite/
+*.log
+
+# Env files: only the examples are committed
+.env
+.env.*
+!.env.example
+
+# Playwright
+playwright-report/
+test-results/
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+.DS_Store
+Thumbs.db

@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+dist
+coverage
+
+# Prose docs are hand-formatted
+*.md

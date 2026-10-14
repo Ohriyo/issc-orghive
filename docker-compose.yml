@@ -1,0 +1,83 @@
+# Local development services. Credentials here are dev-only and match apps/api/.env.example.
+name: orghive
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orghive
+      POSTGRES_PASSWORD: orghive-dev-password
+      POSTGRES_DB: orghive
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U orghive -d orghive']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # MinIO no longer publishes official images; pgsty/minio is a community build
+  # of the same server from source (https://github.com/pgsty/minio).
+  minio:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: orghive
+      MINIO_ROOT_PASSWORD: orghive-dev-password
+    ports:
+      - '9000:9000' # S3 API
+      - '9001:9001' # web console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot job: creates the private bucket, then exits.
+  minio-init:
+    image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 orghive orghive-dev-password
+        mc mb --ignore-existing local/orghive
+        mc anonymous set none local/orghive
+        echo "Bucket 'orghive' is ready (private)."
+    restart: 'no'
+
+  mailpit:
+    image: axllent/mailpit:v1.31.5
+    ports:
+      - '1025:1025' # SMTP
+      - '8025:8025' # web inbox
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

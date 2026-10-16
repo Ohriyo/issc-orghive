@@ -14,6 +14,18 @@ Each organization's documents are approved by the level above it. The ISSC has n
 | CSC (e.g. CEA CSC) | The ISSC |
 | ISSC | The ISSC adviser |
 
+## Provisional (in code until the school confirms)
+
+These are implemented so the app can work, and must be revisited when the open questions below are answered.
+
+- **Who approves CSC documents:** the ISSC head (`memberships.is_head` on the ISSC). See `apps/api/src/services/document-viewer.service.ts`.
+- **Who sees unapproved documents** (`apps/api/src/repositories/document-visibility.ts`):
+  - Public and signed-in non-members: approved documents only.
+  - Active members of the owning organization: every status, including drafts.
+  - Approvers: pending documents of the organizations they review.
+  - Admins: everything not deleted. Deleted documents: nobody.
+- **Archived documents** are hidden from the public under the rule above. Whether archived Paperworks should stay public is not yet decided.
+
 ## Open questions
 
 ### Approval
@@ -23,6 +35,7 @@ Each organization's documents are approved by the level above it. The ISSC has n
 - If the approver is absent or the position is vacant, who approves instead?
 - Is a written reason required on rejection? Can a rejected document be fixed and resubmitted as a new version?
 - Who can see pending and rejected documents?
+- Should archived documents stay visible to the public?
 - Does the approval chain differ by document type (e.g. financial reports)?
 
 ### Required reports

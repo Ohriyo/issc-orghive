@@ -9,7 +9,8 @@ services:
       POSTGRES_PASSWORD: orghive-dev-password
       POSTGRES_DB: orghive
     ports:
-      - '5432:5432'
+      # 5433 on the host: a locally installed Postgres often already owns 5432.
+      - '5433:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -63,7 +64,8 @@ services:
         mc alias set local http://minio:9000 orghive orghive-dev-password
         mc mb --ignore-existing local/orghive
         mc anonymous set none local/orghive
-        echo "Bucket 'orghive' is ready (private)."
+        mc anonymous set download local/orghive/logos/
+        echo "Bucket 'orghive' is ready (private; logos/ is public-read)."
     restart: 'no'
 
   mailpit:

@@ -3,7 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Orghive</title>
+    <title data-default-seo>Orghive</title>
+    <!--
+      Site defaults for link previews and crawlers that do not run JavaScript (Facebook,
+      Messenger). main.tsx removes the data-default-seo tags at boot, and each page then sets
+      its own through <Seo>, so nothing is duplicated. Keep in step with siteSeo() in
+      packages/shared/src/seo.ts.
+    -->
+    <meta
+      data-default-seo
+      name="description"
+      content="The official archive of Northwest Samar State University's student organizations: proposals, reports, resolutions and accomplishment reports from the ISSC, CSCs and SBOs."
+    />
+    <meta data-default-seo property="og:type" content="website" />
+    <meta data-default-seo property="og:site_name" content="Orghive" />
+    <meta data-default-seo property="og:title" content="Orghive: NwSSU student-organization Paperworks" />
+    <meta
+      data-default-seo
+      property="og:description"
+      content="The official archive of Northwest Samar State University's student organizations: proposals, reports, resolutions and accomplishment reports from the ISSC, CSCs and SBOs."
+    />
+    <meta data-default-seo property="og:image" content="%SITE_URL%/og-default.png" />
+    <meta data-default-seo property="og:image:width" content="1200" />
+    <meta data-default-seo property="og:image:height" content="630" />
+    <meta data-default-seo property="og:image:alt" content="Orghive, NwSSU student-organization archive" />
+    <meta data-default-seo name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#095d40" />
   </head>
   <body>
     <div id="root"></div>

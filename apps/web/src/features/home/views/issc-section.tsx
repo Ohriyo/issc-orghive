@@ -1,0 +1,128 @@
+import type { OrganizationDetail } from '@orghive/shared';
+import { Link } from 'react-router';
+import { HexFrame } from '@/components/hex-frame';
+import { OrgLogo } from '@/components/org-logo';
+import { PillButton } from '@/components/pill-button';
+import { Reveal } from '@/components/reveal';
+import { WaveDivider } from '@/components/wave-divider';
+import type { SectionState } from '../presenters/use-home-data';
+import { SectionError } from '@/components/section-error';
+
+export interface IsscSectionProps {
+  issc: SectionState<OrganizationDetail | undefined>;
+}
+
+/** The ISSC card: name, description, quick links, and its logo in a large hexagon. */
+export function IsscSection({ issc }: IsscSectionProps) {
+  return (
+    <section aria-labelledby="issc-heading" className="relative isolate overflow-hidden">
+      <WaveDivider className="mb-6 lg:-mb-8" />
+
+      <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-4 pb-16 sm:px-8 lg:grid-cols-2 lg:gap-8 lg:px-20 lg:pb-24">
+        <Reveal className="relative z-10">
+          <IsscContent issc={issc} />
+        </Reveal>
+
+        <Reveal className="relative">
+          {/* Decorative honeycomb neighbors, as in the prototype. */}
+          <div aria-hidden="true" className="hidden lg:block">
+            <HexFrame
+              band={false}
+              ring={false}
+              shadow={false}
+              className="absolute top-[-38%] right-[-46%] w-[52%] opacity-90"
+            />
+            <HexFrame
+              band={false}
+              ring={false}
+              shadow={false}
+              className="absolute right-[-46%] bottom-[-26%] w-[52%] opacity-90"
+            />
+          </div>
+          <HexFrame
+            band={false}
+            ring={false}
+            className="relative mx-auto w-full max-w-[22rem] sm:max-w-[28rem] lg:max-w-[36rem]"
+          >
+            {issc.data ? (
+              <OrgLogo
+                name={issc.data.name}
+                src={issc.data.logoUrl ?? undefined}
+                fallbackText={issc.data.acronym}
+                className="size-full"
+              />
+            ) : (
+              <span aria-hidden="true" className="size-full" />
+            )}
+          </HexFrame>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+function IsscContent({ issc }: IsscSectionProps) {
+  if (issc.isError) {
+    return (
+      <>
+        <h2
+          id="issc-heading"
+          className="text-h1 font-bold whitespace-nowrap text-ink xl:text-display"
+        >
+          NwSSU-ISSC
+        </h2>
+        <SectionError
+          className="mt-6"
+          message="The ISSC profile could not be loaded. Check your connection and try again."
+          onRetry={issc.retry}
+        />
+      </>
+    );
+  }
+
+  if (!issc.data) {
+    return (
+      <div aria-busy="true" className="space-y-4">
+        <h2 id="issc-heading" className="sr-only">
+          Loading the ISSC profile
+        </h2>
+        <div className="h-14 w-72 animate-pulse rounded-full bg-surface-deep motion-reduce:animate-none" />
+        <div className="h-5 w-80 max-w-full animate-pulse rounded-full bg-surface-deep motion-reduce:animate-none" />
+        <div className="h-32 w-full max-w-md animate-pulse rounded-3xl bg-surface-deep motion-reduce:animate-none" />
+      </div>
+    );
+  }
+
+  const { slug, acronym, name, description } = issc.data;
+  const links = [
+    { label: 'Paperworks', to: `/orgs/${slug}/paperworks` },
+    // The Collegiate Student Councils carousel.
+    { label: 'CSC', to: '/colleges' },
+    { label: 'Updates', to: `/orgs/${slug}/updates` },
+  ];
+
+  return (
+    <>
+      <h2 id="issc-heading" className="text-h1 font-bold text-ink xl:text-display">
+        <span className="block whitespace-nowrap">NwSSU-{acronym}</span>{' '}
+        <span className="mt-2 block text-body-lg font-normal tracking-normal sm:text-lead">
+          {name}
+        </span>
+      </h2>
+      {description ? (
+        <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink">{description}</p>
+      ) : null}
+      <nav aria-label={`${acronym} sections`} className="mt-10">
+        <ul className="flex flex-wrap gap-4">
+          {links.map((link) => (
+            <li key={link.label}>
+              <PillButton asChild size="lg">
+                <Link to={link.to}>{link.label}</Link>
+              </PillButton>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </>
+  );
+}

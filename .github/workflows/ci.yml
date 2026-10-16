@@ -11,6 +11,29 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Repository tests run against a real Postgres; they create and migrate orghive_test.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: orghive
+          POSTGRES_PASSWORD: orghive-ci-password
+          POSTGRES_DB: orghive
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U orghive -d orghive"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL_TEST: postgresql://orghive:orghive-ci-password@localhost:5432/orghive_test
+      REDIS_URL_TEST: redis://localhost:6379/15
     steps:
       - uses: actions/checkout@v6
 

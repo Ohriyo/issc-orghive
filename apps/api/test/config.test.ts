@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from '#src/config';
+import { testKeys } from './auth-fixtures';
+
+const keys = testKeys();
+/** As .env stores them: one line, newlines written as a literal backslash-n. */
+const oneLine = (pem: string) => pem.trim().replaceAll('\n', '\\n');
 
 const validEnv = {
   WEB_ORIGIN: 'http://localhost:5173',
@@ -9,9 +14,12 @@ const validEnv = {
   S3_BUCKET: 'orghive',
   S3_ACCESS_KEY: 'orghive',
   S3_SECRET_KEY: 'orghive-dev-secret',
+  PUBLIC_ASSET_BASE_URL: 'http://localhost:9000/orghive',
   SMTP_HOST: 'localhost',
   SMTP_PORT: '1025',
   SMTP_FROM: 'no-reply@orghive.local',
+  JWT_PRIVATE_KEY: oneLine(keys.privateKeyPem),
+  JWT_PUBLIC_KEY: oneLine(keys.publicKeyPem),
 };
 
 function configErrorFrom(env: NodeJS.ProcessEnv): ConfigError {
@@ -38,6 +46,25 @@ describe('loadConfig', () => {
     const issues = configErrorFrom(rest).issues.join('\n');
     expect(issues).toMatch(/WEB_ORIGIN/);
     expect(issues).toMatch(/DATABASE_URL/);
+  });
+
+  it('restores PEM newlines and defaults TRUST_PROXY to off', () => {
+    const config = loadConfig(validEnv);
+    expect(config.JWT_PRIVATE_KEY).toBe(keys.privateKeyPem.trim());
+    expect(config.JWT_PUBLIC_KEY.split('\n').length).toBeGreaterThan(2);
+    expect(config.TRUST_PROXY).toBe(false);
+    expect(loadConfig({ ...validEnv, TRUST_PROXY: '1' }).TRUST_PROXY).toBe(1);
+  });
+
+  it('refuses TRUST_PROXY=true and keys that are not PEM', () => {
+    const issues = configErrorFrom({
+      ...validEnv,
+      TRUST_PROXY: 'true',
+      JWT_PUBLIC_KEY: 'not-a-key',
+    }).issues.join('\n');
+    expect(issues).toMatch(/TRUST_PROXY/);
+    expect(issues).toMatch(/JWT_PUBLIC_KEY/);
+    expect(issues).not.toContain('not-a-key');
   });
 
   it('rejects invalid values without echoing them', () => {

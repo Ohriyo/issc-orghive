@@ -5,6 +5,10 @@ coverage/
 .vite/
 *.log
 
+graphify-out/
+.impeccable/
+*.graphify-bak
+
 # Env files: only the examples are committed
 .env
 .env.*
@@ -19,3 +23,6 @@ test-results/
 
 .DS_Store
 Thumbs.db
+
+# Generated Prisma client (pnpm --filter api prisma generate)
+apps/api/src/generated/

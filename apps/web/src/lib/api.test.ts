@@ -1,6 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { healthResponseSchema } from '@orghive/shared';
-import { api, ApiError, setAccessToken } from './api';
+import type { AuthResponse } from '@orghive/shared';
+import { api, ApiError, refreshSession } from './api';
+import { authStore } from './auth-store';
+
+const USER = {
+  id: '0195f3c0-0000-7000-8000-000000000001',
+  name: 'Juan',
+  email: 'juan@nwssu.test',
+  mustChangePassword: false,
+  roles: [],
+};
+
+function session(accessToken: string): AuthResponse {
+  return { accessToken, expiresIn: 900, user: USER };
+}
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -23,7 +37,7 @@ beforeEach(() => {
 afterEach(() => {
   fetchMock.mockReset();
   vi.unstubAllGlobals();
-  setAccessToken(null);
+  authStore.reset();
 });
 
 describe('api client', () => {
@@ -39,7 +53,7 @@ describe('api client', () => {
 
   it('attaches the in-memory access token as a bearer token', async () => {
     fetchMock.mockResolvedValue(jsonResponse({}));
-    setAccessToken('abc123');
+    authStore.setSession(session('abc123'));
 
     await api.get('/me');
 
@@ -81,5 +95,78 @@ describe('api client', () => {
     const error = await api.get('/health').catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 0, code: 'NETWORK_ERROR' });
+  });
+});
+
+describe('refreshSession', () => {
+  it('keeps a working session when the refresh is rate limited or the server fails', async () => {
+    authStore.setSession(session('still-valid'));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: { code: 'RATE_LIMITED', message: 'Too many attempts.' } }, 429),
+    );
+    expect(await refreshSession()).toBe(false);
+    expect(authStore.getSnapshot().status).toBe('authenticated');
+    expect(authStore.getAccessToken()).toBe('still-valid');
+  });
+
+  it('settles a first check that fails as signed out, so pages do not wait forever', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 503));
+    expect(await refreshSession()).toBe(false);
+    expect(authStore.getSnapshot().status).toBe('anonymous');
+  });
+});
+
+describe('refresh on 401', () => {
+  const unauthorized = () =>
+    jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'Your session has expired' } }, 401);
+
+  it('refreshes once and retries with the new access token', async () => {
+    authStore.setSession(session('expired'));
+    fetchMock
+      .mockResolvedValueOnce(unauthorized())
+      .mockResolvedValueOnce(jsonResponse(session('fresh')))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+    expect(await api.get('/documents')).toEqual({ ok: true });
+
+    const [, refreshCall, retry] = fetchMock.mock.calls;
+    expect(refreshCall![0]).toBe('/api/v1/auth/refresh');
+    expect(refreshCall![1]).toMatchObject({ method: 'POST', credentials: 'include' });
+    expect(new Headers(retry![1]!.headers).get('Authorization')).toBe('Bearer fresh');
+    expect(authStore.getSnapshot().status).toBe('authenticated');
+  });
+
+  it('gives up after one failed refresh and signs out locally', async () => {
+    authStore.setSession(session('expired'));
+    fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(unauthorized());
+
+    await expect(api.get('/documents')).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(authStore.getSnapshot()).toEqual({ status: 'anonymous', user: null });
+  });
+
+  it('never refreshes for auth routes (a wrong password is not an expired session)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        { error: { code: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect' } },
+        401,
+      ),
+    );
+    await expect(api.post('/auth/login', {})).rejects.toMatchObject({
+      code: 'INVALID_CREDENTIALS',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one refresh between simultaneous callers', async () => {
+    let release!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise((resolve) => (release = resolve)));
+
+    const both = Promise.all([refreshSession(), refreshSession()]);
+    release(jsonResponse(session('fresh')));
+
+    expect(await both).toEqual([true, true]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(authStore.getAccessToken()).toBe('fresh');
   });
 });

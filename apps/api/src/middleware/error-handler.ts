@@ -19,6 +19,9 @@ export const notFoundHandler: RequestHandler = (_req, _res, next) => {
 
 export function createErrorHandler(logger: Logger): ErrorRequestHandler {
   return (err: unknown, req, res, _next) => {
+    // Errors are never cached, even on routes that set public Cache-Control.
+    res.set('Cache-Control', 'no-store');
+
     if (err instanceof AppError) {
       res.status(err.status).json(body(err.code, err.message));
       return;

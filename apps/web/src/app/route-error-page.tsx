@@ -7,6 +7,7 @@ export function RouteErrorPage() {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
+      <title>{notFound ? 'Page not found | Orghive' : 'Something went wrong | Orghive'}</title>
       <h1 className="text-2xl font-semibold">
         {notFound ? 'Page not found' : 'Something went wrong'}
       </h1>

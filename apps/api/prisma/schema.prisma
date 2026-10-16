@@ -1,0 +1,329 @@
+// Orghive data model. Enum values match the Zod schemas in packages/shared.
+// Domain rules (who approves, who sees what) live in docs/DOMAIN_RULES.md.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrganizationType {
+  ISSC
+  CSC
+  SBO
+}
+
+enum MembershipRole {
+  officer
+  adviser
+  admin
+}
+
+enum DocumentStatus {
+  draft
+  pending
+  approved
+  rejected
+  archived
+}
+
+/// Midyear is provisional: whether it counts as a term is an open question.
+enum Semester {
+  first
+  second
+  midyear
+}
+
+/// Uploads stay pending until the ClamAV scan passes.
+enum ScanStatus {
+  pending
+  clean
+  infected
+}
+
+enum ApprovalDecision {
+  approved
+  rejected
+}
+
+/// The actions CLAUDE.md requires an audit entry for.
+enum AuditAction {
+  login
+  login_failed
+  logout
+  upload
+  approve
+  reject
+  delete
+  role_change
+  password_reset_requested
+  password_reset
+  password_change
+  /// A rotated refresh token was presented again; its whole family was revoked.
+  token_reuse
+}
+
+model College {
+  id            String         @id @default(uuid(7)) @db.Uuid
+  /// CAT, CCIS, CCJS, CEA, CoED, COM, CON
+  code          String         @unique
+  slug          String         @unique
+  name          String
+  motto         String?
+  description   String?
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  organizations Organization[]
+
+  @@map("colleges")
+}
+
+/// ISSC, CSCs and SBOs in one table. ISSC: no parent, no college. CSC: parent ISSC.
+/// SBO: parent CSC. The database enforces this with a CHECK constraint (see migrations).
+model Organization {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  type        OrganizationType
+  slug        String           @unique
+  acronym     String
+  name        String
+  description String?
+  /// Object-storage key under `logos/`; that prefix is public-read and served via PUBLIC_ASSET_BASE_URL.
+  logoKey     String?          @map("logo_key")
+  parentId    String?          @map("parent_id") @db.Uuid
+  collegeId   String?          @map("college_id") @db.Uuid
+  deletedAt   DateTime?        @map("deleted_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  parent        Organization?  @relation("OrganizationHierarchy", fields: [parentId], references: [id])
+  children      Organization[] @relation("OrganizationHierarchy")
+  college       College?       @relation(fields: [collegeId], references: [id])
+  memberships   Membership[]
+  documents     Document[]
+  announcements Announcement[]
+  auditLogs     AuditLog[]
+
+  @@index([parentId])
+  @@index([collegeId])
+  @@index([type])
+  @@map("organizations")
+}
+
+model User {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  email              String    @unique
+  name               String
+  /// Argon2id
+  passwordHash       String    @map("password_hash")
+  /// New accounts sign in with a temporary password and must replace it first.
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  passwordChangedAt  DateTime? @map("password_changed_at")
+  disabledAt         DateTime? @map("disabled_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  memberships         Membership[]
+  documentsCreated    Document[]           @relation("DocumentCreatedBy")
+  versionsUploaded    DocumentVersion[]
+  approvals           Approval[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  auditLogs           AuditLog[]
+  announcements       Announcement[]
+
+  @@map("users")
+}
+
+/// A role in one organization for one term. A membership past term_end grants nothing.
+model Membership {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  role           MembershipRole
+  /// Head of the organization: Governor of a CSC, President of an SBO or the ISSC.
+  /// The head of the parent organization approves documents (docs/DOMAIN_RULES.md).
+  isHead         Boolean        @default(false) @map("is_head")
+  /// Display title, e.g. "Governor", "President", "Adviser".
+  title          String?
+  termStart      DateTime       @map("term_start") @db.Date
+  /// Null means open-ended (e.g. admins).
+  termEnd        DateTime?      @map("term_end") @db.Date
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([userId, organizationId, role, termStart])
+  @@index([userId])
+  @@index([organizationId, role])
+  @@map("memberships")
+}
+
+/// Document types are data, not an enum: the official list is still an open question.
+model DocumentType {
+  id        String     @id @default(uuid(7)) @db.Uuid
+  slug      String     @unique
+  name      String
+  createdAt DateTime   @default(now()) @map("created_at")
+  documents Document[]
+
+  @@map("document_types")
+}
+
+/// "Paperworks" in the UI. Lifecycle: draft -> pending -> approved | rejected -> archived.
+/// Deletes are soft (deleted_at). Every upload is a new DocumentVersion.
+model Document {
+  id               String                   @id @default(uuid(7)) @db.Uuid
+  organizationId   String                   @map("organization_id") @db.Uuid
+  typeId           String                   @map("type_id") @db.Uuid
+  title            String
+  description      String?
+  /// "2026-2027"
+  academicYear     String                   @map("academic_year")
+  semester         Semester?
+  status           DocumentStatus           @default(draft)
+  currentVersionId String?                  @unique @map("current_version_id") @db.Uuid
+  createdById      String                   @map("created_by_id") @db.Uuid
+  submittedAt      DateTime?                @map("submitted_at")
+  deletedAt        DateTime?                @map("deleted_at")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  /// Generated from title and description; see the full-text search migration.
+  searchVector     Unsupported("tsvector")? @default(dbgenerated()) @map("search_vector")
+
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  type           DocumentType      @relation(fields: [typeId], references: [id])
+  createdBy      User              @relation("DocumentCreatedBy", fields: [createdById], references: [id])
+  currentVersion DocumentVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  versions       DocumentVersion[] @relation("DocumentVersions")
+  approvals      Approval[]
+
+  @@index([organizationId, academicYear, typeId])
+  @@index([status])
+  @@index([searchVector], type: Gin)
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  documentId       String     @map("document_id") @db.Uuid
+  version          Int
+  /// Object-storage key. Never reused: files are never overwritten.
+  storageKey       String     @unique @map("storage_key")
+  originalFilename String     @map("original_filename")
+  mimeType         String     @map("mime_type")
+  sizeBytes        Int        @map("size_bytes")
+  sha256           String
+  scanStatus       ScanStatus @default(pending) @map("scan_status")
+  uploadedById     String     @map("uploaded_by_id") @db.Uuid
+  createdAt        DateTime   @default(now()) @map("created_at")
+
+  document   Document   @relation("DocumentVersions", fields: [documentId], references: [id])
+  currentOf  Document?  @relation("CurrentVersion")
+  uploadedBy User       @relation(fields: [uploadedById], references: [id])
+  approvals  Approval[]
+
+  @@unique([documentId, version])
+  @@map("document_versions")
+}
+
+/// One decision on one version. A new upload needs a new approval.
+model Approval {
+  id         String           @id @default(uuid(7)) @db.Uuid
+  documentId String           @map("document_id") @db.Uuid
+  versionId  String           @map("version_id") @db.Uuid
+  approverId String           @map("approver_id") @db.Uuid
+  decision   ApprovalDecision
+  comment    String?
+  decidedAt  DateTime         @default(now()) @map("decided_at")
+
+  document Document        @relation(fields: [documentId], references: [id])
+  version  DocumentVersion @relation(fields: [versionId], references: [id])
+  approver User            @relation(fields: [approverId], references: [id])
+
+  @@index([documentId])
+  @@index([approverId])
+  @@map("approvals")
+}
+
+/// Stored hashed and rotated on every use. Reusing a revoked token revokes its whole family.
+model RefreshToken {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  tokenHash        String    @unique @map("token_hash")
+  familyId         String    @map("family_id") @db.Uuid
+  expiresAt        DateTime  @map("expires_at")
+  /// Absolute end of the session (login + 30 days); rotation never extends it.
+  sessionExpiresAt DateTime  @map("session_expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  replacedById     String?   @unique @map("replaced_by_id") @db.Uuid
+  userAgent        String?   @map("user_agent")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy RefreshToken? @relation("TokenRotation", fields: [replacedById], references: [id])
+  replaces   RefreshToken? @relation("TokenRotation")
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+/// Append-only. Never store tokens, passwords or full request bodies in metadata.
+/// One-time password reset links. Only the SHA-256 hash of the token is stored.
+model PasswordResetToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model AuditLog {
+  id             String      @id @default(uuid(7)) @db.Uuid
+  actorId        String?     @map("actor_id") @db.Uuid
+  action         AuditAction
+  entityType     String      @map("entity_type")
+  entityId       String?     @map("entity_id")
+  organizationId String?     @map("organization_id") @db.Uuid
+  metadata       Json?
+  ip             String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  actor        User?         @relation(fields: [actorId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Announcement {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  authorId       String    @map("author_id") @db.Uuid
+  title          String
+  body           String
+  /// Null until published.
+  publishedAt    DateTime? @map("published_at")
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  author       User         @relation(fields: [authorId], references: [id])
+
+  @@index([organizationId, publishedAt])
+  @@map("announcements")
+}

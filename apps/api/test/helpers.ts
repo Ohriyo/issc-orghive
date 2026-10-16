@@ -1,8 +1,34 @@
 import { pino } from 'pino';
-import { createApp } from '#src/app';
+import { createApp, type AppServices } from '#src/app';
+import type { Config } from '#src/config';
+import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
 
 export const TEST_WEB_ORIGIN = 'http://localhost:5173';
+export const TEST_ASSET_BASE_URL = 'https://cdn.test.local/orghive';
 
-export function buildTestApp() {
-  return createApp({ config: { WEB_ORIGIN: TEST_WEB_ORIGIN }, logger: pino({ level: 'silent' }) });
+/** Services a test did not wire up fail loudly instead of touching a real database. */
+function unwired(name: string): never {
+  throw new Error(`${name} is not wired in this test; pass it to buildTestApp()`);
+}
+
+const unwiredServices: AppServices = {
+  auth: new Proxy({} as AppServices['auth'], {
+    get: (_t, key) => () => unwired(`auth.${String(key)}`),
+  }),
+  tokens: { verify: () => unwired('tokens') },
+  colleges: { list: () => unwired('colleges'), getBySlug: () => unwired('colleges') },
+  organizations: { getBySlug: () => unwired('organizations') },
+};
+
+export function buildTestApp(
+  services: Partial<AppServices> = {},
+  config: Partial<Pick<Config, 'NODE_ENV' | 'TRUST_PROXY'>> = {},
+  rateLimitStore?: RateLimitStoreFactory,
+) {
+  return createApp({
+    config: { WEB_ORIGIN: TEST_WEB_ORIGIN, NODE_ENV: 'test', TRUST_PROXY: false, ...config },
+    logger: pino({ level: 'silent' }),
+    services: { ...unwiredServices, ...services },
+    rateLimitStore,
+  });
 }

@@ -10,7 +10,8 @@ if (typeof filePath !== 'string' || !/\.(ts|tsx)$/.test(filePath)) process.exit(
 
 const projectDir = process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd();
 const relative = path.relative(projectDir, filePath);
-if (relative.startsWith('..') || path.isAbsolute(relative) || !existsSync(filePath)) process.exit(0);
+if (relative.startsWith('..') || path.isAbsolute(relative) || !existsSync(filePath))
+  process.exit(0);
 
 const eslintBin = path.join(projectDir, 'node_modules', 'eslint', 'bin', 'eslint.js');
 if (!existsSync(eslintBin)) process.exit(0); // dependencies not installed yet

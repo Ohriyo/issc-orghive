@@ -1,0 +1,14 @@
+import type { Db } from './prisma';
+
+export function createDocumentTypeRepository(db: Db) {
+  return {
+    list() {
+      return db.documentType.findMany({
+        orderBy: { name: 'asc' },
+        select: { id: true, slug: true, name: true },
+      });
+    },
+  };
+}
+
+export type DocumentTypeRepository = ReturnType<typeof createDocumentTypeRepository>;

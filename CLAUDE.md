@@ -1,6 +1,6 @@
 # Orghive
 
-Orghive is NwSSU's official digital archive for student-organization documents (proposals, reports, resolutions, accomplishment reports). Students browse and download; organization officers upload; advisers and CSC reviewers approve; ISSC admins manage everything.
+Orghive is NwSSU's official digital archive for student-organization documents (proposals, reports, resolutions, accomplishment reports). Students browse and download; organization officers upload; the head of the parent organization approves (see `docs/DOMAIN_RULES.md`); ISSC admins manage everything.
 
 The full plan is in `docs/PLAN.md` (exported from the planning doc). The design prototype PNGs are in `design/`. Build prompts for each feature are in `docs/BUILD_PROMPTS.md`.
 
@@ -14,10 +14,11 @@ There are three organization levels. Store all three in one `organizations` tabl
 
 "Paperworks" is the user-facing name for an organization's document archive. Use it in the UI. Use `documents` in code.
 
-Roles are **per organization**, stored in `memberships(user_id, organization_id, role, term_start, term_end)`:
+Roles are **per organization**, stored in `memberships(user_id, organization_id, role, is_head, title, term_start, term_end)`:
 - `officer`: upload and edit that organization's documents.
-- `adviser`: review and approve them.
-- `admin`: system-wide.
+- `adviser`: advises the organization. Only the ISSC adviser approves (ISSC documents).
+- `admin`: system-wide when held on the ISSC.
+- `is_head` marks the organization's head (CSC Governor, SBO or ISSC President). Approvals follow `docs/DOMAIN_RULES.md`: SBO documents by the parent CSC's head, CSC documents by the ISSC, ISSC documents by the ISSC adviser.
 
 A membership past `term_end` grants nothing.
 
@@ -51,6 +52,7 @@ Layer rules. These are the ones most often broken, so check every change against
 ```bash
 pnpm install
 docker compose up -d                 # postgres, redis, minio, mailpit
+pnpm --filter api keys:generate >> apps/api/.env   # once: Ed25519 JWT signing keys
 pnpm --filter api prisma migrate dev
 pnpm --filter api db:seed            # 7 colleges, ISSC, CSCs, sample SBOs
 pnpm dev                             # web :5173, api :4000, worker
@@ -97,3 +99,14 @@ pnpm lint && pnpm typecheck          # run before every commit
 - Don't add a dependency without saying why. Prefer the libraries listed above.
 - Use Conventional Commits: `feat(documents): …`, `fix(auth): …`.
 - When unsure about a domain rule (who approves what, required documents), ask. Don't invent one.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- When graphify-out/graph.json exists, run `graphify query "<question>"` before your first grep, search or source-file read for a codebase question, and put this rule in every subagent prompt that explores code. Read raw files only for lines the graph or an earlier read already located. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.

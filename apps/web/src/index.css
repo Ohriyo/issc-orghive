@@ -2,11 +2,65 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 @import '@fontsource/poppins/400.css';
+@import '@fontsource/poppins/400-italic.css';
 @import '@fontsource/poppins/500.css';
 @import '@fontsource/poppins/600.css';
 @import '@fontsource/poppins/700.css';
 
 @custom-variant dark (&:is(.dark *));
+
+/*
+ * Orghive brand tokens, sampled from the prototype PNGs in design/.
+ * Components use these through Tailwind classes only (bg-ink, text-forest-900, ...).
+ * Contrast notes: ink on white 7.9, ink on surface-deep 5.6, white on forest-500 7.6.
+ * leaf and olive fail AA under text: use them for decoration (waves) only.
+ */
+@theme {
+  --color-ink: #095d40;
+  --color-forest-500: #2f5d3a;
+  --color-forest-700: #1d5330;
+  --color-forest-900: #0c4a27;
+  --color-leaf: #429644;
+  --color-olive: #809562;
+  --color-sage: #8fab9d;
+  --color-surface: #f9f9f9;
+  --color-surface-deep: #d8d8d8;
+  --color-pill-light: #f6f6f6;
+  --color-hex-gap: #b0b0b0;
+  --color-ink-muted: #4a5a50;
+
+  /* Type scale: Bringhurst's classic progression 12 14 16 18 21 24 36 48 72. */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.4;
+  --text-small: 0.875rem;
+  --text-small--line-height: 1.5;
+  --text-body: 1rem;
+  --text-body--line-height: 1.6;
+  --text-body-lg: 1.125rem;
+  --text-body-lg--line-height: 1.6;
+  --text-lead: 1.3125rem;
+  --text-lead--line-height: 1.45;
+  --text-h3: 1.5rem;
+  --text-h3--line-height: 1.25;
+  --text-h3--letter-spacing: -0.01em;
+  --text-h2: 2.25rem;
+  --text-h2--line-height: 1.1;
+  --text-h2--letter-spacing: -0.025em;
+  --text-h1: clamp(2.25rem, 1.5rem + 2.5vw, 3rem);
+  --text-h1--line-height: 1.05;
+  --text-h1--letter-spacing: -0.03em;
+  --text-display: clamp(3rem, 1.75rem + 4.2vw, 4.5rem);
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.035em;
+
+  /* Motion: one easing curve and 300-500 ms durations everywhere (see components/motion.ts). */
+  --ease-cinematic: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Soft pooled shadow the prototype puts under pills and hexagons. */
+  --shadow-pool: 0 18px 24px -14px rgb(0 0 0 / 0.35);
+  --shadow-pool-lift: 0 22px 28px -14px rgb(0 0 0 / 0.4);
+  --drop-shadow-hex: 0 14px 22px rgb(0 0 0 / 0.22);
+}
 
 @theme inline {
   --font-heading: var(--font-sans);
@@ -51,74 +105,103 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* shadcn semantic tokens, mapped onto the brand palette. The prototype is light-only. */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  /* Placeholder NwSSU green; replace with exact values from design/ */
-  --primary: oklch(0.45 0.13 150);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.6 0.13 150);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --background: var(--color-surface);
+  --foreground: var(--color-ink);
+  --card: #ffffff;
+  --card-foreground: var(--color-ink);
+  --popover: #ffffff;
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-ink);
+  --primary-foreground: #ffffff;
+  --secondary: var(--color-pill-light);
+  --secondary-foreground: var(--color-ink);
+  --muted: #eeeeee;
+  --muted-foreground: var(--color-ink-muted);
+  --accent: #e7efe9;
+  --accent-foreground: var(--color-ink);
+  --destructive: #b42318;
+  --border: #d4ddd7;
+  --input: #c9d3cc;
+  --ring: var(--color-ink);
+  --chart-1: var(--color-ink);
+  --chart-2: var(--color-leaf);
+  --chart-3: var(--color-olive);
+  --chart-4: var(--color-forest-500);
+  --chart-5: var(--color-sage);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: var(--color-surface);
+  --sidebar-foreground: var(--color-ink);
+  --sidebar-primary: var(--color-ink);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e7efe9;
+  --sidebar-accent-foreground: var(--color-ink);
+  --sidebar-border: #d4ddd7;
+  --sidebar-ring: var(--color-ink);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.75 0.14 150);
-  --primary-foreground: oklch(0.2 0.03 150);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+/* The prototype's page background: white on the left fading to gray on the right. */
+@utility bg-surface-sweep {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-surface) 0%,
+    var(--color-surface) 35%,
+    var(--color-surface-deep) 100%
+  );
+}
+
+/*
+ * Static hero background, and the fallback for the animated shader (reduced motion,
+ * low-end devices, no WebGL). Soft sage and olive at the lower left, like the
+ * prototype's swoosh; kept light enough that ink text over it stays above 4.5:1.
+ */
+@utility bg-hero-static {
+  background-image:
+    radial-gradient(
+      60% 55% at 6% 78%,
+      color-mix(in oklab, var(--color-sage) 30%, transparent) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      40% 40% at 26% 100%,
+      color-mix(in oklab, var(--color-olive) 22%, transparent) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      30% 30% at 0% 30%,
+      color-mix(in oklab, var(--color-leaf) 14%, transparent) 0%,
+      transparent 70%
+    );
+}
+
+/* The hexagon fill: lighter forest top-left to deep forest bottom-right. */
+@utility bg-forest-sheen {
+  background-image:
+    radial-gradient(
+      120% 90% at 22% 18%,
+      color-mix(in oklab, var(--color-forest-500) 70%, white 6%) 0%,
+      transparent 60%
+    ),
+    linear-gradient(135deg, var(--color-forest-700) 0%, var(--color-forest-900) 100%);
+}
+
+/* The hexagon outer band and the forest pill fill. */
+@utility bg-forest-band {
+  background-image: linear-gradient(
+    135deg,
+    var(--color-forest-500) 0%,
+    color-mix(in oklab, var(--color-forest-500) 80%, var(--color-forest-900)) 100%
+  );
+}
+
+/*
+ * Focus ring that follows a clipped shape (hexagons), since outline and box-shadow
+ * are cut off by clip-path. Four hard drop-shadows trace the silhouette in ink.
+ */
+@utility hex-focus-ring {
+  filter: drop-shadow(3px 0 0 var(--color-ink)) drop-shadow(-3px 0 0 var(--color-ink))
+    drop-shadow(0 3px 0 var(--color-ink)) drop-shadow(0 -3px 0 var(--color-ink));
 }
 
 @layer base {
@@ -130,5 +213,20 @@
   }
   html {
     @apply font-sans;
+  }
+  /* Ink outline plus a white gap: visible on the light surface and on forest fills. */
+  :focus-visible {
+    outline: 3px solid var(--color-ink);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px #ffffff;
+  }
+  /* On forest surfaces an ink ring disappears (about 1.3:1), so it flips to white. */
+  [data-surface='forest'] :focus-visible {
+    outline-color: #ffffff;
+    box-shadow: 0 0 0 2px var(--color-forest-900);
+  }
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-leaf) 35%, white);
+    color: var(--color-ink);
   }
 }

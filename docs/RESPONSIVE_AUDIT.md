@@ -63,8 +63,8 @@ Severity: **High** = broken for users. **Medium** = works but noticeably worse o
 | 10 | Login, Change password | all | The "Show password" toggle is 40×40 px. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
 | 11 | Login / Forgot password | all | The "Forgot your password?" and "Back to sign in" text links are 24 px tall. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
 | 12 | Org pages | 360 | The inline "College of Engineering and Architecture" link wraps to a 23 px-tall line. Inline links are exempt from WCAG 2.5.8 but are hard to tap on small phones. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
-| 13 | College carousel | 768×1024, 1024×768 | The college motto inside the selected slide renders at 13.2 px (it scales with the slide width). | Low | Open |
-| 14 | College & SBO carousels | 768×1024 | On a portrait tablet the carousel fills only the top ~40% of the screen, slides are small and the lower half is empty. | Low | Open |
+| 13 | College carousel | 768×1024, 1024×768 | The college motto inside the selected slide renders at 13.2 px (it scales with the slide width). | Low | Fixed: motto never below 14px (component 3) |
+| 14 | College & SBO carousels | 768×1024 | On a portrait tablet the carousel fills only the top ~40% of the screen, slides are small and the lower half is empty. | Low | Fixed: tablet slides 36% / 48% of the width, carousel fills ~75% of the screen (component 3) |
 | 15 | Change password | 1366×768 | "Save new password" sits on the fold edge (the page is 948 px tall). The page scrolls normally. | Low | Open |
 | 16 | Org pages | 360, 390 | The organization's logo hexagon comes after the description, so on phones the page's main image is below the fold. | Low | Open |
 | 17 | All screens | 2560×1440 | Content is capped at roughly 1280–1400 px and centred, which leaves wide empty margins; the 404 page is small in the middle of the screen. Acceptable, noted for the container work. | Low | Open |
@@ -77,6 +77,7 @@ Severity: **High** = broken for users. **Medium** = works but noticeably worse o
 | 2026-10-16 | Foundation: breakpoints, fluid type, Container, safe areas, carousel height cap | #2, #3, #4 | Re-screenshot at all 7 widths: no overflow, Proceed above the fold at 1366x768 |
 | 2026-10-16 | 1. Tap targets and focus | #8, #9, #10, #11, #12, #18 | Re-screenshot at 360/768/1366/1920: every control's hit area >= 44x44 (probed with elementFromPoint), visuals unchanged against design/college-cea.png |
 | 2026-10-16 | 2. HexGrid | — (layout request) | 2 centred columns of smaller hexagons in 16rem on phones, 3 columns in 36rem on tablets, full honeycomb with fillers from lg. Re-screenshot at 360/768/1366/1920: no overflow; desktop unchanged against design/home.png and design/college-cea.png. Honeycomb `sizes` recalculated, so tablets no longer get a too-small logo variant. |
+| 2026-10-16 | 3. SpotlightCarousel | #13, #14 | Arrows from lg; below lg swipe plus 44px dot buttons (a counter above 10 items), smaller centre card on phones with neighbours peeking, larger slides on tablets. Verified in Chromium at 360 with touch emulation: a CDP touch swipe, ArrowRight and a dot tap each moved the carousel; no horizontal scroll. Re-screenshot at 360/768/1366/1920 against design/csc-carousel-cat.png and design/sbo-carousel-icpep.png. |
 
 Hover effects now also run on `:focus-visible` (pill lift and brightness, hexagon logo zoom, carousel arrow nudge, document card lift). Tailwind only applies `hover:` on devices that can hover, so nothing sticks or hides on touch.
 

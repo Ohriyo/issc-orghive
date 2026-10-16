@@ -53,8 +53,9 @@ export interface SpotlightCarouselProps {
 /**
  * A looping carousel that spotlights the centered item: it is full size and sharp, shows its
  * name, motto and "Proceed", while its neighbours shrink, fade and blur behind it.
- * Arrow buttons, swipe, the ← → Home End keys, and clicks all move it; clicking the centered
- * item proceeds. With prefers-reduced-motion, slides jump instead of gliding and nothing blurs.
+ * Swipe, the ← → Home End keys and clicks move it everywhere; arrow buttons appear from lg
+ * up, and below lg dot indicators (or a counter, for long lists) show and set the position.
+ * Clicking the centered item proceeds. With prefers-reduced-motion, slides jump instead of gliding and nothing blurs.
  * One item renders as a still spotlight with no controls; two items do not loop.
  */
 export function SpotlightCarousel({
@@ -212,8 +213,8 @@ export function SpotlightCarousel({
                   // Proceed button stay above the fold. It has no effect on phones in
                   // portrait or on screens 1080px tall and up.
                   variant === 'tower'
-                    ? 'max-w-[max(10rem,calc((100dvh-11rem)*0.42))] basis-[64%] @xl:basis-[40%] @3xl:basis-[28%] @5xl:basis-[21%]'
-                    : 'max-w-[max(10rem,calc((100dvh-14.5rem)*0.52))] basis-[58%] @xl:basis-[50%] @3xl:basis-[40%] @5xl:basis-[31%]',
+                    ? 'max-w-[max(10rem,calc((100dvh-11rem)*0.42))] basis-[56%] @xl:basis-[40%] @3xl:basis-[36%] @5xl:basis-[21%]'
+                    : 'max-w-[max(10rem,calc((100dvh-14.5rem)*0.52))] basis-[50%] @xl:basis-[50%] @3xl:basis-[48%] @5xl:basis-[31%]',
                 )}
               >
                 <div
@@ -244,6 +245,17 @@ export function SpotlightCarousel({
           })}
         </div>
       </div>
+
+      {hasControls && (
+        <SlidePosition
+          count={items.length}
+          selected={selected}
+          names={items.map((item) => item.name)}
+          itemNoun={itemNoun}
+          controls={viewportId}
+          onSelect={goTo}
+        />
+      )}
 
       <p className="sr-only" aria-live="polite" aria-atomic="true">
         {announce && current ? `${current.name}, ${selected + 1} of ${items.length}` : ''}
@@ -353,7 +365,7 @@ function Details({
       {item.motto && (
         <motion.p
           variants={variants}
-          className="mt-2 text-[clamp(0.75rem,5.5cqw,1.125rem)] text-balance text-white/85 italic"
+          className="mt-2 text-[clamp(0.875rem,5.5cqw,1.125rem)] text-balance text-white/85 italic"
         >
           “{item.motto}”
         </motion.p>
@@ -452,7 +464,8 @@ function ChevronButton({
       aria-label={label}
       aria-controls={controls}
       className={cn(
-        'group absolute top-[34%] z-[200] grid size-12 cursor-pointer place-items-center rounded-full @3xl:size-20 @5xl:size-24',
+        // Arrows from lg up; phones and tablets swipe and use the dots instead.
+        'group absolute top-[34%] z-[200] hidden size-12 cursor-pointer place-items-center rounded-full lg:grid @3xl:size-20 @5xl:size-24',
         isPrev ? 'left-1 @3xl:left-4' : 'right-1 @3xl:right-4',
         'aria-disabled:cursor-default aria-disabled:opacity-30',
       )}
@@ -471,5 +484,67 @@ function ChevronButton({
         <polygon points="0,58 80,0 114,0 40,58 114,116 80,116" />
       </svg>
     </button>
+  );
+}
+
+/** Lists longer than this get a "3 / 12" counter instead of a dot row that would wrap. */
+const MAX_DOTS = 10;
+
+interface SlidePositionProps {
+  count: number;
+  selected: number;
+  names: string[];
+  itemNoun: string;
+  controls: string;
+  onSelect: (index: number) => void;
+}
+
+/**
+ * Below lg: where the carousel is. Each dot is a 44px button (an 8px dot inside) that
+ * jumps to its slide; the current one is wider. Hidden from lg up, where the arrows are.
+ */
+function SlidePosition({
+  count,
+  selected,
+  names,
+  itemNoun,
+  controls,
+  onSelect,
+}: SlidePositionProps) {
+  if (count > MAX_DOTS) {
+    return (
+      <p aria-hidden="true" className="mt-3 text-center text-small text-ink-muted lg:hidden">
+        {selected + 1} / {count}
+      </p>
+    );
+  }
+  const noun = itemNoun.charAt(0).toUpperCase() + itemNoun.slice(1);
+  return (
+    <div className="mt-2 flex justify-center lg:hidden">
+      {names.map((name, index) => {
+        const isCurrent = index === selected;
+        return (
+          <button
+            key={name}
+            type="button"
+            aria-label={`${noun} ${index + 1} of ${count}: ${name}`}
+            aria-current={isCurrent || undefined}
+            aria-controls={controls}
+            onClick={() => onSelect(index)}
+            className="group grid size-11 cursor-pointer place-items-center rounded-full"
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                'ease-cinematic block h-2 rounded-full transition-[width,background-color] duration-300 motion-reduce:transition-none',
+                isCurrent
+                  ? 'w-6 bg-ink'
+                  : 'w-2 bg-ink/30 group-hover:bg-ink/60 group-focus-visible:bg-ink/60',
+              )}
+            />
+          </button>
+        );
+      })}
+    </div>
   );
 }

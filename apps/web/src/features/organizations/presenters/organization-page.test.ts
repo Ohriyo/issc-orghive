@@ -39,7 +39,12 @@ describe('toOrganizationPage', () => {
   });
 
   it('leaves out a missing description and logo', () => {
-    const page = toOrganizationPage({ ...JPICE, description: null, logoUrl: null, logoSrcSet: null });
+    const page = toOrganizationPage({
+      ...JPICE,
+      description: null,
+      logoUrl: null,
+      logoSrcSet: null,
+    });
     expect(page.description).toBeNull();
     expect(page.logoSrc).toBeUndefined();
   });

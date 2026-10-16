@@ -57,4 +57,4 @@ export function FormAlert({ message }: { message?: string }) {
 }
 
 export const TEXT_LINK =
-  'font-medium text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 hover:decoration-leaf';
+  'font-medium text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 tap-area hover:decoration-leaf focus-visible:decoration-leaf';

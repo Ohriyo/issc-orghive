@@ -40,7 +40,7 @@ export function TextField({ label, error, hint, className, type, ...input }: Tex
             onClick={() => setRevealed((v) => !v)}
             aria-pressed={revealed}
             aria-label={revealed ? 'Hide password' : 'Show password'}
-            className="absolute top-1/2 right-2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors duration-300 hover:text-ink"
+            className="absolute top-1/2 right-0.5 flex size-11 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors duration-300 hover:text-ink focus-visible:text-ink"
           >
             {revealed ? (
               <EyeOff aria-hidden="true" className="size-5" />

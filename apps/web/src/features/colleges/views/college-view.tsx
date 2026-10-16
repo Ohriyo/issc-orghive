@@ -53,7 +53,7 @@ export function CollegeView(props: CollegeViewProps) {
           <Container className="pt-6 pb-4 lg:pt-10 xl:pb-[calc(min(9vw,8rem)+2rem)]">
             <Link
               to="/colleges"
-              className="relative z-10 inline-flex items-center gap-2 text-body font-medium text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 hover:decoration-leaf"
+              className="relative z-10 inline-flex items-center gap-2 text-body font-medium text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 tap-area hover:decoration-leaf focus-visible:decoration-leaf"
             >
               <ArrowLeft aria-hidden="true" className="size-4" />
               All colleges

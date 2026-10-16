@@ -158,7 +158,7 @@ function HexGridCellView({ cell }: { cell: ShownCell }) {
         sizes={LOGO_SIZES.honeycomb}
         alt={cell.logoAlt}
         fallbackText={cell.shortName}
-        className="ease-cinematic size-full transition-transform duration-500 group-hover:scale-105 motion-reduce:transition-none"
+        className="ease-cinematic size-full transition-transform duration-500 group-hover:scale-105 group-focus-visible:scale-105 motion-reduce:transition-none"
       />
     </HexFrame>
   );

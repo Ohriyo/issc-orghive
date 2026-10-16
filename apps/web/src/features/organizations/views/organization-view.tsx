@@ -82,7 +82,7 @@ function OrganizationProfile({ page }: { page: OrganizationPageModel }) {
             {page.context.lead}{' '}
             <Link
               to={page.context.college.href}
-              className="font-medium underline decoration-1 underline-offset-4 transition-colors duration-300 hover:decoration-leaf"
+              className="font-medium underline decoration-1 underline-offset-4 transition-colors duration-300 tap-area hover:decoration-leaf focus-visible:decoration-leaf"
             >
               {page.context.college.name}
             </Link>

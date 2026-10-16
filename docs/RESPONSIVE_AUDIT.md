@@ -49,26 +49,35 @@ Viewports: 360×740, 390×844, 768×1024, 1024×768, 1366×768, 1920×1080, 2560
 
 Severity: **High** = broken for users. **Medium** = works but noticeably worse on that device class. **Low** = polish.
 
-| # | Screen | Width(s) | Issue | Severity |
-|---|---|---|---|---|
-| 1 | Paperworks | all | Every "Paperworks" pill (home ISSC section, college page CSC card, org pages) links to `/orgs/:slug/paperworks`, which has no route, so users land on "Page not found". | High |
-| 2 | SBO carousel | 1024×768, 1366×768 | The carousel is taller than the screen (page 835 px and 945 px against a 768 px viewport). Slides size from the width only, so on short landscape screens the selected slide's text and its **Proceed** button fall below the fold. | Medium |
-| 3 | College carousel | 1366×768 | Same cause: the page is 843 px tall against 768 px, and **Proceed** sits on the fold edge. | Medium |
-| 4 | College page | 1024×768 | The two-column layout starts at 1024 with a narrow text column. The H1 breaks one word per line ("College of / Engineering / and / Architecture"), and the description runs about 25 characters per line. | Medium |
-| 5 | Home (ISSC logo) | 360, 390, 768, 1024 | The logo is drawn 1.31×, 1.40×, 1.19× and 1.11× larger than its 512 px source on high-density screens, so it looks soft. | Medium |
-| 6 | College page (CSC logo) | 360, 390 | The logo is upscaled 1.14× and looks soft. | Low |
-| 7 | Home | all | The header "Login" link is 56×30 px. It's the only way into sign-in from home, and it's under 44 px tall on touch. | Medium |
-| 8 | College page | all | The "← All colleges" back link is 115×26 px: the main way back, under 44 px tall. | Medium |
-| 9 | Paperworks (404) | all | The "Back to home" button is 119×32 px. | Low |
-| 10 | Login, Change password | all | The "Show password" toggle is 40×40 px. | Low |
-| 11 | Login / Forgot password | all | The "Forgot your password?" and "Back to sign in" text links are 24 px tall. | Low |
-| 12 | Org pages | 360 | The inline "College of Engineering and Architecture" link wraps to a 23 px-tall line. Inline links are exempt from WCAG 2.5.8 but are hard to tap on small phones. | Low |
-| 13 | College carousel | 768×1024, 1024×768 | The college motto inside the selected slide renders at 13.2 px (it scales with the slide width). | Low |
-| 14 | College & SBO carousels | 768×1024 | On a portrait tablet the carousel fills only the top ~40% of the screen, slides are small and the lower half is empty. | Low |
-| 15 | Change password | 1366×768 | "Save new password" sits on the fold edge (the page is 948 px tall). The page scrolls normally. | Low |
-| 16 | Org pages | 360, 390 | The organization's logo hexagon comes after the description, so on phones the page's main image is below the fold. | Low |
-| 17 | All screens | 2560×1440 | Content is capped at roughly 1280–1400 px and centred, which leaves wide empty margins; the 404 page is small in the middle of the screen. Acceptable, noted for the container work. | Low |
-| 18 | Account | all | The "Change password" text link is 167×29 px. | Low |
+| # | Screen | Width(s) | Issue | Severity | Status |
+|---|---|---|---|---|---|
+| 1 | Paperworks | all | Every "Paperworks" pill (home ISSC section, college page CSC card, org pages) links to `/orgs/:slug/paperworks`, which has no route, so users land on "Page not found". | High | Open |
+| 2 | SBO carousel | 1024×768, 1366×768 | The carousel is taller than the screen (page 835 px and 945 px against a 768 px viewport). Slides size from the width only, so on short landscape screens the selected slide's text and its **Proceed** button fall below the fold. | Medium | Fixed: slides capped by screen height (foundation) |
+| 3 | College carousel | 1366×768 | Same cause: the page is 843 px tall against 768 px, and **Proceed** sits on the fold edge. | Medium | Fixed: slides capped by screen height (foundation) |
+| 4 | College page | 1024×768 | The two-column layout starts at 1024 with a narrow text column. The H1 breaks one word per line ("College of / Engineering / and / Architecture"), and the description runs about 25 characters per line. | Medium | Fixed: stacks below 1280px (foundation) |
+| 5 | Home (ISSC logo) | 360, 390, 768, 1024 | The logo is drawn 1.31×, 1.40×, 1.19× and 1.11× larger than its 512 px source on high-density screens, so it looks soft. | Medium | Open |
+| 6 | College page (CSC logo) | 360, 390 | The logo is upscaled 1.14× and looks soft. | Low | Open |
+| 7 | Home | all | The header "Login" link is 56×30 px. It's the only way into sign-in from home, and it's under 44 px tall on touch. | Medium | Open |
+| 8 | College page | all | The "← All colleges" back link is 115×26 px: the main way back, under 44 px tall. | Medium | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
+| 9 | Paperworks (404) | all | The "Back to home" button is 119×32 px. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
+| 10 | Login, Change password | all | The "Show password" toggle is 40×40 px. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
+| 11 | Login / Forgot password | all | The "Forgot your password?" and "Back to sign in" text links are 24 px tall. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
+| 12 | Org pages | 360 | The inline "College of Engineering and Architecture" link wraps to a 23 px-tall line. Inline links are exempt from WCAG 2.5.8 but are hard to tap on small phones. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
+| 13 | College carousel | 768×1024, 1024×768 | The college motto inside the selected slide renders at 13.2 px (it scales with the slide width). | Low | Open |
+| 14 | College & SBO carousels | 768×1024 | On a portrait tablet the carousel fills only the top ~40% of the screen, slides are small and the lower half is empty. | Low | Open |
+| 15 | Change password | 1366×768 | "Save new password" sits on the fold edge (the page is 948 px tall). The page scrolls normally. | Low | Open |
+| 16 | Org pages | 360, 390 | The organization's logo hexagon comes after the description, so on phones the page's main image is below the fold. | Low | Open |
+| 17 | All screens | 2560×1440 | Content is capped at roughly 1280–1400 px and centred, which leaves wide empty margins; the 404 page is small in the middle of the screen. Acceptable, noted for the container work. | Low | Open |
+| 18 | Account | all | The "Change password" text link is 167×29 px. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
+
+## Fix log
+
+| Date | Component | Findings closed | Verified |
+|---|---|---|---|
+| 2026-10-16 | Foundation: breakpoints, fluid type, Container, safe areas, carousel height cap | #2, #3, #4 | Re-screenshot at all 7 widths: no overflow, Proceed above the fold at 1366x768 |
+| 2026-10-16 | 1. Tap targets and focus | #8, #9, #10, #11, #12, #18 | Re-screenshot at 360/768/1366/1920: every control's hit area >= 44x44 (probed with elementFromPoint), visuals unchanged against design/college-cea.png |
+
+Hover effects now also run on `:focus-visible` (pill lift and brightness, hexagon logo zoom, carousel arrow nudge, document card lift). Tailwind only applies `hover:` on devices that can hover, so nothing sticks or hides on touch.
 
 ## Checks that passed everywhere
 

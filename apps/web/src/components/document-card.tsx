@@ -86,9 +86,9 @@ export function DocumentCard({
     <article
       className={cn(
         'group relative flex overflow-hidden rounded-xl bg-white shadow-pool ring-1 ring-ink/10 sm:flex-col',
-        'ease-cinematic transition-[translate,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-pool-lift',
+        'ease-cinematic transition-[translate,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-pool-lift has-[a:focus-visible]:-translate-y-0.5',
         'has-[a:focus-visible]:outline-3 has-[a:focus-visible]:outline-offset-2 has-[a:focus-visible]:outline-ink',
-        'motion-reduce:transition-none motion-reduce:hover:translate-y-0',
+        'motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:has-[a:focus-visible]:translate-y-0',
         className,
       )}
     >
@@ -100,7 +100,7 @@ export function DocumentCard({
             loading="lazy"
             decoding="async"
             onError={() => setThumbnailFailed(true)}
-            className="ease-cinematic size-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.03] motion-reduce:transition-none"
+            className="ease-cinematic size-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.03] group-has-[a:focus-visible]:scale-[1.03] motion-reduce:transition-none"
           />
         ) : (
           <div className="grid size-full place-items-center p-2">

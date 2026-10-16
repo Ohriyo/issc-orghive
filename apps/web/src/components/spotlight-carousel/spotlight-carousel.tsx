@@ -462,7 +462,9 @@ function ChevronButton({
         aria-hidden="true"
         className={cn(
           'ease-cinematic w-7 fill-ink transition-transform duration-300 @3xl:w-14 @5xl:w-[4.5rem] group-aria-disabled:translate-x-0',
-          isPrev ? 'group-hover:-translate-x-1' : 'rotate-180 group-hover:translate-x-1',
+          isPrev
+            ? 'group-hover:-translate-x-1 group-focus-visible:-translate-x-1'
+            : 'rotate-180 group-hover:translate-x-1 group-focus-visible:translate-x-1',
           'motion-reduce:transition-none',
         )}
       >

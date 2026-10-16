@@ -208,6 +208,20 @@
   padding-right: max(var(--gutter), env(safe-area-inset-right, 0px));
 }
 
+/*
+ * Grows a small control's touch target to at least 44px tall without changing its look:
+ * an invisible layer reaching 12px above and below. For text links (24px line + 24px)
+ * and inline links in a sentence; it never moves the layout or the focus ring.
+ */
+@utility tap-area {
+  position: relative;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: -0.75rem 0;
+  }
+}
+
 /* Clears the home indicator on phones without a home button. */
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);

@@ -1,5 +1,5 @@
 import { isRouteErrorResponse, Link, useRouteError } from 'react-router';
-import { Button } from '@/components/ui/button';
+import { PillButton } from '@/components/pill-button';
 
 export function RouteErrorPage() {
   const error = useRouteError();
@@ -16,9 +16,9 @@ export function RouteErrorPage() {
           ? 'The page you are looking for does not exist.'
           : 'Please try again. If the problem continues, contact the ISSC.'}
       </p>
-      <Button asChild>
+      <PillButton asChild size="md">
         <Link to="/">Back to home</Link>
-      </Button>
+      </PillButton>
     </main>
   );
 }

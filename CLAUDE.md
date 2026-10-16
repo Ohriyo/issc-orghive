@@ -90,6 +90,18 @@ pnpm lint && pnpm typecheck          # run before every commit
 - Every screen has loading, empty and error states.
 - Mobile first. Hexagon grids stack, and carousels become swipeable below 768 px.
 
+## Responsive design rules
+
+Every UI change follows these; the `orghive-responsive` skill has the full checklist and steps.
+- Mobile first: unprefixed classes style phones; add `sm:` 640, `md:` 768, `lg:` 1024, `xl:` 1280, `2xl:` 1536 upward. Breakpoints live in `@theme` (`index.css`); in JS use `useBreakpoint`, never a raw media query.
+- Page width comes from `<Container>` (max 1280px, gutters 16/24/32/80px, notch-safe). No ad-hoc `max-w-7xl px-…` wrappers.
+- Type uses the fluid tokens (`text-display`, `text-title`, `text-h1`–`h3`, `text-lead`, `text-body`…). No breakpoint size jumps like `text-h1 lg:text-display`, and no `vw`-only font sizes.
+- Every button and link has a hit area of at least 44×44px (`tap-area` for text links).
+- No page-level horizontal scroll at 360px. Wide content (tables, code) scrolls inside its own container.
+- Full-height sections use `dvh`, never `vh` or `h-screen`.
+- Hover is never the only way to reach anything: every hover effect also runs on `:focus-visible`, and nothing is hidden until hover.
+- Every UI change must be checked at 360, 768, 1366 and 1920 before it is called done. `pnpm --filter web test:e2e` enforces overflow, tap targets and axe in CI.
+
 ## Working agreements for Claude
 
 - Before a feature touching more than 3 files, propose a plan and wait for approval.

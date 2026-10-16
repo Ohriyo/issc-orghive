@@ -46,11 +46,13 @@ enum Semester {
   midyear
 }
 
-/// Uploads stay pending until the ClamAV scan passes.
+/// Uploads stay pending until the worker has checked them. `invalid`: the bytes are not
+/// the declared type (magic-byte check). Only clean files can be downloaded or approved.
 enum ScanStatus {
   pending
   clean
   infected
+  invalid
 }
 
 enum ApprovalDecision {
@@ -75,6 +77,8 @@ enum AuditAction {
   token_reuse
   /// An ISSC admin acted on an organization where they hold no qualifying role.
   admin_override
+  /// The worker refused an upload (virus or wrong file type) and moved it to quarantine/.
+  quarantine
 }
 
 model College {
@@ -116,6 +120,7 @@ model Organization {
   children      Organization[] @relation("OrganizationHierarchy")
   college       College?       @relation(fields: [collegeId], references: [id])
   memberships   Membership[]
+  uploadIntents UploadIntent[]
   documents     Document[]
   announcements Announcement[]
   auditLogs     AuditLog[]
@@ -140,6 +145,7 @@ model User {
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
   memberships         Membership[]
+  uploadIntents       UploadIntent[]
   documentsCreated    Document[]           @relation("DocumentCreatedBy")
   versionsUploaded    DocumentVersion[]
   approvals           Approval[]
@@ -201,6 +207,10 @@ model Document {
   semester         Semester?
   status           DocumentStatus           @default(draft)
   visibility       DocumentVisibility       @default(members)
+  /// Free-form, lowercased labels (at most 10, see documentTagsSchema).
+  tags             String[]                 @default([])
+  /// Text extracted from the current PDF by the worker; feeds search_vector.
+  contentText      String?                  @map("content_text")
   currentVersionId String?                  @unique @map("current_version_id") @db.Uuid
   createdById      String                   @map("created_by_id") @db.Uuid
   submittedAt      DateTime?                @map("submitted_at")
@@ -232,8 +242,14 @@ model DocumentVersion {
   originalFilename String     @map("original_filename")
   mimeType         String     @map("mime_type")
   sizeBytes        Int        @map("size_bytes")
-  sha256           String
+  /// Computed by the worker from the stored bytes; null until processed.
+  sha256           String?
   scanStatus       ScanStatus @default(pending) @map("scan_status")
+  /// Private key of the page-1 preview (PDFs), served through signed URLs.
+  thumbnailKey     String?    @map("thumbnail_key")
+  /// Why processing refused the file (virus name or type mismatch). Never shown publicly.
+  failureReason    String?    @map("failure_reason")
+  processedAt      DateTime?  @map("processed_at")
   uploadedById     String     @map("uploaded_by_id") @db.Uuid
   createdAt        DateTime   @default(now()) @map("created_at")
 
@@ -341,4 +357,26 @@ model Announcement {
 
   @@index([organizationId, publishedAt])
   @@map("announcements")
+}
+
+/// A pre-signed upload URL handed to an officer. Creating a document or version must name an
+/// unused, unexpired intent of the same user and organization, so nobody can claim someone
+/// else's object or reuse a key.
+model UploadIntent {
+  /// uploads/<organization id>/<random uuid>; also the object's storage key.
+  key              String       @id
+  organizationId   String       @map("organization_id") @db.Uuid
+  userId           String       @map("user_id") @db.Uuid
+  originalFilename String       @map("original_filename")
+  contentType      String       @map("content_type")
+  sizeBytes        Int          @map("size_bytes")
+  expiresAt        DateTime     @map("expires_at")
+  usedAt           DateTime?    @map("used_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("upload_intents")
 }

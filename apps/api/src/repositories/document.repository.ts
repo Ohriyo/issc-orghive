@@ -17,6 +17,7 @@ const documentSelect = {
   semester: true,
   status: true,
   visibility: true,
+  tags: true,
   submittedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -30,10 +31,46 @@ const documentSelect = {
       mimeType: true,
       sizeBytes: true,
       scanStatus: true,
+      thumbnailKey: true,
       createdAt: true,
     },
   },
 } satisfies Prisma.DocumentSelect;
+
+const versionSelect = {
+  id: true,
+  version: true,
+  originalFilename: true,
+  mimeType: true,
+  sizeBytes: true,
+  scanStatus: true,
+  storageKey: true,
+  createdAt: true,
+} satisfies Prisma.DocumentVersionSelect;
+
+export type VersionRecord = Prisma.DocumentVersionGetPayload<{ select: typeof versionSelect }>;
+
+/** What the worker needs to process one version. */
+const processingSelect = {
+  id: true,
+  version: true,
+  storageKey: true,
+  mimeType: true,
+  sizeBytes: true,
+  scanStatus: true,
+  document: {
+    select: {
+      id: true,
+      status: true,
+      currentVersionId: true,
+      organization: { select: { id: true, slug: true } },
+    },
+  },
+} satisfies Prisma.DocumentVersionSelect;
+
+export type ProcessingRecord = Prisma.DocumentVersionGetPayload<{
+  select: typeof processingSelect;
+}>;
 
 export type DocumentRecord = Prisma.DocumentGetPayload<{ select: typeof documentSelect }>;
 
@@ -55,7 +92,8 @@ export interface NewVersion {
   originalFilename: string;
   mimeType: string;
   sizeBytes: number;
-  sha256: string;
+  /** Known only after the worker has read the stored bytes. */
+  sha256?: string;
   uploadedById: string;
   scanStatus?: ScanStatus;
 }
@@ -69,8 +107,10 @@ export interface NewDocument {
   semester?: Semester;
   status?: DocumentStatus;
   visibility?: DocumentVisibility;
+  tags?: string[];
   createdById: string;
-  /** Omitted for a metadata-only draft; the file is uploaded as version 1 later. */
+  submittedAt?: Date;
+  /** Omitted only for metadata-only documents (tests, imports); uploads always send one. */
   firstVersion?: NewVersion;
 }
 
@@ -81,6 +121,7 @@ export interface DocumentPatch {
   academicYear?: string;
   semester?: Semester | null;
   visibility?: DocumentVisibility;
+  tags?: string[];
 }
 
 export interface NewDecision {
@@ -191,12 +232,16 @@ export function createDocumentRepository(db: Db) {
       });
     },
 
-    /** Adds the next version and makes it current. Files are never overwritten. */
+    /**
+     * Adds the next version, not yet current: a re-upload replaces what readers see only
+     * once the worker has found it clean (markClean). Files are never overwritten. Null when
+     * the document is missing or not visible to the viewer.
+     */
     async addVersion(
       viewer: DocumentViewer,
       documentId: string,
       input: NewVersion,
-    ): Promise<DocumentRecord | null> {
+    ): Promise<{ id: string; version: number } | null> {
       return db.$transaction(async (tx) => {
         const target = await tx.document.findFirst({
           where: visible(viewer, { id: documentId }),
@@ -206,15 +251,140 @@ export function createDocumentRepository(db: Db) {
           },
         });
         if (!target) return null;
-        const version = await tx.documentVersion.create({
+        return tx.documentVersion.create({
           data: { ...input, documentId, version: (target.versions[0]?.version ?? 0) + 1 },
-          select: { id: true },
+          select: { id: true, version: true },
         });
-        return tx.document.update({
-          where: { id: documentId },
-          data: { currentVersionId: version.id },
-          select: documentSelect,
+      });
+    },
+
+    /** Every version of a document the viewer may see, newest first. */
+    listVersions(
+      viewer: DocumentViewer,
+      documentId: string,
+    ): Promise<{
+      organizationId: string;
+      currentVersionId: string | null;
+      versions: VersionRecord[];
+    } | null> {
+      return db.document.findFirst({
+        where: visible(viewer, { id: documentId }),
+        select: {
+          organizationId: true,
+          currentVersionId: true,
+          versions: { select: versionSelect, orderBy: { version: 'desc' } },
+        },
+      });
+    },
+
+    /** One version, only if its document is visible to the viewer. */
+    findVersion(
+      viewer: DocumentViewer,
+      documentId: string,
+      versionId: string,
+    ): Promise<VersionRecord | null> {
+      return db.documentVersion.findFirst({
+        where: { id: versionId, documentId, document: visibleDocumentsWhere(viewer) },
+        select: versionSelect,
+      });
+    },
+
+    /** Versions still pending since before `before`: their job was lost or never queued. */
+    async findStalePending(before: Date, limit = 100): Promise<string[]> {
+      const rows = await db.documentVersion.findMany({
+        where: { scanStatus: 'pending', createdAt: { lt: before } },
+        orderBy: { createdAt: 'asc' },
+        take: limit,
+        select: { id: true },
+      });
+      return rows.map((row) => row.id);
+    },
+
+    /** For the worker: the version and its document, without a viewer (system access). */
+    findForProcessing(versionId: string): Promise<ProcessingRecord | null> {
+      return db.documentVersion.findUnique({ where: { id: versionId }, select: processingSelect });
+    },
+
+    /**
+     * The worker found the file clean. Version 1 (already current) gets its search text; a
+     * re-upload becomes the current version and sends the document back to review (a new
+     * upload needs a new approval), unless a newer version already took its place.
+     */
+    async markClean(
+      versionId: string,
+      result: { sha256: string; thumbnailKey: string | null; contentText: string | null },
+      now: Date,
+    ): Promise<{ becameCurrent: boolean }> {
+      return db.$transaction(async (tx) => {
+        const version = await tx.documentVersion.update({
+          where: { id: versionId },
+          data: {
+            scanStatus: 'clean',
+            sha256: result.sha256,
+            thumbnailKey: result.thumbnailKey,
+            processedAt: now,
+            failureReason: null,
+          },
+          select: {
+            version: true,
+            document: {
+              select: {
+                id: true,
+                currentVersionId: true,
+                currentVersion: { select: { version: true } },
+              },
+            },
+          },
         });
+        const doc = version.document;
+        if (doc.currentVersionId === versionId) {
+          await tx.document.update({
+            where: { id: doc.id },
+            data: { contentText: result.contentText },
+          });
+          return { becameCurrent: false };
+        }
+        if ((doc.currentVersion?.version ?? 0) > version.version) return { becameCurrent: false };
+        await tx.document.update({
+          where: { id: doc.id },
+          data: {
+            currentVersionId: versionId,
+            contentText: result.contentText,
+            status: 'pending',
+            submittedAt: now,
+          },
+        });
+        return { becameCurrent: true };
+      });
+    },
+
+    /**
+     * The worker refused the file (virus, or not the type it claimed). The version now
+     * points at its quarantined copy. A refused version 1 also rejects the document; a
+     * refused re-upload leaves the document on its last clean version.
+     */
+    async markRefused(
+      versionId: string,
+      result: { scanStatus: 'infected' | 'invalid'; reason: string; quarantineKey: string },
+      now: Date,
+    ): Promise<{ rejectedDocument: boolean }> {
+      return db.$transaction(async (tx) => {
+        const version = await tx.documentVersion.update({
+          where: { id: versionId },
+          data: {
+            scanStatus: result.scanStatus,
+            failureReason: result.reason,
+            storageKey: result.quarantineKey,
+            processedAt: now,
+          },
+          select: { document: { select: { id: true, currentVersionId: true } } },
+        });
+        if (version.document.currentVersionId !== versionId) return { rejectedDocument: false };
+        await tx.document.update({
+          where: { id: version.document.id },
+          data: { status: 'rejected' },
+        });
+        return { rejectedDocument: true };
       });
     },
 
@@ -261,7 +431,11 @@ export function createDocumentRepository(db: Db) {
     async decide(viewer: DocumentViewer, id: string, input: NewDecision): Promise<boolean> {
       return db.$transaction(async (tx) => {
         const target = await tx.document.findFirst({
-          where: visible(viewer, { id, status: 'pending', currentVersionId: { not: null } }),
+          where: visible(viewer, {
+            id,
+            status: 'pending',
+            currentVersion: { is: { scanStatus: 'clean' } },
+          }),
           select: { currentVersionId: true },
         });
         if (!target) return false;

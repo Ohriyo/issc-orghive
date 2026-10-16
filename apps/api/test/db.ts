@@ -11,7 +11,7 @@ export function testDb(): Db {
 
 export async function resetDb(client: Db) {
   await client.$executeRawUnsafe(`
-    TRUNCATE approvals, document_versions, documents, document_types, announcements,
+    TRUNCATE upload_intents, approvals, document_versions, documents, document_types, announcements,
       audit_logs, refresh_tokens, password_reset_tokens, memberships, users, organizations, colleges
     RESTART IDENTITY CASCADE`);
 }

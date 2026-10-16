@@ -50,6 +50,7 @@ describe('organizationService.getBySlug', () => {
   it('returns the profile with parent, college and public logo URL', async () => {
     const { service } = serviceWith([JPICE]);
     expect(await service.getBySlug('jpice')).toEqual({
+      id: 'jpice-id',
       type: 'SBO',
       slug: 'jpice',
       acronym: 'JPICE',

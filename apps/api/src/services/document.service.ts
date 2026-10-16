@@ -8,20 +8,34 @@ import {
   type DocumentSearchQuery,
   type DocumentStatus,
   type DocumentSummary,
+  type DocumentVersion,
+  type DocumentVersionListResponse,
+  type DownloadUrlResponse,
   type UpdateDocumentRequest,
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 import { type Cache, cacheKeys, PUBLIC_READ_TTL_SECONDS } from '#src/lib/cache';
+import type { JobQueue } from '#src/lib/queue';
+import type { Storage } from '#src/lib/storage';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
-import type { DocumentRecord, DocumentRepository } from '#src/repositories/document.repository';
+import type {
+  DocumentRecord,
+  DocumentRepository,
+  VersionRecord,
+} from '#src/repositories/document.repository';
 import type { DocumentTypeRepository } from '#src/repositories/document-type.repository';
 import { PUBLIC_VIEWER, type DocumentViewer } from '#src/repositories/document-visibility';
 import type { OrganizationRepository } from '#src/repositories/organization.repository';
 import type { OrgRef } from '#src/services/access.service';
 import type { DocumentViewerService } from '#src/services/document-viewer.service';
+import type { UploadService } from '#src/services/upload.service';
 
 /** Signed-out document lists are cached for 5 minutes under `org:{slug}:docs:{hash}`. */
 export const DOCUMENT_LIST_TTL_SECONDS = 5 * 60;
+/** CLAUDE.md: download links expire in 5 minutes. */
+export const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
+/** Previews are signed when served (never cached signed), valid long enough to view a page. */
+export const THUMBNAIL_URL_TTL_SECONDS = 15 * 60;
 
 /** Content may change only before review; afterwards an edit would bypass approval. */
 const EDITABLE: DocumentStatus[] = ['draft', 'rejected'];
@@ -38,16 +52,39 @@ export interface Actor {
 export interface DocumentServiceDeps {
   documents: Pick<
     DocumentRepository,
-    'findById' | 'list' | 'create' | 'update' | 'setStatus' | 'decide' | 'softDelete'
+    | 'findById'
+    | 'list'
+    | 'create'
+    | 'update'
+    | 'setStatus'
+    | 'decide'
+    | 'softDelete'
+    | 'addVersion'
+    | 'listVersions'
+    | 'findVersion'
   >;
   documentTypes: Pick<DocumentTypeRepository, 'findById' | 'list'>;
   organizations: Pick<OrganizationRepository, 'findBySlug'>;
   viewers: Pick<DocumentViewerService, 'forUser'>;
+  uploads: Pick<UploadService, 'claim'>;
+  queue: JobQueue;
+  storage: Pick<Storage, 'presignGet'>;
   audit: Pick<AuditLogRepository, 'record'>;
   cache: Cache;
+  now?: () => Date;
 }
 
-export function toDocumentSummary(doc: DocumentRecord): DocumentSummary {
+type Version = NonNullable<DocumentSummary['currentVersion']>;
+
+/**
+ * A summary as stored in the list cache: the preview as a storage key. It is signed only
+ * when served, so a cached list never hands out expired links.
+ */
+export type StoredSummary = Omit<DocumentSummary, 'currentVersion'> & {
+  currentVersion: (Omit<Version, 'thumbnailUrl'> & { thumbnailKey: string | null }) | null;
+};
+
+export function toStoredSummary(doc: DocumentRecord): StoredSummary {
   const { organization, currentVersion: v } = doc;
   return {
     id: doc.id,
@@ -57,6 +94,7 @@ export function toDocumentSummary(doc: DocumentRecord): DocumentSummary {
     semester: doc.semester,
     status: doc.status,
     visibility: doc.visibility,
+    tags: doc.tags,
     submittedAt: doc.submittedAt?.toISOString() ?? null,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
@@ -74,7 +112,24 @@ export function toDocumentSummary(doc: DocumentRecord): DocumentSummary {
       sizeBytes: v.sizeBytes,
       scanStatus: v.scanStatus,
       createdAt: v.createdAt.toISOString(),
+      thumbnailKey: v.thumbnailKey,
     },
+  };
+}
+
+export function toDocumentVersion(
+  v: VersionRecord,
+  currentVersionId: string | null,
+): DocumentVersion {
+  return {
+    id: v.id,
+    version: v.version,
+    originalFilename: v.originalFilename,
+    mimeType: v.mimeType,
+    sizeBytes: v.sizeBytes,
+    scanStatus: v.scanStatus,
+    createdAt: v.createdAt.toISOString(),
+    isCurrent: v.id === currentVersionId,
   };
 }
 
@@ -96,12 +151,33 @@ export function createDocumentService({
   documentTypes,
   organizations,
   viewers,
+  uploads,
+  queue,
+  storage,
   audit,
   cache,
+  now = () => new Date(),
 }: DocumentServiceDeps) {
   function viewerFor(userId: string | undefined): Promise<DocumentViewer> {
     return userId ? viewers.forUser(userId) : Promise.resolve(PUBLIC_VIEWER);
   }
+
+  /** Signs the preview link, if the version has one. Signing is local; no storage call. */
+  async function present(stored: StoredSummary): Promise<DocumentSummary> {
+    const v = stored.currentVersion;
+    if (!v) return { ...stored, currentVersion: null };
+    const { thumbnailKey, ...version } = v;
+    const thumbnailUrl = thumbnailKey
+      ? await storage.presignGet(
+          thumbnailKey,
+          { filename: 'preview.webp', contentType: 'image/webp', disposition: 'inline' },
+          THUMBNAIL_URL_TTL_SECONDS,
+        )
+      : null;
+    return { ...stored, currentVersion: { ...version, thumbnailUrl } };
+  }
+
+  const summarize = (doc: DocumentRecord) => present(toStoredSummary(doc));
 
   /** Loads a document the viewer can see and that belongs to the guarded organization. */
   async function loadInOrg(viewer: DocumentViewer, org: OrgRef, id: string) {
@@ -113,7 +189,7 @@ export function createDocumentService({
   async function reload(viewer: DocumentViewer, id: string): Promise<DocumentSummary> {
     const doc = await documents.findById(viewer, id);
     if (!doc) throw AppError.notFound('Document not found');
-    return toDocumentSummary(doc);
+    return summarize(doc);
   }
 
   async function assertTypeExists(typeId: string) {
@@ -125,6 +201,18 @@ export function createDocumentService({
   /** Any write to an organization's documents clears its cached lists (CLAUDE.md). */
   function invalidate(org: OrgRef) {
     return cache.deleteMatching(cacheKeys.organizationDocumentsPattern(org.slug));
+  }
+
+  function auditUpload(actor: Actor, org: OrgRef, documentId: string, file: object) {
+    return audit.record({
+      action: 'upload',
+      actorId: actor.userId,
+      entityType: 'document',
+      entityId: documentId,
+      organizationId: org.id,
+      metadata: { ...file },
+      ip: actor.ip,
+    });
   }
 
   return {
@@ -145,7 +233,7 @@ export function createDocumentService({
       const org = await organizations.findBySlug(slug);
       if (!org) throw AppError.notFound('Organization not found');
 
-      const load = async (): Promise<DocumentListResponse> => {
+      const load = async () => {
         const { items, nextCursor } = await documents.list(await viewerFor(userId), {
           organizationId: org.id,
           typeId: query.typeId,
@@ -156,12 +244,17 @@ export function createDocumentService({
           cursor: query.cursor,
           limit: query.limit,
         });
-        return { items: items.map(toDocumentSummary), nextCursor };
+        return { items: items.map(toStoredSummary), nextCursor };
       };
 
-      if (userId) return load();
-      const key = cacheKeys.organizationDocuments(org.slug, queryHash(query));
-      return (await cache.getOrSet(key, DOCUMENT_LIST_TTL_SECONDS, load))!;
+      const stored = userId
+        ? await load()
+        : (await cache.getOrSet(
+            cacheKeys.organizationDocuments(org.slug, queryHash(query)),
+            DOCUMENT_LIST_TTL_SECONDS,
+            load,
+          ))!;
+      return { items: await Promise.all(stored.items.map(present)), nextCursor: stored.nextCursor };
     },
 
     /**
@@ -176,7 +269,7 @@ export function createDocumentService({
         search: query.q,
         limit: query.limit ?? 10,
       });
-      return { items: items.map(toDocumentSummary), nextCursor: null };
+      return { items: await Promise.all(items.map(summarize)), nextCursor: null };
     },
 
     /** 404 when the document does not exist or the viewer may not see it. */
@@ -184,13 +277,17 @@ export function createDocumentService({
       return reload(await viewerFor(userId), id);
     },
 
-    /** Creates a metadata-only draft in `org`. */
+    /**
+     * Creates a document in `org` from a file already uploaded with an upload URL: version 1,
+     * pending review, then queued for the virus scan and processing. Audited as an upload.
+     */
     async create(
       actor: Actor,
       org: OrgRef,
       input: CreateDocumentRequest,
     ): Promise<DocumentSummary> {
       await assertTypeExists(input.typeId);
+      const file = await uploads.claim(actor.userId, org, input.uploadKey);
       const created = await documents.create({
         organizationId: org.id,
         typeId: input.typeId,
@@ -199,11 +296,104 @@ export function createDocumentService({
         academicYear: input.academicYear,
         semester: input.semester,
         visibility: input.visibility,
-        status: 'draft',
+        tags: input.tags,
+        status: 'pending',
+        submittedAt: now(),
         createdById: actor.userId,
+        firstVersion: { ...file, uploadedById: actor.userId },
       });
+      await auditUpload(actor, org, created.id, {
+        version: 1,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+      });
+      await queue.enqueueProcessing(created.currentVersion!.id);
       await invalidate(org);
-      return toDocumentSummary(created);
+      return summarize(created);
+    },
+
+    /**
+     * A re-upload: the next version, not current until the worker finds it clean (then the
+     * document goes back to review). Nothing is overwritten. 409 for archived documents.
+     */
+    async addVersion(
+      actor: Actor,
+      org: OrgRef,
+      id: string,
+      uploadKey: string,
+    ): Promise<DocumentVersion> {
+      const viewer = await viewers.forUser(actor.userId);
+      const doc = await loadInOrg(viewer, org, id);
+      if (doc.status === 'archived') throw AppError.conflict('An archived document cannot change');
+      const file = await uploads.claim(actor.userId, org, uploadKey);
+      const added = await documents.addVersion(viewer, id, { ...file, uploadedById: actor.userId });
+      if (!added) throw AppError.notFound('Document not found');
+      await auditUpload(actor, org, id, {
+        version: added.version,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+      });
+      await queue.enqueueProcessing(added.id);
+      await invalidate(org);
+      return {
+        id: added.id,
+        version: added.version,
+        originalFilename: file.originalFilename,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+        scanStatus: 'pending',
+        createdAt: now().toISOString(),
+        isCurrent: false,
+      };
+    },
+
+    /**
+     * Every version, newest first. The organization's members, its approvers and admins see
+     * all of them (including ones still scanning or refused); everyone else sees clean ones.
+     */
+    async listVersions(
+      userId: string | undefined,
+      id: string,
+    ): Promise<DocumentVersionListResponse> {
+      const viewer = await viewerFor(userId);
+      const found = await documents.listVersions(viewer, id);
+      if (!found) throw AppError.notFound('Document not found');
+      const insider =
+        viewer.kind === 'user' &&
+        (viewer.isAdmin ||
+          viewer.memberOrgIds.includes(found.organizationId) ||
+          viewer.reviewableOrgIds.includes(found.organizationId));
+      return {
+        versions: found.versions
+          .filter((v) => insider || v.scanStatus === 'clean')
+          .map((v) => toDocumentVersion(v, found.currentVersionId)),
+      };
+    },
+
+    /**
+     * A 5-minute signed link to one version (old versions stay downloadable). Only clean
+     * files; 404 when the viewer may not see the document.
+     */
+    async downloadUrl(
+      userId: string | undefined,
+      id: string,
+      versionId: string,
+      disposition: 'attachment' | 'inline' = 'attachment',
+    ): Promise<DownloadUrlResponse> {
+      const version = await documents.findVersion(await viewerFor(userId), id, versionId);
+      if (!version) throw AppError.notFound('Document not found');
+      if (version.scanStatus !== 'clean') {
+        throw AppError.conflict('This file is not available: it has not passed the virus scan');
+      }
+      const url = await storage.presignGet(
+        version.storageKey,
+        { filename: version.originalFilename, contentType: version.mimeType, disposition },
+        DOWNLOAD_URL_TTL_SECONDS,
+      );
+      return {
+        url,
+        expiresAt: new Date(now().getTime() + DOWNLOAD_URL_TTL_SECONDS * 1000).toISOString(),
+      };
     },
 
     /**
@@ -228,7 +418,7 @@ export function createDocumentService({
       const updated = await documents.update(viewer, id, patch, allowed);
       if (!updated) throw AppError.conflict('The document changed; reload and try again');
       await invalidate(org);
-      return toDocumentSummary(updated);
+      return summarize(updated);
     },
 
     /** draft | rejected -> pending. The current file must have passed the virus scan. */
@@ -249,7 +439,10 @@ export function createDocumentService({
       return reload(viewer, id);
     },
 
-    /** pending -> approved | rejected, recorded on the current version and audited. */
+    /**
+     * pending -> approved | rejected, recorded on the current version and audited. The
+     * current file must have passed the virus scan.
+     */
     async decide(
       actor: Actor,
       org: OrgRef,
@@ -262,6 +455,9 @@ export function createDocumentService({
       if (doc.status !== 'pending') {
         throw AppError.conflict(`Only pending documents can be ${decision}`);
       }
+      if (doc.currentVersion?.scanStatus !== 'clean') {
+        throw AppError.conflict('The file has not passed the virus scan yet');
+      }
       if (!(await documents.decide(viewer, id, { decision, approverId: actor.userId, comment }))) {
         throw AppError.conflict('The document changed; reload and try again');
       }
@@ -271,13 +467,13 @@ export function createDocumentService({
         entityType: 'document',
         entityId: id,
         organizationId: org.id,
-        metadata: { version: doc.currentVersion?.version ?? null },
+        metadata: { version: doc.currentVersion.version },
         ip: actor.ip,
       });
       await invalidate(org);
       // Not reloaded: approvers may not see a document once they reject it (visibility rule),
       // yet the decision they just made succeeded.
-      return toDocumentSummary({ ...doc, status: decision, updatedAt: new Date() });
+      return summarize({ ...doc, status: decision, updatedAt: now() });
     },
 
     /** Soft delete, audited. */

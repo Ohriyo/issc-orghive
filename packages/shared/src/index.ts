@@ -2,6 +2,7 @@ export * from './api-error';
 export * from './health';
 export * from './document-status';
 export * from './document';
+export * from './upload';
 export * from './organization';
 export * from './academic-term';
 export * from './public-read';

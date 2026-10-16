@@ -7,6 +7,7 @@ import { routes } from '@/app/router';
 import { academicYearOf, toDocumentCard, yearOptions } from './presenters/use-paperworks';
 
 const JPICE: OrganizationDetail = {
+  id: '0195f3c0-0000-7000-8000-0000000000b1',
   type: 'SBO',
   slug: 'jpice',
   acronym: 'JPICE',
@@ -33,6 +34,7 @@ function doc(overrides: Partial<DocumentSummary> = {}): DocumentSummary {
     semester: 'first',
     status: 'approved',
     visibility: 'public',
+    tags: [],
     submittedAt: '2026-09-01T00:00:00.000Z',
     createdAt: '2026-08-20T00:00:00.000Z',
     updatedAt: '2026-09-01T00:00:00.000Z',
@@ -45,6 +47,7 @@ function doc(overrides: Partial<DocumentSummary> = {}): DocumentSummary {
       sizeBytes: 1000,
       scanStatus: 'clean',
       createdAt: '2026-08-20T00:00:00.000Z',
+      thumbnailUrl: null,
     },
     ...overrides,
   };
@@ -128,7 +131,8 @@ describe('/orgs/:slug/paperworks', () => {
     serve();
     renderAt('/orgs/jpice/paperworks');
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Paperworks' }),
+      // The first test in the file also loads the lazy route, so give it longer.
+      await screen.findByRole('heading', { level: 1, name: 'Paperworks' }, { timeout: 5000 }),
     ).toBeInTheDocument();
     expect(screen.getByText(JPICE.name)).toBeInTheDocument();
     const link = await screen.findByRole('link', { name: 'Bridge design competition' });

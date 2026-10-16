@@ -28,6 +28,7 @@ export function createOrganizationService({
           if (!org) return null;
           const parent = org.parent && !org.parent.deletedAt ? org.parent : null;
           return {
+            id: org.id,
             ...toOrganizationSummary(org, publicUrl),
             description: org.description,
             parent: parent ? toOrganizationSummary(parent, publicUrl) : null,

@@ -45,8 +45,14 @@ const envSchema = z.object({
   S3_ACCESS_KEY: z.string().min(1),
   S3_SECRET_KEY: z.string().min(8),
   S3_FORCE_PATH_STYLE: z.stringbool().default(true),
+  /** What browsers use for pre-signed URLs, if the API reaches storage at another address. */
+  S3_PUBLIC_ENDPOINT: z.url().optional(),
   /** Public base URL for keys under `logos/` (anonymous read on that prefix only, CDN-able). */
   PUBLIC_ASSET_BASE_URL: z.url(),
+
+  /** clamd, which the worker streams every upload to before it can be approved. */
+  CLAMAV_HOST: z.string().min(1).default('localhost'),
+  CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
 
   SMTP_HOST: z.string().min(1),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535),

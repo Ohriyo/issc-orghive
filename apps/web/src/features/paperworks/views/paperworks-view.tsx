@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Upload } from 'lucide-react';
 import { Link } from 'react-router';
 import { Container } from '@/components/container';
 import { DocumentCard, DocumentCardSkeleton } from '@/components/document-card';
@@ -35,9 +35,19 @@ export function PaperworksView(props: PaperworksViewProps) {
               <ArrowLeft aria-hidden="true" className="size-4" />
               {props.org.acronym}
             </Link>
-            <header className="mt-8 lg:mt-12">
-              <h1 className="text-display font-bold text-ink">Paperworks</h1>
-              <p className="mt-2 text-lead text-ink">{props.org.name}</p>
+            <header className="mt-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-5 lg:mt-12">
+              <div>
+                <h1 className="text-display font-bold text-ink">Paperworks</h1>
+                <p className="mt-2 text-lead text-ink">{props.org.name}</p>
+              </div>
+              {props.uploadHref ? (
+                <PillButton asChild size="md">
+                  <Link to={props.uploadHref}>
+                    <Upload aria-hidden="true" />
+                    Upload documents
+                  </Link>
+                </PillButton>
+              ) : null}
             </header>
 
             <div className="mt-8 hidden md:block">

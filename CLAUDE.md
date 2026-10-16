@@ -51,7 +51,7 @@ Layer rules. These are the ones most often broken, so check every change against
 
 ```bash
 pnpm install
-docker compose up -d                 # postgres, redis, minio, mailpit
+docker compose up -d                 # postgres, redis, minio, mailpit, clamav (first start: a few minutes)
 pnpm --filter api keys:generate >> apps/api/.env   # once: Ed25519 JWT signing keys
 pnpm --filter api prisma migrate dev
 pnpm --filter api db:seed            # 7 colleges, ISSC, CSCs, sample SBOs

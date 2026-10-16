@@ -208,11 +208,14 @@ describe('documentRepository writes', () => {
       uploadedById: world.users.officer.id,
     };
     expect(await documents.addVersion(PUBLIC_VIEWER, world.docs.jpiceDraft.id, input)).toBeNull();
-    const updated = await documents.addVersion(member(), world.docs.jpiceDraft.id, input);
-    expect(updated?.currentVersion?.version).toBe(2);
+    const added = await documents.addVersion(member(), world.docs.jpiceDraft.id, input);
+    expect(added?.version).toBe(2);
     expect(
       await db.documentVersion.count({ where: { documentId: world.docs.jpiceDraft.id } }),
     ).toBe(2);
+    // Not current until the worker finds it clean.
+    const doc = await documents.findById(member(), world.docs.jpiceDraft.id);
+    expect(doc?.currentVersion?.version).toBe(1);
   });
 
   it('changes status only on visible documents', async () => {
@@ -285,5 +288,96 @@ describe('documentRepository writes', () => {
     });
     expect(await documents.organizationOf(world.docs.jpiceDeleted.id)).toBeNull();
     expect(await documents.organizationOf(crypto.randomUUID())).toBeNull();
+  });
+});
+
+describe('documentRepository processing', () => {
+  const member = () => userViewer({ memberOrgIds: [world.orgs.jpice.id] });
+  const NOW = new Date('2026-10-16T00:00:00Z');
+
+  async function pendingVersion(documentId: string) {
+    const added = await documents.addVersion(member(), documentId, {
+      storageKey: `uploads/test/${crypto.randomUUID()}`,
+      originalFilename: 'v2.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 20,
+      uploadedById: world.users.officer.id,
+    });
+    return added!;
+  }
+
+  it('makes a clean re-upload current and sends the document back to review', async () => {
+    const id = world.docs.jpiceApproved.id;
+    const v2 = await pendingVersion(id);
+    const result = await documents.markClean(
+      v2.id,
+      { sha256: 'a'.repeat(64), thumbnailKey: 'thumbnails/x.webp', contentText: 'girder words' },
+      NOW,
+    );
+    expect(result).toEqual({ becameCurrent: true });
+    const doc = await db.document.findUniqueOrThrow({ where: { id } });
+    expect(doc).toMatchObject({
+      currentVersionId: v2.id,
+      status: 'pending',
+      contentText: 'girder words',
+    });
+    expect(await titles(member(), { search: 'girder' })).toEqual(['JPICE accomplishment report']);
+  });
+
+  it('refuses a re-upload without touching the document', async () => {
+    const id = world.docs.jpiceApproved.id;
+    const v2 = await pendingVersion(id);
+    const result = await documents.markRefused(
+      v2.id,
+      { scanStatus: 'infected', reason: 'ClamAV: Eicar', quarantineKey: 'quarantine/x' },
+      NOW,
+    );
+    expect(result).toEqual({ rejectedDocument: false });
+    const doc = await db.document.findUniqueOrThrow({ where: { id } });
+    expect(doc.status).toBe('approved');
+    expect(doc.currentVersionId).not.toBe(v2.id);
+    const version = await db.documentVersion.findUniqueOrThrow({ where: { id: v2.id } });
+    expect(version).toMatchObject({ scanStatus: 'infected', storageKey: 'quarantine/x' });
+  });
+
+  it('rejects the document when its current version is refused', async () => {
+    const doc = await db.document.findUniqueOrThrow({ where: { id: world.docs.jpicePending.id } });
+    const result = await documents.markRefused(
+      doc.currentVersionId!,
+      {
+        scanStatus: 'invalid',
+        reason: 'Content is application/pdf',
+        quarantineKey: 'quarantine/y',
+      },
+      NOW,
+    );
+    expect(result).toEqual({ rejectedDocument: true });
+    expect((await db.document.findUniqueOrThrow({ where: { id: doc.id } })).status).toBe(
+      'rejected',
+    );
+  });
+
+  it('only approves a pending document whose current file is clean', async () => {
+    const id = world.docs.jpicePending.id;
+    const doc = await db.document.findUniqueOrThrow({ where: { id } });
+    await db.documentVersion.update({
+      where: { id: doc.currentVersionId! },
+      data: { scanStatus: 'pending' },
+    });
+    const approver = userViewer({ reviewableOrgIds: [world.orgs.jpice.id] });
+    const input = { decision: 'approved' as const, approverId: world.users.governor.id };
+    expect(await documents.decide(approver, id, input)).toBe(false);
+  });
+
+  it('lists versions newest first and finds stale pending ones', async () => {
+    const id = world.docs.jpiceDraft.id;
+    const v2 = await pendingVersion(id);
+    const list = await documents.listVersions(member(), id);
+    expect(list?.versions.map((v) => v.version)).toEqual([2, 1]);
+    expect(list?.organizationId).toBe(world.orgs.jpice.id);
+    expect(await documents.listVersions(PUBLIC_VIEWER, id)).toBeNull();
+    expect(await documents.findVersion(member(), id, v2.id)).toMatchObject({ version: 2 });
+    expect(await documents.findVersion(PUBLIC_VIEWER, id, v2.id)).toBeNull();
+    expect(await documents.findStalePending(new Date(Date.now() + 60_000))).toContain(v2.id);
   });
 });

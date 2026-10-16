@@ -10,6 +10,7 @@ import {
   type Semester,
 } from '@orghive/shared';
 import type { DocumentCardProps, DocumentFileType } from '@/components/document-card';
+import { useAuth } from '@/features/auth/presenters/use-auth';
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -81,6 +82,8 @@ export type PaperworksState =
   | {
       status: 'ready';
       org: { acronym: string; name: string; href: string };
+      /** Set for the organization's officers (and admins): where to upload. */
+      uploadHref?: string;
       filters: PaperworksFilterModel;
       documents: PaperworksDocuments;
     };
@@ -131,6 +134,7 @@ function readFilters(params: URLSearchParams): PaperworksFilters {
  */
 export function usePaperworks(slug: string): PaperworksState {
   const [params, setParams] = useSearchParams();
+  const { user } = useAuth();
   const values = readFilters(params);
   const [searchInput, setSearchInput] = useState(values.q);
 
@@ -217,6 +221,11 @@ export function usePaperworks(slug: string): PaperworksState {
   return {
     status: 'ready',
     org: { acronym: org.data.acronym, name: org.data.name, href: `/orgs/${org.data.slug}` },
+    uploadHref: user?.roles.some(
+      (role) => (role.orgId === org.data.id && role.role === 'officer') || role.role === 'admin',
+    )
+      ? `/orgs/${org.data.slug}/paperworks/upload`
+      : undefined,
     filters: {
       values,
       searchInput,

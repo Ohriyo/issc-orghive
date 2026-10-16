@@ -36,6 +36,12 @@ These are implemented so the app can work, and must be revisited when the open q
   - Submitting needs a current file that has passed the virus scan.
   - A rejection comment is optional until the school answers "Is a written reason required on rejection?".
 - **Admin override:** an ISSC admin passes every organization guard (role or approver). Each use writes an `admin_override` audit entry.
+- **Uploads** (chosen by the project owner on 2026-10-16; `apps/api/src/services/processing.service.ts`):
+  - A new document is created with its file as version 1, status `pending`. It can be approved only once that file has passed the virus scan.
+  - A re-upload creates the next version. It becomes current only after it passes the scan, and then the document goes back to `pending` (a new upload needs a new approval). Older versions stay downloadable.
+  - A refused file (ClamAV finding, or bytes that are not the declared type) is moved to `quarantine/` and audited. If it was version 1, the document is marked `rejected`. If it was a re-upload, the document keeps its last clean version and status.
+  - Signed-out users and non-members see only clean versions; the organization's members, its approvers and admins also see pending and refused ones.
+  - Tags are free-form (at most 10, lowercased). Whether there should be an official tag list is open.
 
 ## Open questions
 

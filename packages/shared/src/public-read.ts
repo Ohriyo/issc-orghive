@@ -63,9 +63,10 @@ export const collegeDetailSchema = collegeSummarySchema
   .meta({ id: 'CollegeDetail' });
 export type CollegeDetail = z.infer<typeof collegeDetailSchema>;
 
-/** GET /organizations/:slug. */
+/** GET /organizations/:slug. `id` lets a signed-in client match its roles to the page. */
 export const organizationDetailSchema = organizationSummarySchema
   .extend({
+    id: z.uuid(),
     description: z.string().nullable(),
     parent: organizationSummarySchema.nullable(),
     college: collegeRefSchema.nullable(),

@@ -10,6 +10,8 @@ import { HomeView } from './home-view';
 vi.mock('../hooks/use-animated-hero', () => ({ useAnimatedHero: () => false }));
 
 const ISSC: OrganizationDetail = {
+
+  id: '0195f3c0-0000-7000-8000-0000000000b1',
   type: 'ISSC',
   slug: 'issc',
   acronym: 'ISSC',

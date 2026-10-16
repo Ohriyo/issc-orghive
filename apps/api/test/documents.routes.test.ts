@@ -10,12 +10,41 @@ import { createAccessService } from '#src/services/access.service';
 import { createDocumentService } from '#src/services/document.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createTokenService } from '#src/services/token.service';
+import { createUploadService } from '#src/services/upload.service';
+import type { Storage } from '#src/lib/storage';
+import { createUploadIntentRepository } from '#src/repositories/upload-intent.repository';
 import { testKeys } from './auth-fixtures';
 import { buildWorld, createTestDocument, resetDb, testDb, type World } from './db';
 import { buildTestApp } from './helpers';
 
 const db = testDb();
 const tokens = createTokenService(testKeys());
+
+/**
+ * Storage stand-in: an upload "exists" once its intent exists (as if the browser's PUT
+ * succeeded), with exactly the declared size and type. Signed URLs are fake but shaped.
+ */
+const storage: Storage = {
+  presignPut: (key) =>
+    Promise.resolve({ url: `https://storage.test/${key}?put`, headers: { 'Content-Type': 'x' } }),
+  presignGet: (key, file) =>
+    Promise.resolve(`https://storage.test/${key}?get&disposition=${file.disposition}`),
+  head: async (key) => {
+    const intent = await db.uploadIntent.findUnique({ where: { key } });
+    return intent ? { sizeBytes: intent.sizeBytes, contentType: intent.contentType } : null;
+  },
+  read: () => Promise.reject(new Error('not used')),
+  put: () => Promise.resolve(),
+  move: () => Promise.resolve(),
+  delete: () => Promise.resolve(),
+};
+const queued: string[] = [];
+const queue = {
+  enqueueProcessing: (versionId: string) => {
+    queued.push(versionId);
+    return Promise.resolve();
+  },
+};
 
 type Role = 'anonymous' | 'student' | 'jpiceOfficer' | 'iecepOfficer' | 'ceaAdviser' | 'admin';
 const ROLES: Role[] = [
@@ -101,13 +130,18 @@ beforeAll(async () => {
   const documents = createDocumentRepository(db);
   const audit = createAuditLogRepository(db);
   const viewers = createDocumentViewerService({ memberships, organizations });
+  const uploads = createUploadService({ intents: createUploadIntentRepository(db), storage });
   app = buildTestApp({
     tokens,
+    uploads,
     documents: createDocumentService({
       documents,
       documentTypes: createDocumentTypeRepository(db),
       organizations,
       viewers,
+      uploads,
+      queue,
+      storage,
       audit,
       cache: memoryCache(),
     }),
@@ -144,15 +178,39 @@ function call(
 interface Action {
   name: string;
   target?: Target;
-  run: (token: string | undefined, documentId: string) => ReturnType<typeof call>;
+  run: (token: string | undefined, documentId: string, role: Role) => PromiseLike<request.Response>;
   expected: Record<Role, number>;
 }
 
-const createBody = () => ({
+/** An upload URL this user was given for this organization (the PUT is assumed done). */
+async function uploadFor(userId: string, orgId: string, sizeBytes = 1000) {
+  const key = `uploads/${orgId}/${crypto.randomUUID()}`;
+  await db.uploadIntent.create({
+    data: {
+      key,
+      organizationId: orgId,
+      userId,
+      originalFilename: 'proposal.pdf',
+      contentType: 'application/pdf',
+      sizeBytes,
+      expiresAt: new Date(Date.now() + 5 * 60_000),
+    },
+  });
+  return key;
+}
+
+const createBody = (uploadKey = `uploads/${crypto.randomUUID()}/${crypto.randomUUID()}`) => ({
   typeId: world.types.proposal.id,
   title: 'Matrix proposal',
   academicYear: '2026-2027',
+  uploadKey,
 });
+
+/** The create body for whoever is acting: their own upload for IECEP. */
+async function createBodyFor(role: Role) {
+  if (role === 'anonymous') return createBody();
+  return createBody(await uploadFor(userIds[role], iecep.id));
+}
 
 /**
  * Every document action on IECEP's Paperworks. Reads of a document the user may not see
@@ -213,7 +271,8 @@ const ACTIONS: Action[] = [
   },
   {
     name: 'create a document',
-    run: (t) => call('post', '/organizations/iecep/documents', t, createBody()),
+    run: async (t, _id, role) =>
+      call('post', '/organizations/iecep/documents', t, await createBodyFor(role)),
     expected: {
       anonymous: 401,
       student: 403,
@@ -298,7 +357,7 @@ describe('document authorization matrix (IECEP documents)', () => {
   it.each(CASES)('$action.name as $role -> $status', async ({ action, role, status }) => {
     const doc = action.target ? await iecepDocument(action.target) : undefined;
     const token = role === 'anonymous' ? undefined : tokenOf[role];
-    const res = await action.run(token, doc?.id ?? '');
+    const res = await action.run(token, doc?.id ?? '', role);
     expect(res.status, JSON.stringify(res.body)).toBe(status);
   });
 });
@@ -487,5 +546,180 @@ describe('GET /document-types', () => {
       expect.arrayContaining(['activity-proposal', 'accomplishment-report']),
     );
     expect(res.headers['cache-control']).toContain('public');
+  });
+});
+
+describe('uploads', () => {
+  const pdf = { filename: 'proposal.pdf', contentType: 'application/pdf', sizeBytes: 1000 };
+
+  it('issues a pre-signed PUT only to the organization officers', async () => {
+    await call('post', '/organizations/iecep/documents/upload-url', undefined, pdf).expect(401);
+    await call('post', '/organizations/iecep/documents/upload-url', tokenOf.student, pdf).expect(
+      403,
+    );
+    await call(
+      'post',
+      '/organizations/iecep/documents/upload-url',
+      tokenOf.jpiceOfficer,
+      pdf,
+    ).expect(403);
+    const res = await call(
+      'post',
+      '/organizations/iecep/documents/upload-url',
+      tokenOf.iecepOfficer,
+      pdf,
+    ).expect(201);
+    const body = res.body as { uploadKey: string; url: string; method: string };
+    expect(body.uploadKey).toMatch(new RegExp(`^uploads/${iecep.id}/[0-9a-f-]{36}$`));
+    expect(body).toMatchObject({
+      method: 'PUT',
+      url: `https://storage.test/${body.uploadKey}?put`,
+    });
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    const intent = await db.uploadIntent.findUniqueOrThrow({ where: { key: body.uploadKey } });
+    expect(intent).toMatchObject({
+      userId: userIds.iecepOfficer,
+      organizationId: iecep.id,
+      usedAt: null,
+    });
+  });
+
+  it('refuses types outside the allow-list, mismatched extensions and files over 25 MB', async () => {
+    const t = tokenOf.iecepOfficer;
+    const url = '/organizations/iecep/documents/upload-url';
+    await call('post', url, t, {
+      ...pdf,
+      filename: 'x.exe',
+      contentType: 'application/x-msdownload',
+    }).expect(400);
+    await call('post', url, t, { ...pdf, filename: 'proposal.docx' }).expect(400);
+    await call('post', url, t, { ...pdf, sizeBytes: 25 * 1024 * 1024 + 1 }).expect(400);
+    await call('post', url, t, { ...pdf, sizeBytes: 0 }).expect(400);
+    await call('post', url, t, { ...pdf, filename: '../../etc/passwd.pdf' }).expect(400);
+  });
+
+  it('creates a pending document with version 1 from the upload and queues processing', async () => {
+    const key = await uploadFor(userIds.iecepOfficer, iecep.id);
+    const res = await call('post', '/organizations/iecep/documents', tokenOf.iecepOfficer, {
+      ...createBody(key),
+      tags: ['Bridge', 'bridge', 'ce week'],
+    }).expect(201);
+    const body = res.body as {
+      id: string;
+      status: string;
+      tags: string[];
+      currentVersion: { version: number; scanStatus: string };
+    };
+    expect(body).toMatchObject({ status: 'pending', tags: ['bridge', 'ce week'] });
+    expect(body.currentVersion).toMatchObject({ version: 1, scanStatus: 'pending' });
+    const doc = await db.document.findUniqueOrThrow({ where: { id: body.id } });
+    expect(queued).toContain(doc.currentVersionId);
+    expect(
+      await db.auditLog.count({
+        where: { action: 'upload', entityId: body.id, actorId: userIds.iecepOfficer },
+      }),
+    ).toBe(1);
+  });
+
+  it('refuses an upload key that is someone else’s, another organization’s, or already used', async () => {
+    const theirs = await uploadFor(userIds.admin, iecep.id);
+    await call(
+      'post',
+      '/organizations/iecep/documents',
+      tokenOf.iecepOfficer,
+      createBody(theirs),
+    ).expect(400);
+    const jpiceKey = await uploadFor(userIds.jpiceOfficer, world.orgs.jpice.id);
+    await call(
+      'post',
+      '/organizations/iecep/documents',
+      tokenOf.iecepOfficer,
+      createBody(jpiceKey),
+    ).expect(400);
+    const mine = await uploadFor(userIds.iecepOfficer, iecep.id);
+    await call(
+      'post',
+      '/organizations/iecep/documents',
+      tokenOf.iecepOfficer,
+      createBody(mine),
+    ).expect(201);
+    await call(
+      'post',
+      '/organizations/iecep/documents',
+      tokenOf.iecepOfficer,
+      createBody(mine),
+    ).expect(400);
+  });
+
+  it('adds a version only for the organization officers, without making it current', async () => {
+    const doc = await iecepDocument('publicApproved');
+    const url = `/documents/${doc.id}/versions`;
+    const key = async (userId: string) => ({ uploadKey: await uploadFor(userId, iecep.id) });
+    await call('post', url, undefined, await key(userIds.iecepOfficer)).expect(401);
+    await call('post', url, tokenOf.jpiceOfficer, await key(userIds.jpiceOfficer)).expect(403);
+    await call('post', url, tokenOf.ceaAdviser, await key(userIds.ceaAdviser)).expect(403);
+    const res = await call(
+      'post',
+      url,
+      tokenOf.iecepOfficer,
+      await key(userIds.iecepOfficer),
+    ).expect(201);
+    expect(res.body).toMatchObject({ version: 2, scanStatus: 'pending', isCurrent: false });
+    const after = await db.document.findUniqueOrThrow({ where: { id: doc.id } });
+    expect(after.currentVersionId).toBe(doc.currentVersionId);
+    expect(after.status).toBe('approved');
+  });
+
+  it('lists versions: members see pending ones, everyone else only clean ones', async () => {
+    const doc = await iecepDocument('publicApproved');
+    await call('post', `/documents/${doc.id}/versions`, tokenOf.iecepOfficer, {
+      uploadKey: await uploadFor(userIds.iecepOfficer, iecep.id),
+    }).expect(201);
+    const versions = async (token?: string) =>
+      (
+        (await call('get', `/documents/${doc.id}/versions`, token).expect(200)).body as {
+          versions: { version: number }[];
+        }
+      ).versions.map((v) => v.version);
+    expect(await versions(tokenOf.iecepOfficer)).toEqual([2, 1]);
+    expect(await versions()).toEqual([1]);
+    expect(await versions(tokenOf.jpiceOfficer)).toEqual([1]);
+  });
+
+  it('signs downloads for clean, visible versions only; never cacheable', async () => {
+    const pub = await iecepDocument('publicApproved');
+    const v1 = (await db.document.findUniqueOrThrow({ where: { id: pub.id } })).currentVersionId!;
+    const res = await call('get', `/documents/${pub.id}/versions/${v1}/download-url`).expect(200);
+    expect((res.body as { url: string }).url).toContain('disposition=attachment');
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    const inline = await call(
+      'get',
+      `/documents/${pub.id}/versions/${v1}/download-url?disposition=inline`,
+    ).expect(200);
+    expect((inline.body as { url: string }).url).toContain('disposition=inline');
+
+    const priv = await iecepDocument('privateApproved');
+    const pv = (await db.document.findUniqueOrThrow({ where: { id: priv.id } })).currentVersionId!;
+    await call('get', `/documents/${priv.id}/versions/${pv}/download-url`).expect(404);
+    await call(
+      'get',
+      `/documents/${priv.id}/versions/${pv}/download-url`,
+      tokenOf.jpiceOfficer,
+    ).expect(404);
+    await call(
+      'get',
+      `/documents/${priv.id}/versions/${pv}/download-url`,
+      tokenOf.iecepOfficer,
+    ).expect(200);
+
+    // A version from another document is not reachable through this one.
+    await call('get', `/documents/${pub.id}/versions/${pv}/download-url`, tokenOf.admin).expect(
+      404,
+    );
+
+    await db.documentVersion.update({ where: { id: v1 }, data: { scanStatus: 'infected' } });
+    await call('get', `/documents/${pub.id}/versions/${v1}/download-url`, tokenOf.admin).expect(
+      409,
+    );
   });
 });

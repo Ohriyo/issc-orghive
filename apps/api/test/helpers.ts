@@ -21,6 +21,9 @@ const unwiredServices: AppServices = {
   documents: new Proxy({} as AppServices['documents'], {
     get: (_t, key) => () => unwired(`documents.${String(key)}`),
   }),
+  uploads: new Proxy({} as AppServices['uploads'], {
+    get: (_t, key) => () => unwired(`uploads.${String(key)}`),
+  }),
   access: new Proxy({} as AppServices['access'], {
     get: (_t, key) => () => unwired(`access.${String(key)}`),
   }),

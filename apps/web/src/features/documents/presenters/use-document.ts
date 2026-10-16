@@ -8,7 +8,7 @@ export interface DocumentPageModel {
   title: string;
   typeLabel: string;
   description: string | null;
-  org: { acronym: string; name: string; href: string; paperworksHref: string };
+  org: { slug: string; acronym: string; name: string; href: string; paperworksHref: string };
   /** "2026-2027, First semester", or just the year. */
   term: string;
   status: DocumentSummary['status'];
@@ -23,6 +23,7 @@ export function toDocumentPage(doc: DocumentSummary): DocumentPageModel {
     typeLabel: doc.type.name,
     description: doc.description,
     org: {
+      slug: doc.organization.slug,
       acronym: doc.organization.acronym,
       name: doc.organization.name,
       href: `/orgs/${doc.organization.slug}`,

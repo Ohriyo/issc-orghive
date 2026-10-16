@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { academicYearSchema, semesterSchema } from './academic-term';
 import { documentStatusSchema } from './document-status';
 import { organizationTypeSchema, slugSchema } from './organization';
+import { documentTagsSchema, uploadKeySchema } from './upload';
 
 /**
  * Who may see an approved document (docs/DOMAIN_RULES.md, provisional):
@@ -23,18 +24,45 @@ const titleSchema = z.string().trim().min(3).max(200);
 const descriptionSchema = z.string().trim().max(2000);
 
 /**
- * POST /organizations/:slug/documents. Creates a draft; the file is uploaded separately.
- * Strict, so a client cannot set `status`, `organizationId` or other server-owned fields.
+ * A document's details as the upload form collects them. Strict, so a client cannot set
+ * `status`, `organizationId` or other server-owned fields.
  */
-export const createDocumentRequestSchema = z.strictObject({
-  typeId: z.uuid(),
+export const documentMetadataSchema = z.strictObject({
+  typeId: z.uuid('Choose a document type'),
   title: titleSchema,
   description: descriptionSchema.optional(),
   academicYear: academicYearSchema,
   semester: semesterSchema.optional(),
   visibility: documentVisibilitySchema.default(DEFAULT_DOCUMENT_VISIBILITY),
+  tags: documentTagsSchema.default([]),
+});
+export type DocumentMetadata = z.input<typeof documentMetadataSchema>;
+
+/**
+ * POST /organizations/:slug/documents: the metadata plus the key of a file already PUT to
+ * storage with an upload URL. Creates the document with that file as version 1, pending
+ * review, and queues its virus scan and processing.
+ */
+export const createDocumentRequestSchema = documentMetadataSchema.extend({
+  uploadKey: uploadKeySchema,
 });
 export type CreateDocumentRequest = z.infer<typeof createDocumentRequestSchema>;
+
+/** POST /documents/:documentId/versions: a re-upload, from a new upload URL. */
+export const addVersionRequestSchema = z.strictObject({ uploadKey: uploadKeySchema });
+export type AddVersionRequest = z.infer<typeof addVersionRequestSchema>;
+
+/** Route params for `/documents/:documentId/versions/:versionId`. */
+export const versionParamsSchema = z.object({ documentId: z.uuid(), versionId: z.uuid() });
+
+/**
+ * Where a file is in processing: `pending` until the worker has checked it, `clean` once
+ * it passed, `infected` if ClamAV flagged it, `invalid` if its bytes are not the type it
+ * claimed. Only clean files can be downloaded or approved.
+ */
+export const SCAN_STATUSES = ['pending', 'clean', 'infected', 'invalid'] as const;
+export const scanStatusSchema = z.enum(SCAN_STATUSES);
+export type ScanStatus = z.infer<typeof scanStatusSchema>;
 
 /** PATCH /documents/:documentId. At least one field; `null` clears an optional one. */
 export const updateDocumentRequestSchema = z
@@ -45,6 +73,7 @@ export const updateDocumentRequestSchema = z
     academicYear: academicYearSchema,
     semester: semesterSchema.nullable(),
     visibility: documentVisibilitySchema,
+    tags: documentTagsSchema,
   })
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, 'Change at least one field');
@@ -99,6 +128,7 @@ export const documentSummarySchema = z
     semester: semesterSchema.nullable(),
     status: documentStatusSchema,
     visibility: documentVisibilitySchema,
+    tags: z.array(z.string()),
     submittedAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -115,8 +145,10 @@ export const documentSummarySchema = z
         originalFilename: z.string(),
         mimeType: z.string(),
         sizeBytes: z.number().int(),
-        scanStatus: z.enum(['pending', 'clean', 'infected']),
+        scanStatus: scanStatusSchema,
         createdAt: z.iso.datetime(),
+        /** Signed preview of page 1 (PDFs), valid for 15 minutes; null until processed. */
+        thumbnailUrl: z.url().nullable(),
       })
       .nullable(),
   })
@@ -127,3 +159,30 @@ export const documentListResponseSchema = z
   .object({ items: z.array(documentSummarySchema), nextCursor: z.uuid().nullable() })
   .meta({ id: 'DocumentListResponse' });
 export type DocumentListResponse = z.infer<typeof documentListResponseSchema>;
+
+/** One file of a document. Every upload is a new version; none is ever overwritten. */
+export const documentVersionSchema = z
+  .object({
+    id: z.uuid(),
+    version: z.number().int(),
+    originalFilename: z.string(),
+    mimeType: z.string(),
+    sizeBytes: z.number().int(),
+    scanStatus: scanStatusSchema,
+    createdAt: z.iso.datetime(),
+    /** The version the document shows now. A re-upload becomes current once it is clean. */
+    isCurrent: z.boolean(),
+  })
+  .meta({ id: 'DocumentVersion' });
+export type DocumentVersion = z.infer<typeof documentVersionSchema>;
+
+export const documentVersionListResponseSchema = z
+  .object({ versions: z.array(documentVersionSchema) })
+  .meta({ id: 'DocumentVersionList' });
+export type DocumentVersionListResponse = z.infer<typeof documentVersionListResponseSchema>;
+
+/** GET /documents/:documentId/versions/:versionId/download-url: a 5-minute signed link. */
+export const downloadUrlResponseSchema = z
+  .object({ url: z.url(), expiresAt: z.iso.datetime() })
+  .meta({ id: 'DownloadUrlResponse' });
+export type DownloadUrlResponse = z.infer<typeof downloadUrlResponseSchema>;

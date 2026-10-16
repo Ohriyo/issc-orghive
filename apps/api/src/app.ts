@@ -19,6 +19,7 @@ import type { CollegeService } from '#src/services/college.service';
 import type { DocumentService } from '#src/services/document.service';
 import type { OrganizationService } from '#src/services/organization.service';
 import type { TokenService } from '#src/services/token.service';
+import type { UploadService } from '#src/services/upload.service';
 
 export interface AppServices {
   auth: AuthService;
@@ -26,6 +27,7 @@ export interface AppServices {
   colleges: CollegeService;
   organizations: OrganizationService;
   documents: DocumentService;
+  uploads: UploadService;
   access: AccessService;
 }
 
@@ -73,6 +75,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   v1.use(
     documentsRouter({
       documents: services.documents,
+      uploads: services.uploads,
       access: services.access,
       tokens: services.tokens,
     }),

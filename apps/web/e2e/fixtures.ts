@@ -79,6 +79,7 @@ const cea: CollegeDetail = {
 
 const organizations: Record<string, OrganizationDetail> = {
   issc: {
+    id: '0195f3c0-0000-7000-8000-0000000000c1',
     type: 'ISSC',
     slug: 'issc',
     acronym: 'ISSC',
@@ -91,6 +92,7 @@ const organizations: Record<string, OrganizationDetail> = {
     college: null,
   },
   jpice: {
+    id: '0195f3c0-0000-7000-8000-0000000000c2',
     ...sbos[3]!,
     description:
       'The JPICE is a dynamic organization committed to shaping competent and socially responsible civil engineering students.',
@@ -136,6 +138,7 @@ const documents: DocumentSummary[] = TITLES.map((title, i) => ({
   semester: 'first',
   status: 'approved',
   visibility: 'public',
+  tags: [],
   submittedAt: '2026-09-01T00:00:00.000Z',
   createdAt: '2026-08-20T00:00:00.000Z',
   updatedAt: '2026-09-01T00:00:00.000Z',
@@ -148,6 +151,7 @@ const documents: DocumentSummary[] = TITLES.map((title, i) => ({
     sizeBytes: 120_000,
     scanStatus: 'clean',
     createdAt: '2026-08-20T00:00:00.000Z',
+    thumbnailUrl: null,
   },
 }));
 
@@ -160,6 +164,8 @@ export const PUBLIC_ROUTES = [
   '/orgs/jpice',
   '/orgs/issc',
   '/orgs/jpice/paperworks',
+  // Signed out, this redirects to sign-in: the check covers that path.
+  '/orgs/jpice/paperworks/upload',
   `/documents/${DOCUMENT_ID}`,
   '/login',
   '/forgot-password',
@@ -192,6 +198,26 @@ export async function stubApi(page: Page) {
     }
     const org = /^\/organizations\/([a-z0-9-]+)$/.exec(path);
     if (org && organizations[org[1]!]) return json(route, organizations[org[1]!]);
+    const versions = /^\/documents\/([0-9a-f-]+)\/versions$/.exec(path);
+    if (versions) {
+      const found = documents.find((d) => d.id === versions[1]);
+      if (found) {
+        return json(route, {
+          versions: [
+            {
+              id: '0195f3c0-0000-7000-8000-0000000000f1',
+              version: 1,
+              originalFilename: found.currentVersion!.originalFilename,
+              mimeType: 'application/pdf',
+              sizeBytes: found.currentVersion!.sizeBytes,
+              scanStatus: 'clean',
+              createdAt: found.createdAt,
+              isCurrent: true,
+            },
+          ],
+        });
+      }
+    }
     const doc = /^\/documents\/([0-9a-f-]+)$/.exec(path);
     if (doc) {
       const found = documents.find((d) => d.id === doc[1]);

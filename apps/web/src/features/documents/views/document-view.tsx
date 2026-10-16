@@ -1,12 +1,15 @@
-import { ArrowLeft, FileText } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router';
 import { Container } from '@/components/container';
-import { HexFrame } from '@/components/hex-frame';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
 import type { DocumentPageState } from '../presenters/use-document';
+import type { DocumentFilesModel } from '../presenters/use-document-files';
+import { DocumentFiles } from './document-files';
 
-export type DocumentViewProps = Exclude<DocumentPageState, { status: 'not-found' }>;
+export type DocumentViewProps = Exclude<DocumentPageState, { status: 'not-found' }> & {
+  files: DocumentFilesModel;
+};
 
 const STATUS_LABEL = {
   draft: 'Draft',
@@ -19,8 +22,8 @@ const STATUS_LABEL = {
 const dateFormat = new Intl.DateTimeFormat('en-PH', { dateStyle: 'long' });
 
 /**
- * /documents/:id. For now the document's details only; the file preview and download
- * arrive with uploads.
+ * /documents/:id: the document's details and its files (every version, downloadable once
+ * clean; officers can upload a new version).
  */
 export function DocumentView(props: DocumentViewProps) {
   return (
@@ -77,16 +80,7 @@ export function DocumentView(props: DocumentViewProps) {
                   <dd className="text-ink">{STATUS_LABEL[props.page.status]}</dd>
                 </div>
               </dl>
-              <div className="mt-10 flex items-center gap-5 rounded-2xl bg-white p-5 ring-1 ring-ink/10">
-                <HexFrame className="w-16 shrink-0" shadow={false} contentClassName="p-[26%]">
-                  <FileText aria-hidden="true" className="size-full text-white" />
-                </HexFrame>
-                <p className="text-body text-ink">
-                  {props.page.hasFile
-                    ? 'Viewing and downloading the file will be available here soon.'
-                    : 'No file has been uploaded for this document yet.'}
-                </p>
-              </div>
+              <DocumentFiles files={props.files} />
             </article>
           </>
         ) : props.status === 'error' ? (

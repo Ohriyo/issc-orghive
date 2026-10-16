@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { cacheKeys, memoryCache } from '#src/lib/cache';
 import type { DocumentRecord } from '#src/repositories/document.repository';
 import { PUBLIC_VIEWER, type DocumentViewer } from '#src/repositories/document-visibility';
-import { createDocumentService } from '#src/services/document.service';
+import { createDocumentService, type DocumentServiceDeps } from '#src/services/document.service';
 
 const JPICE = { id: 'jpice', slug: 'jpice' };
 const IECEP = { id: 'iecep', slug: 'iecep' };
@@ -26,6 +26,7 @@ function record(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
     semester: null,
     status: 'draft',
     visibility: 'members',
+    tags: [],
     submittedAt: null,
     createdAt: at,
     updatedAt: at,
@@ -38,9 +39,23 @@ function record(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
       mimeType: 'application/pdf',
       sizeBytes: 10,
       scanStatus: 'clean',
+      thumbnailKey: null,
       createdAt: at,
     },
     ...overrides,
+  };
+}
+
+function version(id: string, n: number, scanStatus: 'pending' | 'clean' | 'infected') {
+  return {
+    id,
+    version: n,
+    originalFilename: `${id}.pdf`,
+    mimeType: 'application/pdf',
+    sizeBytes: 10,
+    scanStatus,
+    storageKey: `uploads/${id}`,
+    createdAt: new Date('2026-10-01T00:00:00Z'),
   };
 }
 
@@ -54,8 +69,35 @@ function setup(doc: DocumentRecord | null = record()) {
     setStatus: vi.fn(() => Promise.resolve(true)),
     decide: vi.fn(() => Promise.resolve(true)),
     softDelete: vi.fn(() => Promise.resolve(true)),
+    addVersion: vi.fn(() =>
+      Promise.resolve<{ id: string; version: number } | null>({ id: 'v2', version: 2 }),
+    ),
+    listVersions: vi.fn(() =>
+      Promise.resolve<Awaited<ReturnType<DocumentServiceDeps['documents']['listVersions']>>>({
+        organizationId: 'jpice',
+        currentVersionId: 'v1',
+        versions: [version('v2', 2, 'pending'), version('v1', 1, 'clean')],
+      }),
+    ),
+    findVersion: vi.fn(() =>
+      Promise.resolve<ReturnType<typeof version> | null>(version('v1', 1, 'clean')),
+    ),
   };
   const audit = { record: vi.fn(() => Promise.resolve()) };
+  const uploads = {
+    claim: vi.fn(() =>
+      Promise.resolve({
+        storageKey: 'uploads/jpice/k1',
+        originalFilename: 'p.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 10,
+      }),
+    ),
+  };
+  const queue = { enqueueProcessing: vi.fn(() => Promise.resolve()) };
+  const storage = {
+    presignGet: vi.fn((key: string) => Promise.resolve(`https://storage.test/${key}?signed`)),
+  };
   const service = createDocumentService({
     documents,
     documentTypes: {
@@ -66,14 +108,18 @@ function setup(doc: DocumentRecord | null = record()) {
       findBySlug: (slug: string) => Promise.resolve(slug === 'jpice' ? (JPICE as never) : null),
     },
     viewers: { forUser: () => Promise.resolve(VIEWER) },
+    uploads,
+    queue,
+    storage,
     audit,
     cache,
+    now: () => new Date('2026-10-16T00:00:00Z'),
   });
   // A cached list that every write must clear.
   cache.store.set(cacheKeys.organizationDocuments('jpice', 'abc'), '{}');
   cache.store.set(cacheKeys.organizationDocuments('psme', 'abc'), '{}');
   const jpiceListCached = () => cache.store.has(cacheKeys.organizationDocuments('jpice', 'abc'));
-  return { service, documents, audit, cache, jpiceListCached };
+  return { service, documents, audit, cache, jpiceListCached, uploads, queue, storage };
 }
 
 describe('documentService.list', () => {
@@ -142,24 +188,130 @@ describe('documentService.create', () => {
     title: 'New',
     academicYear: '2026-2027',
     visibility: 'members' as const,
+    tags: ['bridge'],
+    uploadKey: 'uploads/jpice/k1',
   };
 
-  it('creates a draft in the guarded organization and clears its cached lists', async () => {
-    const { service, documents, jpiceListCached, cache } = setup();
+  it('creates the document with its uploaded file as version 1, pending, and queues it', async () => {
+    const { service, documents, jpiceListCached, cache, uploads, queue, audit } = setup();
     await service.create(ACTOR, JPICE, input);
+    expect(uploads.claim).toHaveBeenCalledWith('u1', JPICE, 'uploads/jpice/k1');
     expect(documents.create).toHaveBeenCalledWith(
-      expect.objectContaining({ organizationId: 'jpice', status: 'draft', createdById: 'u1' }),
+      expect.objectContaining({
+        organizationId: 'jpice',
+        status: 'pending',
+        tags: ['bridge'],
+        createdById: 'u1',
+        firstVersion: expect.objectContaining({
+          storageKey: 'uploads/jpice/k1',
+          uploadedById: 'u1',
+        }) as unknown,
+      }),
     );
+    expect(queue.enqueueProcessing).toHaveBeenCalledWith('v1');
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'upload' }));
     expect(jpiceListCached()).toBe(false);
     expect(cache.store.has(cacheKeys.organizationDocuments('psme', 'abc'))).toBe(true);
   });
 
-  it('400s an unknown document type', async () => {
-    const { service, documents } = setup();
+  it('400s an unknown document type without claiming the upload', async () => {
+    const { service, documents, uploads } = setup();
     await expect(
       service.create(ACTOR, JPICE, { ...input, typeId: crypto.randomUUID() }),
     ).rejects.toMatchObject({ status: 400 });
+    expect(uploads.claim).not.toHaveBeenCalled();
     expect(documents.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('documentService.addVersion', () => {
+  it('claims the upload, adds the next version and queues it', async () => {
+    const { service, documents, queue, audit } = setup(record({ status: 'approved' }));
+    const added = await service.addVersion(ACTOR, JPICE, 'd1', 'uploads/jpice/k2');
+    expect(documents.addVersion).toHaveBeenCalledWith(
+      VIEWER,
+      'd1',
+      expect.objectContaining({ storageKey: 'uploads/jpice/k1', uploadedById: 'u1' }),
+    );
+    expect(queue.enqueueProcessing).toHaveBeenCalledWith('v2');
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'upload',
+        metadata: expect.objectContaining({ version: 2 }) as unknown,
+      }),
+    );
+    expect(added).toMatchObject({ version: 2, scanStatus: 'pending', isCurrent: false });
+  });
+
+  it('409s an archived document', async () => {
+    const { service, uploads } = setup(record({ status: 'archived' }));
+    await expect(service.addVersion(ACTOR, JPICE, 'd1', 'k')).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(uploads.claim).not.toHaveBeenCalled();
+  });
+});
+
+describe('documentService.listVersions', () => {
+  it('shows members every version, marking the current one', async () => {
+    const { service } = setup();
+    const { versions } = await service.listVersions('u1', 'd1');
+    expect(versions.map((v) => [v.version, v.scanStatus, v.isCurrent])).toEqual([
+      [2, 'pending', false],
+      [1, 'clean', true],
+    ]);
+  });
+
+  it('shows everyone else only clean versions', async () => {
+    const { service } = setup();
+    const { versions } = await service.listVersions(undefined, 'd1');
+    expect(versions.map((v) => v.version)).toEqual([1]);
+  });
+
+  it('404s a document the viewer may not see', async () => {
+    const { service, documents } = setup();
+    documents.listVersions.mockResolvedValueOnce(null);
+    await expect(service.listVersions(undefined, 'd1')).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('documentService.downloadUrl', () => {
+  it('signs a 5-minute link to a clean version, as an attachment by default', async () => {
+    const { service, storage } = setup();
+    const link = await service.downloadUrl(undefined, 'd1', 'v1');
+    expect(storage.presignGet).toHaveBeenCalledWith(
+      'uploads/v1',
+      { filename: 'v1.pdf', contentType: 'application/pdf', disposition: 'attachment' },
+      300,
+    );
+    expect(link).toEqual({
+      url: 'https://storage.test/uploads/v1?signed',
+      expiresAt: '2026-10-16T00:05:00.000Z',
+    });
+  });
+
+  it('409s a file that has not passed the scan, 404s an invisible one', async () => {
+    const { service, documents } = setup();
+    documents.findVersion.mockResolvedValueOnce(version('v2', 2, 'infected'));
+    await expect(service.downloadUrl('u1', 'd1', 'v2')).rejects.toMatchObject({ status: 409 });
+    documents.findVersion.mockResolvedValueOnce(null);
+    await expect(service.downloadUrl(undefined, 'd1', 'v1')).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('documentService previews', () => {
+  it('signs the current version preview when serving, never caching a signed link', async () => {
+    const doc = record();
+    doc.currentVersion!.thumbnailKey = 'thumbnails/d1/v1.webp';
+    const { service, cache } = setup(doc);
+    const summary = await service.get(undefined, 'd1');
+    expect(summary.currentVersion?.thumbnailUrl).toBe(
+      'https://storage.test/thumbnails/d1/v1.webp?signed',
+    );
+    await service.list(undefined, 'jpice', {});
+    const cached = [...cache.store.values()].find((v) => v.includes('thumbnails/d1'));
+    expect(cached).toContain('"thumbnailKey":"thumbnails/d1/v1.webp"');
+    expect(cached).not.toContain('?signed');
   });
 });
 

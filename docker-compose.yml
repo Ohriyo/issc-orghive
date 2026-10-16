@@ -40,6 +40,8 @@ services:
     environment:
       MINIO_ROOT_USER: orghive
       MINIO_ROOT_PASSWORD: orghive-dev-password
+      # Browsers upload straight to storage with pre-signed PUTs; allow the web app's origin.
+      MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:5173
     ports:
       - '9000:9000' # S3 API
       - '9001:9001' # web console
@@ -68,6 +70,21 @@ services:
         echo "Bucket 'orghive' is ready (private; logos/ is public-read)."
     restart: 'no'
 
+  # Virus scanner for uploads (the worker streams each file to clamd on 3310). The first
+  # start downloads the signature database, so it reports healthy after a few minutes.
+  clamav:
+    image: clamav/clamav:1.4
+    ports:
+      - '3310:3310'
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ['CMD', 'clamdcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
   mailpit:
     image: axllent/mailpit:v1.31.5
     ports:
@@ -80,6 +97,7 @@ services:
       retries: 10
 
 volumes:
+  clamav-data:
   postgres-data:
   redis-data:
   minio-data:

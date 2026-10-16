@@ -149,18 +149,23 @@ beforeAll(async () => {
   });
 });
 
-type Target = 'draft' | 'pending' | 'publicApproved' | 'privateApproved';
+type Target = 'draft' | 'pending' | 'publicApproved' | 'privateApproved' | 'archived';
 
 /** Fresh IECEP documents for one case, so cases never depend on each other. */
 async function iecepDocument(target: Target, orgId = iecep.id) {
   const status = target === 'draft' ? 'draft' : target === 'pending' ? 'pending' : 'approved';
-  return createTestDocument(db, {
+  const created = await createTestDocument(db, {
     organizationId: orgId,
     typeId: world.types.proposal.id,
     title: `IECEP ${target} ${crypto.randomUUID()}`,
     status,
     createdById: userIds.iecepOfficer,
     visibility: target === 'privateApproved' ? 'private' : 'public',
+  });
+  if (target !== 'archived') return created;
+  return db.document.update({
+    where: { id: created.id },
+    data: { status: 'archived', archivedFromStatus: 'approved' },
   });
 }
 
@@ -335,6 +340,32 @@ const ACTIONS: Action[] = [
     },
   },
   {
+    name: 'archive an approved document',
+    target: 'publicApproved',
+    run: (t, id) => call('post', `/documents/${id}/archive`, t),
+    expected: {
+      anonymous: 401,
+      student: 403,
+      jpiceOfficer: 403,
+      iecepOfficer: 200,
+      ceaAdviser: 403,
+      admin: 200,
+    },
+  },
+  {
+    name: 'restore an archived document',
+    target: 'archived',
+    run: (t, id) => call('post', `/documents/${id}/restore`, t),
+    expected: {
+      anonymous: 401,
+      student: 403,
+      jpiceOfficer: 403,
+      iecepOfficer: 200,
+      ceaAdviser: 403,
+      admin: 200,
+    },
+  },
+  {
     name: 'delete a document',
     target: 'publicApproved',
     run: (t, id) => call('delete', `/documents/${id}`, t),
@@ -373,6 +404,36 @@ describe('document authorization: cross-organization and term checks', () => {
     const after = await db.document.findUniqueOrThrow({ where: { id: iecepDraft.id } });
     expect(after.title).not.toBe('Not mine');
     expect(after.deletedAt).toBeNull();
+  });
+
+  it('archives a rejected document and restores it to rejected, auditing both', async () => {
+    const doc = await createTestDocument(db, {
+      organizationId: world.orgs.jpice.id,
+      typeId: world.types.proposal.id,
+      title: `JPICE round trip ${crypto.randomUUID()}`,
+      status: 'rejected',
+      createdById: userIds.jpiceOfficer,
+    });
+    const t = tokenOf.jpiceOfficer;
+    const archived = await call('post', `/documents/${doc.id}/archive`, t).expect(200);
+    expect(archived.body).toMatchObject({ status: 'archived' });
+    await call('post', `/documents/${doc.id}/archive`, t).expect(409);
+    const restored = await call('post', `/documents/${doc.id}/restore`, t).expect(200);
+    expect(restored.body).toMatchObject({ status: 'rejected' });
+    const actions = await db.auditLog.findMany({
+      where: { entityId: doc.id },
+      orderBy: { createdAt: 'asc' },
+      select: { action: true },
+    });
+    expect(actions.map((a) => a.action)).toEqual(['archive', 'restore']);
+  });
+
+  it('409s restoring a document archived before its earlier status was recorded', async () => {
+    await call(
+      'post',
+      `/documents/${world.docs.jpiceArchived.id}/restore`,
+      tokenOf.jpiceOfficer,
+    ).expect(409);
   });
 
   it('cannot move a document to another organization through the body', async () => {

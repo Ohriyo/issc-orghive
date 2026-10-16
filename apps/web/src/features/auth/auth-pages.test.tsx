@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +13,7 @@ const USER = {
   email: 'juan@nwssu.test',
   mustChangePassword: false,
   roles: [],
+  memberships: [],
 };
 
 function auth(overrides: Partial<typeof USER> = {}): AuthResponse {
@@ -51,32 +52,43 @@ afterEach(() => {
 
 describe('protected routes', () => {
   it('shows a skeleton while the session is being checked', async () => {
-    renderAt('/account');
+    renderAt('/dashboard');
     expect(await screen.findByText('Checking your session')).toBeInTheDocument();
   });
 
   it('sends a signed-out visitor to /login, remembering where they were going', async () => {
     authStore.clear();
-    const router = renderAt('/account');
+    const router = renderAt('/dashboard');
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
-    expect(router.state.location.search).toBe('?next=%2Faccount');
+    expect(router.state.location.search).toBe('?next=%2Fdashboard');
   });
 
   it('holds a temporary password at /change-password', async () => {
     authStore.setSession(auth({ mustChangePassword: true }));
-    const router = renderAt('/account');
+    const router = renderAt('/dashboard');
     await waitFor(() => expect(router.state.location.pathname).toBe('/change-password'));
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Choose your own password' }),
     ).toBeInTheDocument();
   });
 
-  it('shows the account and signs out on the server', async () => {
+  it('signs out from the header user menu, on the server', async () => {
     authStore.setSession(auth());
     fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
-    const router = renderAt('/account');
+    const router = renderAt('/dashboard');
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+    const trigger = await screen.findByRole(
+      'button',
+      { name: 'Account menu, Juan Dela Cruz' },
+      { timeout: 5000 },
+    );
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    const menu = await screen.findByRole('menu');
+    expect(screen.getByRole('menuitem', { name: 'Change password' })).toHaveAttribute(
+      'href',
+      '/change-password',
+    );
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Sign out' }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     expect(fetchMock).toHaveBeenCalledWith(
@@ -185,12 +197,12 @@ describe('/reset-password', () => {
 describe('safeNext', () => {
   it('keeps same-site paths and refuses ones that would leave the site', () => {
     expect(safeNext('/orgs/jpice?x=1')).toBe('/orgs/jpice?x=1');
-    expect(safeNext('//evil.example')).toBe('/account');
-    expect(safeNext('/\\evil.example')).toBe('/account');
-    expect(safeNext('https://evil.example')).toBe('/account');
-    expect(safeNext('/\t/evil.example')).toBe('/account');
-    expect(safeNext('/\n/evil.example')).toBe('/account');
-    expect(safeNext('/orgs/jpice paperworks')).toBe('/account');
-    expect(safeNext(null)).toBe('/account');
+    expect(safeNext('//evil.example')).toBe('/dashboard');
+    expect(safeNext('/\\evil.example')).toBe('/dashboard');
+    expect(safeNext('https://evil.example')).toBe('/dashboard');
+    expect(safeNext('/\t/evil.example')).toBe('/dashboard');
+    expect(safeNext('/\n/evil.example')).toBe('/dashboard');
+    expect(safeNext('/orgs/jpice paperworks')).toBe('/dashboard');
+    expect(safeNext(null)).toBe('/dashboard');
   });
 });

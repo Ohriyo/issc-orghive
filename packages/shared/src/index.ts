@@ -8,3 +8,4 @@ export * from './academic-term';
 export * from './public-read';
 export * from './seo';
 export * from './auth';
+export * from './dashboard';

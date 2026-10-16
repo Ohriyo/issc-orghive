@@ -21,23 +21,10 @@ function hasUnsafeCharacter(value: string): boolean {
  * an open redirect, so they fall back. The final check resolves it against a placeholder
  * origin and requires it to stay there.
  */
-export function safeNext(next: string | null | undefined, fallback = '/account'): string {
+export function safeNext(next: string | null | undefined, fallback = '/dashboard'): string {
   if (!next || !next.startsWith('/') || next.startsWith('//') || hasUnsafeCharacter(next)) {
     return fallback;
   }
   const base = 'https://orghive.invalid';
   return new URL(next, base).origin === base ? next : fallback;
-}
-
-export interface AccountLink {
-  label: 'Login' | 'Account';
-  href: '/login' | '/account';
-}
-
-/** The header's sign-in entry: "Account" once signed in, "Login" otherwise. */
-export function useAccountLink(): AccountLink {
-  const { status } = useAuth();
-  return status === 'authenticated'
-    ? { label: 'Account', href: '/account' }
-    : { label: 'Login', href: '/login' };
 }

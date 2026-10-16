@@ -69,6 +69,8 @@ function setup(doc: DocumentRecord | null = record()) {
     setStatus: vi.fn(() => Promise.resolve(true)),
     decide: vi.fn(() => Promise.resolve(true)),
     softDelete: vi.fn(() => Promise.resolve(true)),
+    archive: vi.fn(() => Promise.resolve(true)),
+    restore: vi.fn(() => Promise.resolve(true)),
     addVersion: vi.fn(() =>
       Promise.resolve<{ id: string; version: number } | null>({ id: 'v2', version: 2 }),
     ),
@@ -423,5 +425,61 @@ describe('documentService.remove', () => {
     const { service, audit } = setup(null);
     await expect(service.remove(ACTOR, JPICE, 'd1')).rejects.toMatchObject({ status: 404 });
     expect(audit.record).not.toHaveBeenCalled();
+  });
+});
+
+describe('documentService.archive', () => {
+  it('archives an approved or rejected document, audits it and clears the cache', async () => {
+    for (const status of ['approved', 'rejected'] as const) {
+      const { service, documents, audit, jpiceListCached } = setup(record({ status }));
+      await service.archive(ACTOR, JPICE, 'd1');
+      expect(documents.archive).toHaveBeenCalledWith(VIEWER, 'd1');
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'archive', entityId: 'd1', metadata: { from: status } }),
+      );
+      expect(jpiceListCached()).toBe(false);
+    }
+  });
+
+  it('409s a draft, pending or archived document without writing', async () => {
+    for (const status of ['draft', 'pending', 'archived'] as const) {
+      const { service, documents, audit } = setup(record({ status }));
+      await expect(service.archive(ACTOR, JPICE, 'd1')).rejects.toMatchObject({ status: 409 });
+      expect(documents.archive).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    }
+  });
+
+  it('404s a document of another organization', async () => {
+    const { service } = setup(record({ status: 'approved' }));
+    await expect(service.archive(ACTOR, IECEP, 'd1')).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('documentService.restore', () => {
+  it('restores an archived document and audits the status it returned to', async () => {
+    const doc = record({ status: 'archived' });
+    const { service, documents, audit, jpiceListCached } = setup(doc);
+    documents.findById
+      .mockResolvedValueOnce(doc)
+      .mockResolvedValueOnce(record({ status: 'approved' }));
+    const restored = await service.restore(ACTOR, JPICE, 'd1');
+    expect(restored.status).toBe('approved');
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'restore', metadata: { to: 'approved' } }),
+    );
+    expect(jpiceListCached()).toBe(false);
+  });
+
+  it('409s a document that is not archived, or has no recorded status to return to', async () => {
+    await expect(
+      setup(record({ status: 'approved' })).service.restore(ACTOR, JPICE, 'd1'),
+    ).rejects.toMatchObject({ status: 409 });
+    const legacy = setup(record({ status: 'archived' }));
+    legacy.documents.restore.mockResolvedValue(false);
+    await expect(legacy.service.restore(ACTOR, JPICE, 'd1')).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(legacy.audit.record).not.toHaveBeenCalled();
   });
 });

@@ -91,6 +91,16 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     res.json(await documents.submit(actorOf(req, res), orgOf(res), documentId));
   };
 
+  const archive: RequestHandler = async (req, res) => {
+    const { documentId } = documentIdParamsSchema.parse(req.params);
+    res.json(await documents.archive(actorOf(req, res), orgOf(res), documentId));
+  };
+
+  const restore: RequestHandler = async (req, res) => {
+    const { documentId } = documentIdParamsSchema.parse(req.params);
+    res.json(await documents.restore(actorOf(req, res), orgOf(res), documentId));
+  };
+
   const decide =
     (decision: 'approved' | 'rejected'): RequestHandler =>
     async (req, res) => {
@@ -120,6 +130,8 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     create,
     update,
     submit,
+    archive,
+    restore,
     approve: decide('approved'),
     reject: decide('rejected'),
     remove,

@@ -1,8 +1,10 @@
 import type { Page, Route } from '@playwright/test';
 import type {
+  AuthResponse,
   CollegeDetail,
   CollegeListResponse,
   CollegeSummary,
+  DashboardResponse,
   DocumentListResponse,
   DocumentSummary,
   DocumentTypeListResponse,
@@ -173,15 +175,124 @@ export const PUBLIC_ROUTES = [
   '/no-such-page',
 ] as const;
 
+/** Signed-in pages, checked with a stubbed officer session (JPICE and CSC-CEA). */
+export const SIGNED_IN_ROUTES = [
+  '/dashboard',
+  '/dashboard/documents?org=jpice',
+  '/dashboard/reviews',
+  '/admin',
+] as const;
+
+const OFFICER: AuthResponse = {
+  accessToken: 'e2e-token',
+  expiresIn: 900,
+  user: {
+    id: '0195f3c0-0000-7000-8000-000000000001',
+    name: 'Juan Dela Cruz',
+    email: 'jpice.officer@orghive.local',
+    mustChangePassword: false,
+    roles: [{ orgId: organizations.jpice!.id, role: 'officer', isHead: true }],
+    memberships: [
+      {
+        orgId: organizations.jpice!.id,
+        orgSlug: 'jpice',
+        orgAcronym: 'JPICE',
+        role: 'officer',
+        isHead: true,
+        title: 'President',
+      },
+    ],
+  },
+};
+
+const jpiceDocs = documents.map((d, i) => ({
+  ...d,
+  status: (['draft', 'pending', 'approved', 'rejected', 'approved'] as const)[i]!,
+}));
+
+const DASHBOARD: DashboardResponse = {
+  memberships: [
+    {
+      organizationId: organizations.jpice!.id,
+      role: 'officer',
+      isHead: true,
+      title: 'President',
+      termEnd: '2027-07-31',
+    },
+    {
+      organizationId: organizations.issc!.id,
+      role: 'officer',
+      isHead: false,
+      title: null,
+      termEnd: '2027-07-31',
+    },
+  ],
+  organizations: [
+    {
+      organization: { ...sbos[3]!, id: organizations.jpice!.id },
+      counts: { draft: 1, pending: 1, approved: 2, rejected: 1, archived: 0 },
+      recentDocuments: jpiceDocs,
+      needsRevision: [
+        {
+          document: jpiceDocs[3]!,
+          remark: 'Attach the signed page from the general assembly minutes, then send it again.',
+          reviewerName: 'Maria Santos',
+          decidedAt: '2026-10-14T03:00:00.000Z',
+        },
+      ],
+      activity: [
+        {
+          id: '0195f3c0-0000-7000-8000-0000000000a9',
+          kind: 'reject',
+          at: '2026-10-14T03:00:00.000Z',
+          actorName: 'Maria Santos',
+          document: { id: jpiceDocs[3]!.id, title: jpiceDocs[3]!.title },
+          version: 1,
+        },
+        {
+          id: '0195f3c0-0000-7000-8000-0000000000aa',
+          kind: 'upload',
+          at: '2026-10-10T03:00:00.000Z',
+          actorName: 'Juan Dela Cruz',
+          document: { id: jpiceDocs[1]!.id, title: jpiceDocs[1]!.title },
+          version: 2,
+        },
+      ],
+    },
+    {
+      organization: {
+        type: 'ISSC',
+        slug: 'issc',
+        acronym: 'ISSC',
+        name: organizations.issc!.name,
+        logoUrl: null,
+        logoSrcSet: null,
+        id: organizations.issc!.id,
+      },
+      counts: { draft: 0, pending: 0, approved: 0, rejected: 0, archived: 0 },
+      recentDocuments: [],
+      needsRevision: [],
+      activity: [],
+    },
+  ],
+  reviews: { pending: 3, organizations: 6 },
+  isAdmin: false,
+};
+
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 }
 
-/** Answers every /api/v1 request in the browser, as a signed-out visitor. */
-export async function stubApi(page: Page) {
+/** Answers every /api/v1 request in the browser, as a signed-out visitor or an officer. */
+export async function stubApi(page: Page, { signedIn = false }: { signedIn?: boolean } = {}) {
   await page.route('**/api/v1/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^\/api\/v1/, '');
+    if (signedIn && path === '/auth/refresh') return json(route, OFFICER);
+    if (signedIn && path === '/me/dashboard') return json(route, DASHBOARD);
+    if (signedIn && path === '/organizations/jpice/documents') {
+      return json(route, { items: jpiceDocs, nextCursor: null } satisfies DocumentListResponse);
+    }
     if (path === '/auth/refresh') {
       return json(
         route,

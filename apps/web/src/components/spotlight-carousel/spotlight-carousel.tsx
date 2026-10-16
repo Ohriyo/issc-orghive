@@ -9,7 +9,8 @@ import {
 } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
 import { motion } from 'motion/react';
-import { Link, useNavigate } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
+import { useOriginNavigate } from '@/navigation/use-origin-navigate';
 import { cn } from '@/lib/utils';
 import { HexFrame } from '../hex-frame';
 import { OrgLogo } from '../org-logo';
@@ -72,7 +73,7 @@ export function SpotlightCarousel({
   className,
 }: SpotlightCarouselProps) {
   const reduced = usePrefersReducedMotion();
-  const navigate = useNavigate();
+  const navigate = useOriginNavigate();
   const viewportId = useId();
   const hintId = useId();
   const [emblaRef, emblaApi] = useEmblaCarousel({
@@ -146,7 +147,7 @@ export function SpotlightCarousel({
   const onSlideClick = (event: MouseEvent, index: number, item: SpotlightItem) => {
     // The Proceed link handles its own click.
     if ((event.target as HTMLElement).closest('a')) return;
-    if (index === selected) void navigate(item.href);
+    if (index === selected) navigate(item.href);
     else goTo(index);
   };
 
@@ -213,8 +214,8 @@ export function SpotlightCarousel({
                   // Proceed button stay above the fold. It has no effect on phones in
                   // portrait or on screens 1080px tall and up.
                   variant === 'tower'
-                    ? 'max-w-[max(10rem,calc((100dvh-11rem)*0.42))] basis-[56%] @xl:basis-[40%] @3xl:basis-[36%] @5xl:basis-[21%]'
-                    : 'max-w-[max(10rem,calc((100dvh-14.5rem)*0.52))] basis-[50%] @xl:basis-[50%] @3xl:basis-[48%] @5xl:basis-[31%]',
+                    ? 'max-w-[max(10rem,calc((100dvh-var(--header-h)-11rem)*0.42))] basis-[56%] @xl:basis-[40%] @3xl:basis-[36%] @5xl:basis-[21%]'
+                    : 'max-w-[max(10rem,calc((100dvh-var(--header-h)-14.5rem)*0.52))] basis-[50%] @xl:basis-[50%] @3xl:basis-[48%] @5xl:basis-[31%]',
                 )}
               >
                 <div
@@ -372,10 +373,10 @@ function Details({
       )}
       <motion.div variants={variants} className="mt-5">
         <PillButton asChild variant={proceedVariant}>
-          <Link to={item.href}>
+          <OriginLink to={item.href}>
             {proceedLabel}
             <span className="sr-only">: {item.name}</span>
-          </Link>
+          </OriginLink>
         </PillButton>
       </motion.div>
     </motion.div>

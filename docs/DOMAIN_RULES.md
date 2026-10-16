@@ -42,6 +42,11 @@ These are implemented so the app can work, and must be revisited when the open q
   - A refused file (ClamAV finding, or bytes that are not the declared type) is moved to `quarantine/` and audited. If it was version 1, the document is marked `rejected`. If it was a re-upload, the document keeps its last clean version and status.
   - Signed-out users and non-members see only clean versions; the organization's members, its approvers and admins also see pending and refused ones.
   - Tags are free-form (at most 10, lowercased). Whether there should be an official tag list is open.
+- **Archiving** (chosen by the project owner on 2026-10-16; `apps/api/src/services/document.service.ts`):
+  - Officers of the owning organization archive `approved` or `rejected` documents. Archived documents leave the public Paperworks and cannot change.
+  - Officers can restore an archived document; it returns to the status it had before (`documents.archived_from_status`). Documents archived before that column existed cannot be restored this way.
+  - Archive and restore are audited.
+- **Dashboard** (`/dashboard`): each user sees only the organizations of their active memberships. The "Pending reviews" count appears for anyone the approval chain above makes a reviewer; advisers outside the ISSC approve nothing, so they see their organization read-only.
 
 ## Open questions
 

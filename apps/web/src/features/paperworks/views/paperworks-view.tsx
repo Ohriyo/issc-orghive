@@ -1,5 +1,5 @@
-import { ArrowLeft, Upload } from 'lucide-react';
-import { Link } from 'react-router';
+import { Upload } from 'lucide-react';
+import { OriginLink } from '@/navigation/origin-link';
 import { Container } from '@/components/container';
 import { DocumentCard, DocumentCardSkeleton } from '@/components/document-card';
 import { PillButton } from '@/components/pill-button';
@@ -19,33 +19,26 @@ const GRID = 'grid gap-4 md:grid-cols-2 lg:grid-cols-3 lg:gap-6';
  */
 export function PaperworksView(props: PaperworksViewProps) {
   return (
-    <div className="bg-surface-sweep min-h-dvh">
+    <div className="bg-surface-sweep min-h-page">
       <title>
         {props.status === 'ready'
           ? `${props.org.acronym} Paperworks | Orghive`
           : 'Paperworks | Orghive'}
       </title>
-      <Container as="main" className="pt-6 pb-section lg:pt-10">
+      <Container as="main" className="pt-4 pb-section lg:pt-6">
         {props.status === 'ready' ? (
           <>
-            <Link
-              to={props.org.href}
-              className="tap-area inline-flex items-center gap-2 text-body font-medium text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 hover:decoration-leaf focus-visible:decoration-leaf"
-            >
-              <ArrowLeft aria-hidden="true" className="size-4" />
-              {props.org.acronym}
-            </Link>
-            <header className="mt-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-5 lg:mt-12">
+            <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-5">
               <div>
                 <h1 className="text-display font-bold text-ink">Paperworks</h1>
                 <p className="mt-2 text-lead text-ink">{props.org.name}</p>
               </div>
               {props.uploadHref ? (
                 <PillButton asChild size="md">
-                  <Link to={props.uploadHref}>
+                  <OriginLink to={props.uploadHref}>
                     <Upload aria-hidden="true" />
                     Upload documents
-                  </Link>
+                  </OriginLink>
                 </PillButton>
               ) : null}
             </header>

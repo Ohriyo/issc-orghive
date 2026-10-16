@@ -1,6 +1,6 @@
 import { Search, X } from 'lucide-react';
 import { Dialog } from 'radix-ui';
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import { Container } from '@/components/container';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
@@ -117,7 +117,7 @@ function SearchResultsView({
 
 function ResultLink({ result, onPick }: { result: SearchResult; onPick: () => void }) {
   return (
-    <Link
+    <OriginLink
       to={result.href}
       onClick={onPick}
       className="ease-cinematic block min-h-11 rounded-xl bg-white p-4 shadow-pool ring-1 ring-ink/10 transition-[translate,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-pool-lift focus-visible:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:focus-visible:translate-y-0"
@@ -129,6 +129,6 @@ function ResultLink({ result, onPick }: { result: SearchResult; onPick: () => vo
         </abbr>
         , {result.typeName}, {result.academicYear}
       </span>
-    </Link>
+    </OriginLink>
   );
 }

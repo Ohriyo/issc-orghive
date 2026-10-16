@@ -24,7 +24,8 @@ const tokens = createTokenService(testKeys());
 
 /** An access service that knows one organization and one document, and allows `allow`. */
 function fakeAccess(allow: boolean) {
-  const decide = () => (allow ? Promise.resolve('membership' as const) : Promise.reject(AppError.forbidden()));
+  const decide = () =>
+    allow ? Promise.resolve('membership' as const) : Promise.reject(AppError.forbidden());
   return {
     resolveBySlug: vi.fn((slug: string) => Promise.resolve(slug === 'jpice' ? JPICE : null)),
     resolveByDocument: vi.fn((id: string) => Promise.resolve(id === DOC ? JPICE : null)),
@@ -41,7 +42,12 @@ function guardedApp(access: AccessService) {
     res.json({ userId: authOf(res).userId, org: orgOf(res).slug });
   };
   app.post('/orgs/:slug/documents', requireAuth(tokens), requireOrgRole('officer'), ok);
-  app.patch('/documents/:documentId', requireAuth(tokens), requireOrgRole('officer', 'adviser'), ok);
+  app.patch(
+    '/documents/:documentId',
+    requireAuth(tokens),
+    requireOrgRole('officer', 'adviser'),
+    ok,
+  );
   app.post('/documents/:documentId/approve', requireAuth(tokens), requireApprover(), ok);
   app.get('/maybe', optionalAuth(tokens), (_req, res) => {
     res.json({ userId: maybeAuthOf(res)?.userId ?? null });
@@ -65,10 +71,7 @@ describe('requireAuth', () => {
 
   it('401: no token, a malformed header, or an invalid token', async () => {
     await request(app).post('/orgs/jpice/documents').expect(401);
-    await request(app)
-      .post('/orgs/jpice/documents')
-      .set('Authorization', 'Basic abc')
-      .expect(401);
+    await request(app).post('/orgs/jpice/documents').set('Authorization', 'Basic abc').expect(401);
     await request(app)
       .post('/orgs/jpice/documents')
       .set('Authorization', 'Bearer abc.def.ghi')
@@ -140,7 +143,10 @@ describe('org guards', () => {
   it('404s an unknown organization or document before checking roles', async () => {
     const access = fakeAccess(true);
     const app = guardedApp(access);
-    await request(app).post('/orgs/psme/documents').set('Authorization', await auth()).expect(404);
+    await request(app)
+      .post('/orgs/psme/documents')
+      .set('Authorization', await auth())
+      .expect(404);
     await request(app)
       .patch(`/documents/${crypto.randomUUID()}`)
       .set('Authorization', await auth())
@@ -150,13 +156,22 @@ describe('org guards', () => {
 
   it('400s a malformed :documentId or :slug', async () => {
     const app = guardedApp(fakeAccess(true));
-    await request(app).patch('/documents/not-a-uuid').set('Authorization', await auth()).expect(400);
-    await request(app).post('/orgs/Bad_Slug/documents').set('Authorization', await auth()).expect(400);
+    await request(app)
+      .patch('/documents/not-a-uuid')
+      .set('Authorization', await auth())
+      .expect(400);
+    await request(app)
+      .post('/orgs/Bad_Slug/documents')
+      .set('Authorization', await auth())
+      .expect(400);
   });
 
   it('403s when the access service refuses', async () => {
     const app = guardedApp(fakeAccess(false));
-    await request(app).post('/orgs/jpice/documents').set('Authorization', await auth()).expect(403);
+    await request(app)
+      .post('/orgs/jpice/documents')
+      .set('Authorization', await auth())
+      .expect(403);
     await request(app)
       .post(`/documents/${DOC}/approve`)
       .set('Authorization', await auth())

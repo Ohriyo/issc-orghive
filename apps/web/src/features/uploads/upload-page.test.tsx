@@ -38,6 +38,16 @@ function session(role: 'officer' | 'adviser'): AuthResponse {
       email: 'juan@test.local',
       mustChangePassword: false,
       roles: [{ orgId: JPICE.id, role, isHead: false }],
+      memberships: [
+        {
+          orgId: JPICE.id,
+          orgSlug: 'jpice',
+          orgAcronym: 'JPICE',
+          role,
+          isHead: false,
+          title: null,
+        },
+      ],
     },
   };
 }
@@ -202,7 +212,7 @@ describe('/orgs/:slug/paperworks/upload', () => {
     { timeout: 15_000 },
     async () => {
       authStore.setSession(session('officer'));
-      renderAt('/orgs/jpice/paperworks/upload');
+      const router = renderAt('/orgs/jpice/paperworks/upload');
       expect(
         await screen.findByRole(
           'heading',
@@ -210,6 +220,11 @@ describe('/orgs/:slug/paperworks/upload', () => {
           { timeout: 5000 },
         ),
       ).toBeInTheDocument();
+      // Opened directly (no origin): Back goes to the Dashboard.
+      expect(screen.getByRole('link', { name: 'Back to Dashboard' })).toHaveAttribute(
+        'href',
+        '/dashboard',
+      );
 
       pick([pdf(), new File(['MZ'], 'virus.exe')]);
       expect(await screen.findByRole('alert')).toHaveTextContent('virus.exe: Not an allowed type');
@@ -234,7 +249,13 @@ describe('/orgs/:slug/paperworks/upload', () => {
       });
       fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
 
-      expect(await screen.findByText('Uploaded and sent for review.')).toBeInTheDocument();
+      // Done: back where the user came from (here the Dashboard), with a toast, replacing
+      // the form in the history.
+      await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'), {
+        timeout: 5000,
+      });
+      expect(router.state.historyAction).toBe('REPLACE');
+      expect(await screen.findByText(/Uploaded and sent for review/)).toBeInTheDocument();
       expect(puts).toEqual(['https://storage.test/put']);
       const uploadUrl = calls.find((c) => c.url.endsWith('/upload-url'))!;
       expect(uploadUrl.body).toEqual({
@@ -249,11 +270,6 @@ describe('/orgs/:slug/paperworks/upload', () => {
         tags: ['bridge', 'ce week'],
         visibility: 'members',
       });
-      expect(screen.getByRole('link', { name: 'Open document' })).toHaveAttribute(
-        'href',
-        `/documents/${DOC_ID}`,
-      );
-      expect(screen.getByRole('link', { name: 'Back to Paperworks' })).toBeInTheDocument();
     },
   );
 

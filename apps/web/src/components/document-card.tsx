@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import type { DocumentStatus } from '@orghive/shared';
 import { cn } from '@/lib/utils';
 import { HexFrame } from './hex-frame';
 import { OrgLogo } from './org-logo';
+import { StatusBadge } from './status-badge';
 
 /** The upload allow-list from CLAUDE.md. */
 export type DocumentFileType = 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'jpg' | 'png';
@@ -30,31 +31,6 @@ export interface DocumentCardProps {
   status?: DocumentStatus;
   className?: string;
 }
-
-/** Label plus a shape cue, so status never relies on color alone. */
-const STATUS_STYLE: Record<DocumentStatus, { label: string; className: string; dot: string }> = {
-  draft: {
-    label: 'Draft',
-    className: 'border-ink/25 text-ink-muted',
-    dot: 'rounded-sm bg-ink-muted/60',
-  },
-  pending: {
-    label: 'Pending review',
-    className: 'border-olive text-ink',
-    dot: 'rounded-full bg-olive',
-  },
-  approved: { label: 'Approved', className: 'border-leaf text-ink', dot: 'rounded-full bg-leaf' },
-  rejected: {
-    label: 'Rejected',
-    className: 'border-destructive/60 text-destructive',
-    dot: 'rotate-45 rounded-[1px] bg-destructive',
-  },
-  archived: {
-    label: 'Archived',
-    className: 'border-ink/25 text-ink-muted',
-    dot: 'rounded-sm border border-ink-muted',
-  },
-};
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
 
@@ -141,25 +117,15 @@ export function DocumentCard({
           >
             {typeLabel}
           </span>
-          {status && (
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border bg-white px-2.5 py-0.5 text-caption font-semibold',
-                STATUS_STYLE[status].className,
-              )}
-            >
-              <span aria-hidden="true" className={cn('size-2', STATUS_STYLE[status].dot)} />
-              {STATUS_STYLE[status].label}
-            </span>
-          )}
+          {status && <StatusBadge status={status} />}
         </div>
         <h3 className="mt-1 line-clamp-2 text-body-lg leading-snug font-semibold text-ink">
-          <Link
+          <OriginLink
             to={href}
             className="after:absolute after:inset-0 focus-visible:shadow-none focus-visible:outline-none"
           >
             {title}
-          </Link>
+          </OriginLink>
         </h3>
         {org && (
           <p className="flex items-center gap-2 text-small text-ink-muted">

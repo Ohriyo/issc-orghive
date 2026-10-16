@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { cn } from '@/lib/utils';
 import { HexFrame } from './hex-frame';
@@ -182,12 +182,12 @@ function HexGridCellView({ cell }: { cell: ShownCell }) {
   // Outline and box-shadow are clipped away by the hexagon, so focus is drawn as an ink
   // ring that follows the hexagon's silhouette, with the white inner ring revealed inside it.
   return (
-    <Link
+    <OriginLink
       to={cell.href}
       aria-label={cell.label}
       className="group block focus-visible:hex-focus-ring focus-visible:shadow-none focus-visible:outline-none"
     >
       {frame}
-    </Link>
+    </OriginLink>
   );
 }

@@ -1,5 +1,5 @@
 import type { OrganizationDetail } from '@orghive/shared';
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import { HexFrame } from '@/components/hex-frame';
 import { OrgLogo } from '@/components/org-logo';
 import { PillButton } from '@/components/pill-button';
@@ -119,7 +119,7 @@ function IsscContent({ issc }: IsscSectionProps) {
           {links.map((link) => (
             <li key={link.label}>
               <PillButton asChild size="lg">
-                <Link to={link.to}>{link.label}</Link>
+                <OriginLink to={link.to}>{link.label}</OriginLink>
               </PillButton>
             </li>
           ))}

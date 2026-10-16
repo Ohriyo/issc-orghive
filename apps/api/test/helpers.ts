@@ -27,6 +27,7 @@ const unwiredServices: AppServices = {
   access: new Proxy({} as AppServices['access'], {
     get: (_t, key) => () => unwired(`access.${String(key)}`),
   }),
+  dashboard: { forUser: () => unwired('dashboard') },
 };
 
 export function buildTestApp(

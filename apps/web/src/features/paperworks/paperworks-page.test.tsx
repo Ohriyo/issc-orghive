@@ -127,17 +127,22 @@ describe('usePaperworks helpers', () => {
 });
 
 describe('/orgs/:slug/paperworks', () => {
-  it('lists the organization’s documents as cards linking to each document', async () => {
-    serve();
-    renderAt('/orgs/jpice/paperworks');
-    expect(
-      // The first test in the file also loads the lazy route, so give it longer.
-      await screen.findByRole('heading', { level: 1, name: 'Paperworks' }, { timeout: 5000 }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(JPICE.name)).toBeInTheDocument();
-    const link = await screen.findByRole('link', { name: 'Bridge design competition' });
-    expect(link).toHaveAttribute('href', '/documents/0195f3c0-0000-7000-8000-0000000000d1');
-  });
+  it(
+    'lists the organization’s documents as cards linking to each document',
+    // First test in the file: also loads the lazy route and the AppShell.
+    { timeout: 15_000 },
+    async () => {
+      serve();
+      renderAt('/orgs/jpice/paperworks');
+      expect(
+        // The first test in the file also loads the lazy route, so give it longer.
+        await screen.findByRole('heading', { level: 1, name: 'Paperworks' }, { timeout: 5000 }),
+      ).toBeInTheDocument();
+      expect(screen.getByText(JPICE.name)).toBeInTheDocument();
+      const link = await screen.findByRole('link', { name: 'Bridge design competition' });
+      expect(link).toHaveAttribute('href', '/documents/0195f3c0-0000-7000-8000-0000000000d1');
+    },
+  );
 
   it('filters by type through the URL and the request', async () => {
     serve();
@@ -180,17 +185,30 @@ describe('/orgs/:slug/paperworks', () => {
 });
 
 describe('/documents/:id', () => {
-  it('shows the document’s details and links back to its Paperworks', async () => {
-    fetchMock.mockImplementation(() => json(doc({ description: 'A truss bridge contest.' })));
+  it('shows the document’s details; Back and the breadcrumbs lead to its Paperworks', async () => {
+    fetchMock.mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith('/organizations/jpice')) {
+        return json({ ...JPICE, college: { code: 'CEA', slug: 'cea', name: 'CEA' } });
+      }
+      return json(doc({ description: 'A truss bridge contest.' }));
+    });
     renderAt('/documents/0195f3c0-0000-7000-8000-0000000000d1');
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Bridge design competition' }),
     ).toBeInTheDocument();
     expect(screen.getByText('2026-2027, First semester')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'JPICE Paperworks' })).toHaveAttribute(
+    // Opened directly: Back falls back to the organization's Paperworks.
+    expect(await screen.findByRole('link', { name: 'Back to JPICE Paperworks' })).toHaveAttribute(
       'href',
       '/orgs/jpice/paperworks',
     );
+    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(
+      within(trail)
+        .getAllByRole('link')
+        .map((a) => a.getAttribute('href')),
+    ).toEqual(['/', '/colleges/cea', '/orgs/jpice', '/orgs/jpice/paperworks']);
   });
 
   it('treats a document the viewer may not see as not found', async () => {

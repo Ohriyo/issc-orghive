@@ -120,24 +120,29 @@ afterEach(() => {
 describe('/colleges', () => {
   beforeEach(() => fetchMock.mockImplementation(() => json(COLLEGES)));
 
-  it('centers the college named by ?focus= and shows its name, motto and Proceed', async () => {
-    renderAt('/colleges?focus=cea', 3);
+  it(
+    'centers the college named by ?focus= and shows its name, motto and Proceed',
+    // First test in the file: also loads the lazy route and the AppShell.
+    { timeout: 15_000 },
+    async () => {
+      renderAt('/colleges?focus=cea', 3);
 
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Collegiate Student Councils' }),
-    ).toBeInTheDocument();
-    const slide = await vi.waitFor(() => {
-      const found = centeredSlide();
-      if (!found) throw new Error('no centered slide yet');
-      return found;
-    });
-    expect(slide).toHaveAccessibleName('3 of 3: College CEA');
-    expect(within(slide).getByText('“CEA motto”')).toBeInTheDocument();
-    expect(within(slide).getByRole('link', { name: 'Proceed: College CEA' })).toHaveAttribute(
-      'href',
-      '/colleges/cea',
-    );
-  });
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Collegiate Student Councils' }),
+      ).toBeInTheDocument();
+      const slide = await vi.waitFor(() => {
+        const found = centeredSlide();
+        if (!found) throw new Error('no centered slide yet');
+        return found;
+      });
+      expect(slide).toHaveAccessibleName('3 of 3: College CEA');
+      expect(within(slide).getByText('“CEA motto”')).toBeInTheDocument();
+      expect(within(slide).getByRole('link', { name: 'Proceed: College CEA' })).toHaveAttribute(
+        'href',
+        '/colleges/cea',
+      );
+    },
+  );
 
   it('keeps ?focus= in step with the arrow keys', async () => {
     const router = renderAt('/colleges?focus=cat', 3);

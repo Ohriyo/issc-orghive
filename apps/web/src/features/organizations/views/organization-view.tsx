@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import { Container } from '@/components/container';
 import { LOGO_SIZES } from '@/components/logo-sizes';
 import { EmphasizedText } from '@/components/emphasized-text';
@@ -30,7 +30,7 @@ const ACRONYM = 'text-display font-bold text-ink';
  */
 export function OrganizationView(props: OrganizationViewProps) {
   return (
-    <div className="bg-surface-sweep relative isolate flex min-h-dvh flex-col overflow-hidden">
+    <div className="bg-surface-sweep relative isolate flex min-h-page flex-col overflow-hidden">
       {props.status === 'ready' ? (
         <Seo seo={props.page.seo} />
       ) : (
@@ -78,17 +78,17 @@ function OrganizationProfile({ page }: { page: OrganizationPageModel }) {
           </p>
         ) : null}
         <PillButton asChild size="lg" className="mt-10">
-          <Link to={page.paperworksHref}>Paperworks</Link>
+          <OriginLink to={page.paperworksHref}>Paperworks</OriginLink>
         </PillButton>
         {page.context ? (
           <p className="mt-10 max-w-[30rem] text-body text-ink max-lg:mx-auto">
             {page.context.lead}{' '}
-            <Link
+            <OriginLink
               to={page.context.college.href}
               className="font-medium underline decoration-1 underline-offset-4 transition-colors duration-300 tap-area hover:decoration-leaf focus-visible:decoration-leaf"
             >
               {page.context.college.name}
-            </Link>
+            </OriginLink>
           </p>
         ) : null}
       </Reveal>

@@ -71,14 +71,23 @@ function setup(user: Partial<UserCredentials> = {}) {
       },
     },
     memberships: {
-      findActiveForUser: () =>
+      findActiveDetailsForUser: () =>
         Promise.resolve([
           {
             id: 'm1',
             role: 'admin' as const,
             isHead: false,
-            title: null,
-            organization: { id: ISSC_ID, type: 'ISSC' as const, parentId: null },
+            title: 'System administrator',
+            termEnd: null,
+            organization: {
+              id: ISSC_ID,
+              type: 'ISSC' as const,
+              slug: 'issc',
+              acronym: 'ISSC',
+              name: 'Institutional Supreme Student Council',
+              logoKey: null,
+              logoWidths: [],
+            },
           },
         ]),
     },
@@ -331,6 +340,17 @@ describe('authService.changePassword / me', () => {
   it('returns the user with fresh roles, and 401 once disabled', async () => {
     const s = setup();
     expect(await s.service.me(USER_ID)).toMatchObject({ id: USER_ID, roles: [{ role: 'admin' }] });
+    // Display names for the header menu ride along in the user payload.
+    expect((await s.service.me(USER_ID)).memberships).toEqual([
+      {
+        orgId: ISSC_ID,
+        orgSlug: 'issc',
+        orgAcronym: 'ISSC',
+        role: 'admin',
+        isHead: false,
+        title: 'System administrator',
+      },
+    ]);
     s.users.set(USER_ID, { ...s.users.get(USER_ID)!, disabledAt: T0 });
     await expect(s.service.me(USER_ID)).rejects.toMatchObject({ status: 401 });
   });

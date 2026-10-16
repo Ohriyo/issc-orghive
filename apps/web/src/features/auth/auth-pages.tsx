@@ -1,4 +1,6 @@
 import { Navigate, useLocation, useSearchParams } from 'react-router';
+import { usePageChrome } from '@/navigation/page-chrome';
+import { chrome } from '@/navigation/trails';
 import { safeNext, useAuth } from './presenters/use-auth';
 import {
   PASSWORD_HINT,
@@ -18,6 +20,7 @@ import { AuthSkeleton } from './views/auth-skeleton';
 
 /** /login. Someone already signed in goes straight on. */
 export function LoginPage() {
+  usePageChrome(chrome.bare());
   const { status } = useAuth();
   const [params] = useSearchParams();
   const login = useLogin();
@@ -26,10 +29,12 @@ export function LoginPage() {
 }
 
 export function ForgotPasswordPage() {
+  usePageChrome(chrome.bare());
   return <ForgotPasswordView {...useForgotPassword()} />;
 }
 
 export function ResetPasswordPage() {
+  usePageChrome(chrome.bare());
   const token = useResetTokenFromUrl();
   return <ResetPasswordForm key={token ?? 'none'} token={token} />;
 }
@@ -42,6 +47,8 @@ function ResetPasswordForm({ token }: { token: string | undefined }) {
 export function ChangePasswordPage() {
   const { user } = useAuth();
   const form = useChangePassword();
+  // A temporary password must be changed first: nothing to go back to yet.
+  usePageChrome(user?.mustChangePassword ? chrome.bare() : chrome.workspace('Change password'));
   return (
     <RequireAuth allowPasswordChange>
       <ChangePasswordView

@@ -79,6 +79,10 @@ enum AuditAction {
   admin_override
   /// The worker refused an upload (virus or wrong file type) and moved it to quarantine/.
   quarantine
+  /// An officer archived a document (approved or rejected -> archived).
+  archive
+  /// An officer restored an archived document to the status it had before.
+  restore
 }
 
 model College {
@@ -206,6 +210,8 @@ model Document {
   academicYear     String                   @map("academic_year")
   semester         Semester?
   status           DocumentStatus           @default(draft)
+  /// The status before archiving (approved or rejected); restoring returns to it.
+  archivedFromStatus DocumentStatus?        @map("archived_from_status")
   visibility       DocumentVisibility       @default(members)
   /// Free-form, lowercased labels (at most 10, see documentTagsSchema).
   tags             String[]                 @default([])

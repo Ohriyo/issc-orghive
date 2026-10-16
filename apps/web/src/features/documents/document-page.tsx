@@ -1,5 +1,8 @@
 import { useParams } from 'react-router';
 import { NotFoundPanel } from '@/components/not-found-panel';
+import { usePageChrome } from '@/navigation/page-chrome';
+import { chrome } from '@/navigation/trails';
+import { useOrgPlace } from '@/navigation/use-places';
 import { useDocument } from './presenters/use-document';
 import { useDocumentFiles } from './presenters/use-document-files';
 import { DocumentView } from './views/document-view';
@@ -9,6 +12,8 @@ export function DocumentPage() {
   const { id = '' } = useParams();
   const state = useDocument(id);
   const files = useDocumentFiles(id, state.status === 'ready' ? state.page.org : undefined);
+  const org = useOrgPlace(state.status === 'ready' ? state.page.org.slug : undefined);
+  usePageChrome(chrome.document(org, state.status === 'ready' ? state.page.title : null));
 
   if (state.status === 'not-found') {
     return (

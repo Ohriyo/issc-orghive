@@ -1,5 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import { Container } from '@/components/container';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
@@ -27,21 +26,14 @@ const dateFormat = new Intl.DateTimeFormat('en-PH', { dateStyle: 'long' });
  */
 export function DocumentView(props: DocumentViewProps) {
   return (
-    <div className="bg-surface-sweep min-h-dvh">
+    <div className="bg-surface-sweep min-h-page">
       <title>
         {props.status === 'ready' ? `${props.page.title} | Orghive` : 'Document | Orghive'}
       </title>
-      <Container as="main" className="max-w-4xl pt-6 pb-section lg:pt-10">
+      <Container as="main" className="max-w-4xl pt-4 pb-section lg:pt-6">
         {props.status === 'ready' ? (
           <>
-            <Link
-              to={props.page.org.paperworksHref}
-              className="tap-area inline-flex items-center gap-2 text-body font-medium text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 hover:decoration-leaf focus-visible:decoration-leaf"
-            >
-              <ArrowLeft aria-hidden="true" className="size-4" />
-              {props.page.org.acronym} Paperworks
-            </Link>
-            <article className="mt-8 lg:mt-12">
+            <article>
               <p className="inline-block rounded-full bg-ink px-3 py-1 text-small font-semibold text-white">
                 {props.page.typeLabel}
               </p>
@@ -55,12 +47,12 @@ export function DocumentView(props: DocumentViewProps) {
                 <div>
                   <dt className="text-small text-ink-muted">Organization</dt>
                   <dd>
-                    <Link
+                    <OriginLink
                       to={props.page.org.href}
                       className="tap-area font-medium text-ink underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf"
                     >
                       {props.page.org.name}
-                    </Link>
+                    </OriginLink>
                   </dd>
                 </div>
                 <div>

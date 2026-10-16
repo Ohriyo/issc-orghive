@@ -102,6 +102,15 @@ Every UI change follows these; the `orghive-responsive` skill has the full check
 - Hover is never the only way to reach anything: every hover effect also runs on `:focus-visible`, and nothing is hidden until hover.
 - Every UI change must be checked at 360, 768, 1366 and 1920 before it is called done. `pnpm --filter web test:e2e` enforces overflow, tap targets and axe in CI.
 
+## Navigation rules
+
+- Every page renders inside `AppShell` (`apps/web/src/app/app-shell.tsx`): one sticky header, the Back button, breadcrumbs, toasts. Never add a page-level header.
+- Each route component calls `usePageChrome(chrome.…())` from `src/navigation/trails.ts` to publish its trail, section and logical parent.
+- Back uses only `<BackButton/>` / `useBackNavigation` (rendered by the shell). No hand-written back links, no `navigate(-1)`.
+- Links into sub-screens (upload, document, edit, review) use `<OriginLink>` or `useOriginNavigate`, which pass `state.from`.
+- Without an origin, Back falls back to the logical parent: upload, edit and My documents go to `/dashboard`; a document goes to its Paperworks; an org page goes to its college, then `/colleges`, then home.
+- After a successful upload, edit or review, call `finish(toast)`: back to the origin with `replace`. Forms with unsaved changes use `useUnsavedChangesGuard`.
+
 ## Working agreements for Claude
 
 - Before a feature touching more than 3 files, propose a plan and wait for approval.

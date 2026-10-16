@@ -1,70 +1,87 @@
-import { createBrowserRouter, type RouteObject } from 'react-router';
-import { RootLayout } from './root-layout';
-import { RouteErrorPage } from './route-error-page';
+import { createBrowserRouter, Navigate, type RouteObject } from 'react-router';
+import { AppShell } from './app-shell';
+import { NotFoundPage, RouteErrorPage } from './route-error-page';
 import { HomePage } from '@/features/home/home-page';
 
+/**
+ * Every page renders inside AppShell (header, back button, breadcrumbs, toasts). Errors
+ * are caught by the pathless route below it, so even an error page keeps the header; the
+ * root errorElement is only the last resort if the shell itself fails.
+ */
 export const routes: RouteObject[] = [
   {
     path: '/',
-    element: <RootLayout />,
+    element: <AppShell />,
     errorElement: <RouteErrorPage />,
-    children: [
-      { index: true, element: <HomePage /> },
-      {
-        path: 'colleges',
-        lazy: async () => ({
-          Component: (await import('@/features/colleges/college-carousel-page'))
-            .CollegeCarouselPage,
-        }),
-      },
-      {
-        path: 'colleges/:slug',
-        lazy: async () => ({
-          Component: (await import('@/features/colleges/college-page')).CollegePage,
-        }),
-      },
-      {
-        path: 'colleges/:slug/organizations',
-        lazy: async () => ({
-          Component: (await import('@/features/colleges/sbo-carousel-page')).SboCarouselPage,
-        }),
-      },
-      {
-        path: 'orgs/:slug',
-        lazy: async () => ({
-          Component: (await import('@/features/organizations/organization-page')).OrganizationPage,
-        }),
-      },
-      {
-        path: 'orgs/:slug/paperworks',
-        lazy: async () => ({
-          Component: (await import('@/features/paperworks/paperworks-page')).PaperworksPage,
-        }),
-      },
-      {
-        path: 'orgs/:slug/paperworks/upload',
-        lazy: async () => ({
-          Component: (await import('@/features/uploads/upload-page')).UploadPage,
-        }),
-      },
-      {
-        path: 'documents/:id',
-        lazy: async () => ({
-          Component: (await import('@/features/documents/document-page')).DocumentPage,
-        }),
-      },
-      {
-        path: 'organizations/:slug/*',
-        lazy: async () => ({
-          Component: (await import('@/features/organizations/organization-page'))
-            .LegacyOrganizationRedirect,
-        }),
-      },
-      ...authRoutes(),
-      ...devRoutes(),
-    ],
+    children: [{ errorElement: <RouteErrorPage />, children: pages() }],
   },
 ];
+
+function pages(): RouteObject[] {
+  return [
+    { index: true, element: <HomePage /> },
+    {
+      path: 'colleges',
+      lazy: async () => ({
+        Component: (await import('@/features/colleges/college-carousel-page')).CollegeCarouselPage,
+      }),
+    },
+    {
+      path: 'colleges/:slug',
+      lazy: async () => ({
+        Component: (await import('@/features/colleges/college-page')).CollegePage,
+      }),
+    },
+    {
+      path: 'colleges/:slug/organizations',
+      lazy: async () => ({
+        Component: (await import('@/features/colleges/sbo-carousel-page')).SboCarouselPage,
+      }),
+    },
+    {
+      path: 'orgs/:slug',
+      lazy: async () => ({
+        Component: (await import('@/features/organizations/organization-page')).OrganizationPage,
+      }),
+    },
+    {
+      path: 'orgs/:slug/paperworks',
+      lazy: async () => ({
+        Component: (await import('@/features/paperworks/paperworks-page')).PaperworksPage,
+      }),
+    },
+    // A short alias for the upload screen.
+    {
+      path: 'orgs/:slug/upload',
+      lazy: async () => ({
+        Component: (await import('@/features/uploads/upload-page')).UploadAliasRedirect,
+      }),
+    },
+    {
+      path: 'orgs/:slug/paperworks/upload',
+      lazy: async () => ({
+        Component: (await import('@/features/uploads/upload-page')).UploadPage,
+      }),
+    },
+    {
+      path: 'documents/:id',
+      lazy: async () => ({
+        Component: (await import('@/features/documents/document-page')).DocumentPage,
+      }),
+    },
+    {
+      path: 'organizations/:slug/*',
+      lazy: async () => ({
+        Component: (await import('@/features/organizations/organization-page'))
+          .LegacyOrganizationRedirect,
+      }),
+    },
+    ...dashboardRoutes(),
+    ...authRoutes(),
+    ...devRoutes(),
+    { path: '*', element: <NotFoundPage /> },
+  ];
+}
 
 const authPages = () => import('@/features/auth/auth-pages');
 
@@ -83,12 +100,32 @@ function authRoutes(): RouteObject[] {
       path: 'change-password',
       lazy: async () => ({ Component: (await authPages()).ChangePasswordPage }),
     },
+    // The old signed-in landing page; its actions now live in the header's user menu.
+    { path: 'account', element: <Navigate to="/dashboard" replace /> },
+  ];
+}
+
+const comingSoon = () => import('@/features/dashboard/coming-soon-page');
+
+function dashboardRoutes(): RouteObject[] {
+  return [
     {
-      path: 'account',
+      path: 'dashboard',
       lazy: async () => ({
-        Component: (await import('@/features/account/account-page')).AccountPage,
+        Component: (await import('@/features/dashboard/dashboard-page')).DashboardPage,
       }),
     },
+    {
+      path: 'dashboard/documents',
+      lazy: async () => ({
+        Component: (await import('@/features/dashboard/my-documents-page')).MyDocumentsPage,
+      }),
+    },
+    {
+      path: 'dashboard/reviews',
+      lazy: async () => ({ Component: (await comingSoon()).ReviewQueuePage }),
+    },
+    { path: 'admin', lazy: async () => ({ Component: (await comingSoon()).AdminPage }) },
   ];
 }
 

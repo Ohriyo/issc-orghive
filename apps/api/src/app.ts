@@ -12,10 +12,12 @@ import { authRouter } from '#src/routes/auth.routes';
 import { collegesRouter } from '#src/routes/colleges.routes';
 import { documentsRouter } from '#src/routes/documents.routes';
 import { healthRouter } from '#src/routes/health.routes';
+import { meRouter } from '#src/routes/me.routes';
 import { organizationsRouter } from '#src/routes/organizations.routes';
 import type { AccessService } from '#src/services/access.service';
 import type { AuthService } from '#src/services/auth.service';
 import type { CollegeService } from '#src/services/college.service';
+import type { DashboardService } from '#src/services/dashboard.service';
 import type { DocumentService } from '#src/services/document.service';
 import type { OrganizationService } from '#src/services/organization.service';
 import type { TokenService } from '#src/services/token.service';
@@ -29,6 +31,7 @@ export interface AppServices {
   documents: DocumentService;
   uploads: UploadService;
   access: AccessService;
+  dashboard: DashboardService;
 }
 
 export interface AppDeps {
@@ -72,6 +75,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   );
   v1.use('/colleges', collegesRouter(services.colleges));
   v1.use('/organizations', organizationsRouter(services.organizations));
+  v1.use('/me', meRouter({ dashboard: services.dashboard, tokens: services.tokens }));
   v1.use(
     documentsRouter({
       documents: services.documents,

@@ -1,5 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import { Container } from '@/components/container';
 import { LOGO_SIZES } from '@/components/logo-sizes';
 import { EmphasizedText } from '@/components/emphasized-text';
@@ -40,7 +39,7 @@ export function CollegeView(props: CollegeViewProps) {
   const hasHoneycomb =
     props.status === 'loading' || (props.status === 'ready' && props.page.sboCount > 0);
   return (
-    <div className="bg-surface-sweep relative min-h-dvh overflow-x-clip">
+    <div className="bg-surface-sweep relative min-h-page overflow-x-clip">
       {props.status === 'ready' ? <Seo seo={props.page.seo} /> : <title>College | Orghive</title>}
       <main>
         <section
@@ -50,15 +49,8 @@ export function CollegeView(props: CollegeViewProps) {
             hasHoneycomb && 'xl:min-h-[calc(min(60vw,52rem)*0.77+2rem)]',
           )}
         >
-          <Container className="pt-6 pb-4 lg:pt-10 xl:pb-[calc(min(9vw,8rem)+2rem)]">
-            <Link
-              to="/colleges"
-              className="relative z-10 inline-flex items-center gap-2 text-body font-medium text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 tap-area hover:decoration-leaf focus-visible:decoration-leaf"
-            >
-              <ArrowLeft aria-hidden="true" className="size-4" />
-              All colleges
-            </Link>
-            <div className="pt-10 lg:pt-14">
+          <Container className="pt-2 pb-4 lg:pt-4 xl:pb-[calc(min(9vw,8rem)+2rem)]">
+            <div className="pt-4 lg:pt-8">
               {props.status === 'ready' ? (
                 <CollegeIntro page={props.page} />
               ) : props.status === 'error' ? (
@@ -201,16 +193,19 @@ function CscSection({ csc, collegeName, code, sbosHref, sboCount }: CscSectionPr
                   {csc ? (
                     <li>
                       <PillButton asChild size="lg">
-                        <Link to={csc.paperworksHref}>Paperworks</Link>
+                        <OriginLink to={csc.paperworksHref}>Paperworks</OriginLink>
                       </PillButton>
                     </li>
                   ) : null}
                   {sboCount > 0 ? (
                     <li>
                       <PillButton asChild size="lg">
-                        <Link to={sbosHref} className="underline decoration-1 underline-offset-4">
+                        <OriginLink
+                          to={sbosHref}
+                          className="underline decoration-1 underline-offset-4"
+                        >
                           SBO <span className="sr-only">(student body organizations)</span>
-                        </Link>
+                        </OriginLink>
                       </PillButton>
                     </li>
                   ) : null}

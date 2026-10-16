@@ -9,7 +9,7 @@ import type {
 import { visibleDocumentsWhere, type DocumentViewer } from './document-visibility';
 import type { Db } from './prisma';
 
-const documentSelect = {
+export const documentSelect = {
   id: true,
   title: true,
   description: true,
@@ -455,6 +455,40 @@ export function createDocumentRepository(db: Db) {
         });
         return true;
       });
+    },
+
+    /**
+     * approved | rejected -> archived, remembering the status it had so a restore can
+     * return to it. False when the document is missing, not visible or in another status.
+     */
+    async archive(viewer: DocumentViewer, id: string): Promise<boolean> {
+      const doc = await db.document.findFirst({
+        where: visible(viewer, { id, status: { in: ['approved', 'rejected'] } }),
+        select: { status: true },
+      });
+      if (!doc) return false;
+      const { count } = await db.document.updateMany({
+        where: visible(viewer, { id, status: doc.status }),
+        data: { status: 'archived', archivedFromStatus: doc.status },
+      });
+      return count === 1;
+    },
+
+    /**
+     * archived -> the status it had before. False when it is not archived, or was archived
+     * before that status was recorded (nothing safe to return to).
+     */
+    async restore(viewer: DocumentViewer, id: string): Promise<boolean> {
+      const doc = await db.document.findFirst({
+        where: visible(viewer, { id, status: 'archived', archivedFromStatus: { not: null } }),
+        select: { archivedFromStatus: true },
+      });
+      if (!doc?.archivedFromStatus) return false;
+      const { count } = await db.document.updateMany({
+        where: visible(viewer, { id, status: 'archived' }),
+        data: { status: doc.archivedFromStatus, archivedFromStatus: null },
+      });
+      return count === 1;
     },
 
     /** Soft delete. Returns false when the document is missing or not visible. */

@@ -42,6 +42,8 @@ const EDITABLE: DocumentStatus[] = ['draft', 'rejected'];
 /** Visibility may change at any point before archiving. */
 const VISIBILITY_EDITABLE: DocumentStatus[] = ['draft', 'pending', 'approved', 'rejected'];
 const SUBMITTABLE: DocumentStatus[] = ['draft', 'rejected'];
+/** The end of the lifecycle (CLAUDE.md): approved | rejected -> archived. */
+const ARCHIVABLE: DocumentStatus[] = ['approved', 'rejected'];
 
 /** The signed-in user making a change. */
 export interface Actor {
@@ -59,6 +61,8 @@ export interface DocumentServiceDeps {
     | 'setStatus'
     | 'decide'
     | 'softDelete'
+    | 'archive'
+    | 'restore'
     | 'addVersion'
     | 'listVersions'
     | 'findVersion'
@@ -133,6 +137,27 @@ export function toDocumentVersion(
   };
 }
 
+/**
+ * Signs a stored summary's preview link, if it has one. Signing is local; no storage call.
+ * Shared with the dashboard, which serves the same summaries.
+ */
+export async function presentSummary(
+  storage: Pick<Storage, 'presignGet'>,
+  stored: StoredSummary,
+): Promise<DocumentSummary> {
+  const v = stored.currentVersion;
+  if (!v) return { ...stored, currentVersion: null };
+  const { thumbnailKey, ...version } = v;
+  const thumbnailUrl = thumbnailKey
+    ? await storage.presignGet(
+        thumbnailKey,
+        { filename: 'preview.webp', contentType: 'image/webp', disposition: 'inline' },
+        THUMBNAIL_URL_TTL_SECONDS,
+      )
+    : null;
+  return { ...stored, currentVersion: { ...version, thumbnailUrl } };
+}
+
 /** Stable across key order, so equal queries share one cache entry. */
 function queryHash(query: DocumentListQuery): string {
   const sorted = Object.entries(query)
@@ -162,20 +187,7 @@ export function createDocumentService({
     return userId ? viewers.forUser(userId) : Promise.resolve(PUBLIC_VIEWER);
   }
 
-  /** Signs the preview link, if the version has one. Signing is local; no storage call. */
-  async function present(stored: StoredSummary): Promise<DocumentSummary> {
-    const v = stored.currentVersion;
-    if (!v) return { ...stored, currentVersion: null };
-    const { thumbnailKey, ...version } = v;
-    const thumbnailUrl = thumbnailKey
-      ? await storage.presignGet(
-          thumbnailKey,
-          { filename: 'preview.webp', contentType: 'image/webp', disposition: 'inline' },
-          THUMBNAIL_URL_TTL_SECONDS,
-        )
-      : null;
-    return { ...stored, currentVersion: { ...version, thumbnailUrl } };
-  }
+  const present = (stored: StoredSummary) => presentSummary(storage, stored);
 
   const summarize = (doc: DocumentRecord) => present(toStoredSummary(doc));
 
@@ -474,6 +486,57 @@ export function createDocumentService({
       // Not reloaded: approvers may not see a document once they reject it (visibility rule),
       // yet the decision they just made succeeded.
       return summarize({ ...doc, status: decision, updatedAt: now() });
+    },
+
+    /**
+     * approved | rejected -> archived, audited. Archived documents leave public Paperworks
+     * and can no longer change; restore() brings one back. 409 from any other status.
+     */
+    async archive(actor: Actor, org: OrgRef, id: string): Promise<DocumentSummary> {
+      const viewer = await viewers.forUser(actor.userId);
+      const doc = await loadInOrg(viewer, org, id);
+      if (!ARCHIVABLE.includes(doc.status)) {
+        throw AppError.conflict(`A ${doc.status} document cannot be archived`);
+      }
+      if (!(await documents.archive(viewer, id))) {
+        throw AppError.conflict('The document changed; reload and try again');
+      }
+      await audit.record({
+        action: 'archive',
+        actorId: actor.userId,
+        entityType: 'document',
+        entityId: id,
+        organizationId: org.id,
+        metadata: { from: doc.status },
+        ip: actor.ip,
+      });
+      await invalidate(org);
+      return reload(viewer, id);
+    },
+
+    /** archived -> the status it had before archiving, audited. 409 otherwise. */
+    async restore(actor: Actor, org: OrgRef, id: string): Promise<DocumentSummary> {
+      const viewer = await viewers.forUser(actor.userId);
+      const doc = await loadInOrg(viewer, org, id);
+      if (doc.status !== 'archived')
+        throw AppError.conflict('Only archived documents can be restored');
+      if (!(await documents.restore(viewer, id))) {
+        throw AppError.conflict(
+          'This document was archived before restoring was possible; ask an admin to restore it',
+        );
+      }
+      const restored = await reload(viewer, id);
+      await audit.record({
+        action: 'restore',
+        actorId: actor.userId,
+        entityType: 'document',
+        entityId: id,
+        organizationId: org.id,
+        metadata: { to: restored.status },
+        ip: actor.ip,
+      });
+      await invalidate(org);
+      return restored;
     },
 
     /** Soft delete, audited. */

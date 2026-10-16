@@ -12,6 +12,7 @@ import { createAuditLogRepository } from '#src/repositories/audit-log.repository
 import { createCollegeRepository } from '#src/repositories/college.repository';
 import { createUploadIntentRepository } from '#src/repositories/upload-intent.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
+import { createDashboardRepository } from '#src/repositories/dashboard.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
 import { createMembershipRepository } from '#src/repositories/membership.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
@@ -22,6 +23,7 @@ import { createUserRepository } from '#src/repositories/user.repository';
 import { createAccessService } from '#src/services/access.service';
 import { createAuthService } from '#src/services/auth.service';
 import { createCollegeService } from '#src/services/college.service';
+import { createDashboardService } from '#src/services/dashboard.service';
 import { createDocumentService } from '#src/services/document.service';
 import { createUploadService } from '#src/services/upload.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
@@ -49,6 +51,7 @@ const publicUrl = createPublicUrl(config.PUBLIC_ASSET_BASE_URL);
 const organizations = createOrganizationRepository(db);
 const memberships = createMembershipRepository(db);
 const documents = createDocumentRepository(db);
+const dashboardReads = createDashboardRepository(db);
 const audit = createAuditLogRepository(db);
 const viewers = createDocumentViewerService({ memberships, organizations });
 const storage = createS3Storage(config);
@@ -98,6 +101,14 @@ const app = createApp({
     }),
     uploads,
     access: createAccessService({ memberships, organizations, documents, viewers, audit }),
+    dashboard: createDashboardService({
+      memberships,
+      dashboard: dashboardReads,
+      documents,
+      viewers,
+      storage,
+      publicUrl,
+    }),
   },
 });
 

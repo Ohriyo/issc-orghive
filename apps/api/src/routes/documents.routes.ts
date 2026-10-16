@@ -45,6 +45,18 @@ export function documentsRouter({
   router.patch('/documents/:documentId', auth, requireOrgRole('officer'), controller.update);
   router.delete('/documents/:documentId', auth, requireOrgRole('officer'), controller.remove);
   router.post('/documents/:documentId/submit', auth, requireOrgRole('officer'), controller.submit);
+  router.post(
+    '/documents/:documentId/archive',
+    auth,
+    requireOrgRole('officer'),
+    controller.archive,
+  );
+  router.post(
+    '/documents/:documentId/restore',
+    auth,
+    requireOrgRole('officer'),
+    controller.restore,
+  );
   router.post('/documents/:documentId/approve', auth, requireApprover(), controller.approve);
   router.post('/documents/:documentId/reject', auth, requireApprover(), controller.reject);
 

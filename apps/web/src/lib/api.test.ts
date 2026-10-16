@@ -10,6 +10,7 @@ const USER = {
   email: 'juan@nwssu.test',
   mustChangePassword: false,
   roles: [],
+  memberships: [],
 };
 
 function session(accessToken: string): AuthResponse {

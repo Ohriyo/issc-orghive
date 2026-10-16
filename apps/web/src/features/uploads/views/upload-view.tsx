@@ -1,8 +1,9 @@
-import { ArrowLeft, CheckCircle2, FileText, TriangleAlert, X } from 'lucide-react';
+import { CheckCircle2, FileText, TriangleAlert, X } from 'lucide-react';
 import { Controller } from 'react-hook-form';
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import { UPLOAD_ACCEPT } from '@orghive/shared';
 import { Container } from '@/components/container';
+import { ConfirmLeaveDialog } from '@/navigation/unsaved-changes-dialog';
 import { FileDropzone } from '@/components/file-dropzone';
 import { SelectField, TextAreaField } from '@/components/form-fields';
 import { PillButton } from '@/components/pill-button';
@@ -27,9 +28,6 @@ const VISIBILITY = [
   { value: 'private', label: 'Private', hint: 'Your organization, its approvers and admins' },
 ] as const;
 
-const BACK_LINK =
-  'tap-area inline-flex items-center gap-2 text-body font-medium text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 hover:decoration-leaf focus-visible:decoration-leaf';
-
 const sizeFormat = new Intl.NumberFormat('en-PH', { maximumFractionDigits: 1 });
 function formatSize(bytes: number): string {
   return bytes < 1024 * 1024
@@ -40,18 +38,14 @@ function formatSize(bytes: number): string {
 /** /orgs/:slug/paperworks/upload: add one or more files to an organization's Paperworks. */
 export function UploadView(props: UploadViewProps) {
   return (
-    <div className="bg-surface-sweep min-h-dvh">
+    <div className="min-h-page">
       <title>Upload Paperworks | Orghive</title>
-      <Container as="main" className="max-w-4xl pt-6 pb-section lg:pt-10">
+      <Container as="main" className="max-w-4xl pt-4 pb-section lg:pt-6">
         {props.status === 'ready' ? (
           <UploadForm {...props} />
         ) : props.status === 'forbidden' ? (
           <>
-            <Link to={props.org.href} className={BACK_LINK}>
-              <ArrowLeft aria-hidden="true" className="size-4" />
-              {props.org.acronym}
-            </Link>
-            <h1 className="mt-8 text-h1 font-bold text-ink">Upload Paperworks</h1>
+            <h1 className="text-h1 font-bold text-ink">Upload Paperworks</h1>
             <p className="mt-4 max-w-prose text-body-lg text-ink">
               Only {props.org.acronym} officers can upload documents here. If you are one, ask an
               admin to add you to the organization.
@@ -83,11 +77,14 @@ function UploadForm(model: UploadModel) {
 
   return (
     <>
-      <Link to={org.paperworksHref} className={BACK_LINK}>
-        <ArrowLeft aria-hidden="true" className="size-4" />
-        {org.acronym} Paperworks
-      </Link>
-      <header className="mt-8 lg:mt-12">
+      <ConfirmLeaveDialog
+        open={model.leave.asking}
+        onStay={model.leave.stay}
+        onLeave={model.leave.go}
+        title="Leave without uploading?"
+        description="The files you added have not been uploaded yet. If you leave now they will not be saved."
+      />
+      <header>
         <h1 className="text-h1 font-bold text-ink">Upload Paperworks</h1>
         <p className="mt-2 text-lead text-ink">{org.name}</p>
         <p className="mt-4 max-w-prose text-body text-ink-muted">
@@ -158,19 +155,17 @@ function UploadForm(model: UploadModel) {
         </p>
 
         <div className="mt-4 flex flex-wrap items-center gap-4">
-          {allDone ? (
-            <PillButton asChild size="lg">
-              <Link to={org.paperworksHref}>Back to Paperworks</Link>
-            </PillButton>
-          ) : (
-            <PillButton type="submit" size="lg" disabled={items.length === 0 || isUploading}>
-              {isUploading
-                ? 'Uploading…'
-                : items.length > 1
-                  ? `Upload ${items.length} files`
-                  : 'Upload file'}
-            </PillButton>
-          )}
+          <PillButton
+            type="submit"
+            size="lg"
+            disabled={items.length === 0 || isUploading || allDone}
+          >
+            {isUploading
+              ? 'Uploading…'
+              : items.length > 1
+                ? `Upload ${items.length} files`
+                : 'Upload file'}
+          </PillButton>
         </div>
       </form>
     </>
@@ -301,12 +296,12 @@ function UploadProgress({ item }: { item: UploadItem }) {
         <CheckCircle2 aria-hidden="true" className="size-5 text-forest-500" />
         Uploaded and sent for review.
         {item.documentHref ? (
-          <Link
+          <OriginLink
             to={item.documentHref}
             className="tap-area font-medium underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf"
           >
             Open document
-          </Link>
+          </OriginLink>
         ) : null}
       </p>
     );

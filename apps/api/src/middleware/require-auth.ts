@@ -128,17 +128,14 @@ export function createOrgGuards(access: AccessService) {
       },
 
     /** The user approves the target organization's documents (docs/DOMAIN_RULES.md). */
-    requireApprover:
-      (): RequestHandler =>
-      async (req, res, next) => {
-        const claims = authOf(res);
-        const org = await resolveOrg(access, req);
-        await access.requireApprover(claims.userId, org, contextOf(req));
-        (res.locals as Record<string, unknown>)[ORG_KEY] = org;
-        next();
-      },
+    requireApprover: (): RequestHandler => async (req, res, next) => {
+      const claims = authOf(res);
+      const org = await resolveOrg(access, req);
+      await access.requireApprover(claims.userId, org, contextOf(req));
+      (res.locals as Record<string, unknown>)[ORG_KEY] = org;
+      next();
+    },
   };
 }
 
 export type OrgGuards = ReturnType<typeof createOrgGuards>;
-

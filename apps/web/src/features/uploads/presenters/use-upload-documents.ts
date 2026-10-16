@@ -24,6 +24,9 @@ import {
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import { putWithProgress } from '@/lib/upload-put';
+import type { Destination } from '@/navigation/origin';
+import { useBackNavigation } from '@/navigation/use-back-navigation';
+import { useUnsavedChangesGuard } from '@/navigation/use-unsaved-changes';
 
 const FIVE_MINUTES = 5 * 60_000;
 
@@ -92,7 +95,7 @@ export type UploadPageState =
   | { status: 'loading' }
   | { status: 'not-found' }
   | { status: 'error'; retry: () => void }
-  | { status: 'forbidden'; org: { acronym: string; href: string } }
+  | { status: 'forbidden'; org: { acronym: string } }
   | ({ status: 'ready' } & UploadModel);
 
 export interface UploadModel {
@@ -108,6 +111,8 @@ export interface UploadModel {
   isUploading: boolean;
   /** Every file uploaded and saved. */
   allDone: boolean;
+  /** Leaving with files not yet uploaded asks first. */
+  leave: { asking: boolean; stay: () => void; go: () => void };
 }
 
 /**
@@ -115,8 +120,9 @@ export interface UploadModel {
  * the bytes PUT straight to storage (with progress), then the document is created with
  * its details. Files upload one after another so a slow connection is not split.
  */
-export function useUploadDocuments(slug: string): UploadPageState {
+export function useUploadDocuments(slug: string, parent: Destination | null): UploadPageState {
   const queryClient = useQueryClient();
+  const back = useBackNavigation(parent);
   const { user } = useAuth();
   const org = useQuery({
     queryKey: queryKeys.organizations.detail(slug),
@@ -139,6 +145,8 @@ export function useUploadDocuments(slug: string): UploadPageState {
   const [isUploading, setIsUploading] = useState(false);
   const update = (index: number, patch: Partial<UploadItem>) =>
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  // Files chosen but not yet saved are unsaved work.
+  const guard = useUnsavedChangesGuard(items.some((item) => item.status !== 'done'));
 
   if (org.error instanceof ApiError && [400, 404].includes(org.error.status)) {
     return { status: 'not-found' };
@@ -151,7 +159,7 @@ export function useUploadDocuments(slug: string): UploadPageState {
     (role) => (role.orgId === orgId && role.role === 'officer') || role.role === 'admin',
   );
   if (!canUpload) {
-    return { status: 'forbidden', org: { acronym: org.data.acronym, href: `/orgs/${slug}` } };
+    return { status: 'forbidden', org: { acronym: org.data.acronym } };
   }
 
   const addFiles = (files: File[]) => {
@@ -184,12 +192,14 @@ export function useUploadDocuments(slug: string): UploadPageState {
     setItems((prev) => prev.filter((_, i) => i !== index));
   };
 
+  /** Resolves true once the file is saved (or already was). */
   async function uploadOne(
     index: number,
     item: UploadItem | undefined,
     metadata: UploadFormOutput['documents'][number],
-  ) {
-    if (!item || item.status === 'done') return;
+  ): Promise<boolean> {
+    if (!item) return false;
+    if (item.status === 'done') return true;
     try {
       update(index, { status: 'uploading', progress: 0, error: undefined });
       const target = await api.post(
@@ -207,8 +217,10 @@ export function useUploadDocuments(slug: string): UploadPageState {
         { schema: documentSummarySchema },
       );
       update(index, { status: 'done', progress: 100, documentHref: `/documents/${doc.id}` });
+      return true;
     } catch (error) {
       update(index, { status: 'error', error: errorMessage(error) });
+      return false;
     }
   }
 
@@ -216,11 +228,27 @@ export function useUploadDocuments(slug: string): UploadPageState {
     // The files as they were when the user pressed Upload; status changes land as we go.
     const snapshot = items;
     setIsUploading(true);
+    let saved = 0;
     try {
-      for (let i = 0; i < documents.length; i++) await uploadOne(i, snapshot[i], documents[i]!);
+      for (let i = 0; i < documents.length; i++) {
+        if (await uploadOne(i, snapshot[i], documents[i]!)) saved++;
+      }
     } finally {
       setIsUploading(false);
-      await queryClient.invalidateQueries({ queryKey: ['documents', 'list', slug] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['documents'] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
+      ]);
+    }
+    // All saved: back where the user came from, replacing this form in the history. If
+    // any failed, stay so they can be retried.
+    if (saved === documents.length) {
+      guard.allowNextNavigation();
+      back.finish(
+        saved === 1
+          ? 'Uploaded and sent for review. It goes to the reviewer once the virus scan passes.'
+          : `${saved} documents uploaded and sent for review.`,
+      );
     }
   });
 
@@ -245,5 +273,10 @@ export function useUploadDocuments(slug: string): UploadPageState {
     onSubmit,
     isUploading,
     allDone: items.length > 0 && items.every((item) => item.status === 'done'),
+    leave: {
+      asking: guard.blocker.state === 'blocked',
+      stay: () => guard.blocker.reset?.(),
+      go: () => guard.blocker.proceed?.(),
+    },
   };
 }

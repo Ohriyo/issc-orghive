@@ -23,6 +23,8 @@ Work through this while you write the code, not after:
 - **Motion.** Use `usePrefersReducedMotion`. Decorative GPU work (the hero shader) stays off below md and on `isLowEndDevice()`.
 - **Every screen still has loading, empty and error states**, and they must also fit at 360px.
 
+- **Navigation (CLAUDE.md "Navigation rules").** The page renders inside AppShell and calls `usePageChrome(chrome.…())`; no page-level header and no hand-written back link. Links into sub-screens are `<OriginLink>`. Check the Back label and target both when arriving from another page and when opening the URL directly, and that breadcrumbs collapse to "‹ Parent" below md.
+
 ## 2. Viewport matrix
 
 | Width × height | Device | Required? |

@@ -55,6 +55,21 @@ export const authRoleSchema = z.object({
 });
 export type AuthRole = z.infer<typeof authRoleSchema>;
 
+/**
+ * One active membership with its organization's display names, for the header's user
+ * menu. Part of the user payload only, never the access token (which carries `roles`).
+ */
+export const authMembershipSchema = z.object({
+  orgId: z.uuid(),
+  orgSlug: z.string(),
+  orgAcronym: z.string(),
+  role: membershipRoleSchema,
+  isHead: z.boolean(),
+  /** "President", "Governor", "Adviser"... */
+  title: z.string().nullable(),
+});
+export type AuthMembership = z.infer<typeof authMembershipSchema>;
+
 export const authUserSchema = z
   .object({
     id: z.uuid(),
@@ -62,6 +77,7 @@ export const authUserSchema = z
     email: z.email(),
     mustChangePassword: z.boolean(),
     roles: z.array(authRoleSchema),
+    memberships: z.array(authMembershipSchema),
   })
   .meta({ id: 'AuthUser' });
 export type AuthUser = z.infer<typeof authUserSchema>;

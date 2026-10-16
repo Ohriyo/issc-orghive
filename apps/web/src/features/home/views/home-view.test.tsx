@@ -2,7 +2,6 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import type { OrganizationDetail } from '@orghive/shared';
-import type { DocumentSearchModel } from '@/features/search/presenters/use-document-search';
 import type { HomeData } from '../presenters/use-home-data';
 import { HomeView } from './home-view';
 
@@ -10,7 +9,6 @@ import { HomeView } from './home-view';
 vi.mock('../hooks/use-animated-hero', () => ({ useAnimatedHero: () => false }));
 
 const ISSC: OrganizationDetail = {
-
   id: '0195f3c0-0000-7000-8000-0000000000b1',
   type: 'ISSC',
   slug: 'issc',
@@ -45,32 +43,17 @@ function props(overrides: Partial<HomeData> = {}): HomeData {
   };
 }
 
-const idleSearch: DocumentSearchModel = {
-  query: '',
-  setQuery: vi.fn(),
-  results: { status: 'idle' },
-};
-
-function renderView(data: HomeData, search: DocumentSearchModel = idleSearch) {
+function renderView(data: HomeData) {
   return render(
     <MemoryRouter>
-      <HomeView {...data} search={search} account={{ label: 'Login', href: '/login' }} />
+      <HomeView {...data} />
     </MemoryRouter>,
   );
 }
 
 describe('HomeView', () => {
-  it('renders the header, hero, About Us, ISSC and contact sections', () => {
+  it('renders the hero, About Us, ISSC and contact sections (the header is the shell’s)', () => {
     renderView(props());
-
-    const nav = screen.getByRole('navigation', { name: 'Main' });
-    expect(within(nav).getAllByRole('button', { name: 'Search' }).length).toBeGreaterThan(0);
-    expect(within(nav).getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/login');
-    expect(within(nav).getByRole('link', { name: 'Colleges' })).toHaveAttribute(
-      'href',
-      '/colleges',
-    );
-    expect(within(nav).getByRole('link', { name: 'ISSC' })).toHaveAttribute('href', '/orgs/issc');
 
     expect(
       screen.getByRole('heading', { level: 1, name: 'Organizing Unity, Archiving Transparency' }),
@@ -146,65 +129,5 @@ describe('HomeView', () => {
   it('says so when there are no colleges yet', () => {
     renderView(props({ colleges: { data: [], isLoading: false, isError: false, retry: vi.fn() } }));
     expect(screen.getByText(/No colleges have been added yet/)).toBeInTheDocument();
-  });
-});
-
-describe('SiteHeader menu and search', () => {
-  it('opens the menu as a modal dialog with the site links, and closes it with Escape', () => {
-    renderView(props());
-    fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-    const dialog = screen.getByRole('dialog', { name: 'Menu' });
-    const site = within(dialog).getByRole('navigation', { name: 'Site' });
-    expect(
-      within(site)
-        .getAllByRole('link')
-        .map((a) => a.textContent),
-    ).toEqual(['Home', 'Colleges', 'ISSC', 'Login']);
-    expect(within(site).getByRole('link', { name: 'Home' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    fireEvent.keyDown(dialog, { key: 'Escape' });
-    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
-  });
-
-  it('opens the search overlay with focus in the search field', () => {
-    renderView(props());
-    fireEvent.click(screen.getAllByRole('button', { name: 'Search' })[0]!);
-    const dialog = screen.getByRole('dialog', { name: 'Search Paperworks' });
-    expect(within(dialog).getByRole('searchbox', { name: 'Search Paperworks' })).toHaveFocus();
-    expect(within(dialog).getByText(/Type at least two characters/)).toBeInTheDocument();
-  });
-
-  it('passes typing to the presenter and lists results as links', () => {
-    const setQuery = vi.fn();
-    renderView(props(), {
-      query: 'bridge',
-      setQuery,
-      results: {
-        status: 'ready',
-        query: 'bridge',
-        results: [
-          {
-            id: 'd1',
-            title: 'Bridge design competition',
-            organization: 'JPICE',
-            organizationName: 'Junior Philippine Institute of Civil Engineers',
-            typeName: 'Activity proposal',
-            academicYear: '2026-2027',
-            href: '/orgs/jpice/paperworks',
-          },
-        ],
-      },
-    });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Search' })[0]!);
-    const dialog = screen.getByRole('dialog', { name: 'Search Paperworks' });
-    fireEvent.change(within(dialog).getByRole('searchbox'), { target: { value: 'bridges' } });
-    expect(setQuery).toHaveBeenCalledWith('bridges');
-    expect(within(dialog).getByText('1 result for “bridge”')).toBeInTheDocument();
-    expect(within(dialog).getByRole('link', { name: /Bridge design competition/ })).toHaveAttribute(
-      'href',
-      '/orgs/jpice/paperworks',
-    );
   });
 });

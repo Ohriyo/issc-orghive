@@ -1,5 +1,5 @@
 import { ArrowRight } from 'lucide-react';
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import { Container } from '@/components/container';
 import { HexGrid, type HexGridCell } from '@/components/hex-grid';
 import { PillButton } from '@/components/pill-button';
@@ -31,9 +31,9 @@ export function HeroSection({ colleges }: HeroSectionProps) {
           </h1>
           <div className="mt-10 flex items-center gap-4 lg:mt-20">
             <PillButton asChild size="lg">
-              <Link to="/browse" className="underline decoration-1 underline-offset-4">
+              <OriginLink to="/browse" className="underline decoration-1 underline-offset-4">
                 Browse Repository
-              </Link>
+              </OriginLink>
             </PillButton>
             <ArrowRight aria-hidden="true" className="size-7 shrink-0 text-ink" />
           </div>

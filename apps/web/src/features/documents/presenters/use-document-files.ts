@@ -1,20 +1,15 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  contentTypeForFilename,
   documentVersionListResponseSchema,
   downloadUrlResponseSchema,
-  documentVersionSchema,
-  MAX_UPLOAD_BYTES,
   organizationDetailSchema,
-  uploadUrlResponseSchema,
   type DocumentVersion,
 } from '@orghive/shared';
 import { useAuth } from '@/features/auth/presenters/use-auth';
-import { ACCEPTED_TYPES_LABEL } from '@/features/uploads/presenters/use-upload-documents';
-import { api, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
-import { putWithProgress } from '@/lib/upload-put';
+import { uploadErrorMessage, uploadNewVersion } from './upload-version';
 
 export type ReuploadState =
   | { status: 'idle' }
@@ -32,11 +27,6 @@ export interface DocumentFilesModel {
   reupload: ReuploadState;
   /** Uploads a file as the next version of the document. */
   uploadVersion: (file: File) => Promise<void>;
-}
-
-function message(error: unknown): string {
-  if (error instanceof ApiError && (error.status === 0 || error.status < 500)) return error.message;
-  return 'Something went wrong on our side. Try again in a moment.';
 }
 
 /**
@@ -83,43 +73,23 @@ export function useDocumentFiles(
       window.location.assign(link.url);
       return undefined;
     } catch (error) {
-      return message(error);
+      return uploadErrorMessage(error);
     }
   }
 
   async function uploadVersion(file: File) {
-    const contentType = contentTypeForFilename(file.name);
-    if (!contentType || file.size === 0 || file.size > MAX_UPLOAD_BYTES) {
-      setReupload({ status: 'error', message: `Use ${ACCEPTED_TYPES_LABEL}.` });
-      return;
-    }
     try {
-      setReupload({ status: 'uploading', filename: file.name, progress: 0 });
-      const target = await api.post(
-        `/organizations/${org!.slug}/documents/upload-url`,
-        { filename: file.name, contentType, sizeBytes: file.size },
-        { schema: uploadUrlResponseSchema },
-      );
-      await putWithProgress(target.url, file, target.headers, (fraction) =>
-        setReupload({
-          status: 'uploading',
-          filename: file.name,
-          progress: Math.round(fraction * 100),
-        }),
-      );
-      setReupload({ status: 'saving', filename: file.name });
-      await api.post(
-        `/documents/${documentId}/versions`,
-        { uploadKey: target.uploadKey },
-        { schema: documentVersionSchema },
+      await uploadNewVersion(org!.slug, documentId, file, (step) =>
+        setReupload({ ...step, filename: file.name }),
       );
       setReupload({ status: 'done', filename: file.name });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['documents', 'versions', documentId] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.documents.detail(documentId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
       ]);
     } catch (error) {
-      setReupload({ status: 'error', message: message(error) });
+      setReupload({ status: 'error', message: uploadErrorMessage(error) });
     }
   }
 

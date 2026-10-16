@@ -3,7 +3,6 @@ import type { OrganizationDetail } from '@orghive/shared';
 import { toOrganizationPage } from './use-organization-page';
 
 const JPICE: OrganizationDetail = {
-
   id: '0195f3c0-0000-7000-8000-0000000000b1',
   type: 'SBO',
   slug: 'jpice',

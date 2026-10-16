@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ErrorCode,
   type AuthResponse,
+  type AuthMembership,
   type AuthRole,
   type AuthUser,
   type ChangePasswordRequest,
@@ -46,7 +47,7 @@ export interface SessionResult {
 
 export interface AuthServiceDeps {
   users: Pick<UserRepository, 'findByEmail' | 'findById' | 'setPassword'>;
-  memberships: Pick<MembershipRepository, 'findActiveForUser'>;
+  memberships: Pick<MembershipRepository, 'findActiveDetailsForUser'>;
   refreshTokens: Pick<
     RefreshTokenRepository,
     'create' | 'findByHash' | 'rotate' | 'revokeFamily' | 'revokeAllForUser'
@@ -71,29 +72,38 @@ export function createAuthService(deps: AuthServiceDeps) {
   const now = deps.now ?? (() => new Date());
 
   async function rolesOf(userId: string, at: Date) {
-    const active = await memberships.findActiveForUser(userId, at);
+    const active = await memberships.findActiveDetailsForUser(userId, at);
     const roles: AuthRole[] = active.map((m) => ({
       orgId: m.organization.id,
       role: m.role,
       isHead: m.isHead,
     }));
     const isAdmin = active.some((m) => m.role === 'admin' && m.organization.type === 'ISSC');
-    return { roles, isAdmin };
+    const display: AuthMembership[] = active.map((m) => ({
+      orgId: m.organization.id,
+      orgSlug: m.organization.slug,
+      orgAcronym: m.organization.acronym,
+      role: m.role,
+      isHead: m.isHead,
+      title: m.title,
+    }));
+    return { roles, isAdmin, memberships: display };
   }
 
   async function toAuthUser(user: UserCredentials, at: Date): Promise<AuthUser> {
-    const { roles } = await rolesOf(user.id, at);
+    const { roles, memberships } = await rolesOf(user.id, at);
     return {
       id: user.id,
       name: user.name,
       email: user.email,
       mustChangePassword: user.mustChangePassword,
       roles,
+      memberships,
     };
   }
 
   async function accessFor(user: UserCredentials, at: Date): Promise<AuthResponse> {
-    const { roles, isAdmin } = await rolesOf(user.id, at);
+    const { roles, isAdmin, memberships } = await rolesOf(user.id, at);
     const { token, expiresIn } = await tokens.sign({
       userId: user.id,
       roles,
@@ -109,6 +119,7 @@ export function createAuthService(deps: AuthServiceDeps) {
         email: user.email,
         mustChangePassword: user.mustChangePassword,
         roles,
+        memberships,
       },
     };
   }

@@ -1,5 +1,8 @@
 import type { DocumentViewer } from '#src/repositories/document-visibility';
-import type { ActiveMembership, MembershipRepository } from '#src/repositories/membership.repository';
+import type {
+  ActiveMembership,
+  MembershipRepository,
+} from '#src/repositories/membership.repository';
 import type { OrganizationRepository } from '#src/repositories/organization.repository';
 
 /** An active `admin` membership on the ISSC is system-wide; `admin` elsewhere grants nothing extra. */

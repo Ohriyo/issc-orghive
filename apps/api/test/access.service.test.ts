@@ -27,10 +27,7 @@ function userViewer(overrides: Partial<Extract<DocumentViewer, { kind: 'user' }>
   };
 }
 
-function serviceWith({
-  active = [] as ActiveMembership[],
-  viewer = userViewer(),
-} = {}) {
+function serviceWith({ active = [] as ActiveMembership[], viewer = userViewer() } = {}) {
   const record = vi.fn(() => Promise.resolve());
   const findActiveForUser = vi.fn(() => Promise.resolve(active));
   const now = new Date('2026-10-16T00:00:00Z');
@@ -38,9 +35,7 @@ function serviceWith({
     memberships: { findActiveForUser },
     organizations: {
       findBySlug: (slug: string) =>
-        Promise.resolve(
-          slug === 'jpice' ? ({ id: 'jpice', slug: 'jpice' } as never) : null,
-        ),
+        Promise.resolve(slug === 'jpice' ? ({ id: 'jpice', slug: 'jpice' } as never) : null),
     },
     documents: { organizationOf: (id: string) => Promise.resolve(id === 'd1' ? JPICE_REF : null) },
     viewers: { forUser: () => Promise.resolve(viewer) },
@@ -131,9 +126,7 @@ describe('accessService.requireApprover', () => {
 
   it('lets an ISSC admin approve through an audited override', async () => {
     const { service, record } = serviceWith({ viewer: userViewer({ isAdmin: true }) });
-    await expect(service.requireApprover('admin1', JPICE_REF, CTX)).resolves.toBe(
-      'admin_override',
-    );
+    await expect(service.requireApprover('admin1', JPICE_REF, CTX)).resolves.toBe('admin_override');
     expect(record).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'admin_override',

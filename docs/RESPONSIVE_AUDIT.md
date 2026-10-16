@@ -76,6 +76,7 @@ Severity: **High** = broken for users. **Medium** = works but noticeably worse o
 |---|---|---|---|
 | 2026-10-16 | Foundation: breakpoints, fluid type, Container, safe areas, carousel height cap | #2, #3, #4 | Re-screenshot at all 7 widths: no overflow, Proceed above the fold at 1366x768 |
 | 2026-10-16 | 1. Tap targets and focus | #8, #9, #10, #11, #12, #18 | Re-screenshot at 360/768/1366/1920: every control's hit area >= 44x44 (probed with elementFromPoint), visuals unchanged against design/college-cea.png |
+| 2026-10-16 | 2. HexGrid | — (layout request) | 2 centred columns of smaller hexagons in 16rem on phones, 3 columns in 36rem on tablets, full honeycomb with fillers from lg. Re-screenshot at 360/768/1366/1920: no overflow; desktop unchanged against design/home.png and design/college-cea.png. Honeycomb `sizes` recalculated, so tablets no longer get a too-small logo variant. |
 
 Hover effects now also run on `:focus-visible` (pill lift and brightness, hexagon logo zoom, carousel arrow nudge, document card lift). Tailwind only applies `hover:` on devices that can hover, so nothing sticks or hides on touch.
 

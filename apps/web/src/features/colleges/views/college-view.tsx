@@ -176,7 +176,8 @@ function CscSection({ csc, collegeName, code, sbosHref, sboCount }: CscSectionPr
         className="grid items-center gap-12 pt-4 pb-section-lg lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:gap-16"
       >
         <Reveal>
-          <div className="lg:order-last">
+          {/* Below lg the logo leads and the text is centred under it. */}
+          <div className="order-last max-lg:text-center">
             <h2 id="csc-heading" className="text-display font-bold text-ink">
               <span className="block">{heading}</span>{' '}
               <span className="mt-3 block text-lead font-normal tracking-normal text-pretty">
@@ -184,19 +185,19 @@ function CscSection({ csc, collegeName, code, sbosHref, sboCount }: CscSectionPr
               </span>
             </h2>
             {csc?.description ? (
-              <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink">
+              <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink max-lg:mx-auto">
                 <EmphasizedText segments={csc.description} />
               </p>
             ) : null}
             {!csc ? (
-              <p className="mt-8 max-w-[30rem] text-body text-ink-muted">
+              <p className="mt-8 max-w-[30rem] text-body text-ink-muted max-lg:mx-auto">
                 This college&rsquo;s student council has not been added yet. Its Paperworks will
                 appear here once an admin adds it.
               </p>
             ) : null}
             {csc || sboCount > 0 ? (
               <nav aria-label={`${heading} sections`} className="mt-10">
-                <ul className="flex flex-wrap gap-x-8 gap-y-4">
+                <ul className="flex flex-wrap gap-x-8 gap-y-4 max-lg:justify-center">
                   {csc ? (
                     <li>
                       <PillButton asChild size="lg">
@@ -217,7 +218,7 @@ function CscSection({ csc, collegeName, code, sbosHref, sboCount }: CscSectionPr
               </nav>
             ) : null}
           </div>
-          <HexFrame className="mx-auto w-full max-w-[20rem] sm:max-w-[26rem] lg:max-w-[34rem]">
+          <HexFrame className="mx-auto w-full max-w-[14rem] sm:max-w-[20rem] lg:max-w-[34rem]">
             <OrgLogo
               name={csc?.name ?? heading}
               src={csc?.logoSrc}
@@ -240,7 +241,7 @@ function CscSkeleton() {
       aria-hidden="true"
       className="grid items-center gap-12 pt-4 pb-section-lg lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:gap-16"
     >
-      <div className="lg:order-last">
+      <div className="order-last max-lg:flex max-lg:flex-col max-lg:items-center">
         <Skeleton className="h-12 w-56 lg:h-16 lg:w-72" />
         <Skeleton className="mt-4 h-5 w-80 max-w-full" />
         <Skeleton className="mt-2 h-5 w-64 max-w-full" />
@@ -256,7 +257,7 @@ function CscSkeleton() {
       </div>
       <HexFrame
         shadow={false}
-        className="mx-auto w-full max-w-[20rem] animate-pulse opacity-70 motion-reduce:animate-none sm:max-w-[26rem] lg:max-w-[34rem]"
+        className="mx-auto w-full max-w-[14rem] animate-pulse opacity-70 motion-reduce:animate-none sm:max-w-[20rem] lg:max-w-[34rem]"
       />
     </Container>
   );

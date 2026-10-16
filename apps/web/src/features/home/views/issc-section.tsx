@@ -21,11 +21,12 @@ export function IsscSection({ issc }: IsscSectionProps) {
       <WaveDivider className="mb-6 lg:-mb-8" />
 
       <Container className="relative grid items-center gap-14 pb-section lg:grid-cols-2 lg:gap-8">
-        <Reveal className="relative z-10">
+        {/* Below lg the logo leads and the text is centred under it. */}
+        <Reveal className="relative z-10 max-lg:text-center">
           <IsscContent issc={issc} />
         </Reveal>
 
-        <Reveal className="relative">
+        <Reveal className="relative max-lg:order-first">
           {/* Decorative honeycomb neighbors, as in the prototype. */}
           <div aria-hidden="true" className="hidden lg:block">
             <HexFrame
@@ -44,7 +45,7 @@ export function IsscSection({ issc }: IsscSectionProps) {
           <HexFrame
             band={false}
             ring={false}
-            className="relative mx-auto w-full max-w-[22rem] sm:max-w-[28rem] lg:max-w-[36rem]"
+            className="relative mx-auto w-full max-w-[14rem] sm:max-w-[20rem] lg:max-w-[36rem]"
           >
             {issc.data ? (
               <OrgLogo
@@ -83,7 +84,7 @@ function IsscContent({ issc }: IsscSectionProps) {
 
   if (!issc.data) {
     return (
-      <div aria-busy="true" className="space-y-4">
+      <div aria-busy="true" className="space-y-4 max-lg:flex max-lg:flex-col max-lg:items-center">
         <h2 id="issc-heading" className="sr-only">
           Loading the ISSC profile
         </h2>
@@ -109,10 +110,12 @@ function IsscContent({ issc }: IsscSectionProps) {
         <span className="mt-2 block text-lead font-normal tracking-normal">{name}</span>
       </h2>
       {description ? (
-        <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink">{description}</p>
+        <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink max-lg:mx-auto">
+          {description}
+        </p>
       ) : null}
       <nav aria-label={`${acronym} sections`} className="mt-10">
-        <ul className="flex flex-wrap gap-4">
+        <ul className="flex flex-wrap gap-4 max-lg:justify-center">
           {links.map((link) => (
             <li key={link.label}>
               <PillButton asChild size="lg">

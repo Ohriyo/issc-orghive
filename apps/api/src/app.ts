@@ -10,10 +10,13 @@ import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
 import { createOpenApiDocument } from '#src/openapi';
 import { authRouter } from '#src/routes/auth.routes';
 import { collegesRouter } from '#src/routes/colleges.routes';
+import { documentsRouter } from '#src/routes/documents.routes';
 import { healthRouter } from '#src/routes/health.routes';
 import { organizationsRouter } from '#src/routes/organizations.routes';
+import type { AccessService } from '#src/services/access.service';
 import type { AuthService } from '#src/services/auth.service';
 import type { CollegeService } from '#src/services/college.service';
+import type { DocumentService } from '#src/services/document.service';
 import type { OrganizationService } from '#src/services/organization.service';
 import type { TokenService } from '#src/services/token.service';
 
@@ -22,6 +25,8 @@ export interface AppServices {
   tokens: Pick<TokenService, 'verify'>;
   colleges: CollegeService;
   organizations: OrganizationService;
+  documents: DocumentService;
+  access: AccessService;
 }
 
 export interface AppDeps {
@@ -65,6 +70,13 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   );
   v1.use('/colleges', collegesRouter(services.colleges));
   v1.use('/organizations', organizationsRouter(services.organizations));
+  v1.use(
+    documentsRouter({
+      documents: services.documents,
+      access: services.access,
+      tokens: services.tokens,
+    }),
+  );
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);

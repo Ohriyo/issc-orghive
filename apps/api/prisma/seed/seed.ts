@@ -8,7 +8,7 @@ import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s
 import argon2 from 'argon2';
 import { Redis } from 'ioredis';
 import { z } from 'zod';
-import { documentStatusSchema, semesterSchema } from '@orghive/shared';
+import { documentStatusSchema, documentVisibilitySchema, semesterSchema } from '@orghive/shared';
 import { loadConfig } from '#src/config';
 import { createDb, type Db } from '#src/repositories/prisma';
 import { ceaSbos, colleges, cscSlug, documentTypes, issc, users, type SeedUserKey } from './data';
@@ -47,6 +47,8 @@ const manifestSchema = z.object({
       academicYear: z.string(),
       semester: semesterSchema,
       status: documentStatusSchema,
+      // Sample Paperworks stand for the public archive unless a row says otherwise.
+      visibility: documentVisibilitySchema.default('public'),
       createdBy: z.enum(['admin', 'jpice-officer', 'jpice-adviser', 'cea-governor']),
     }),
   ),
@@ -257,6 +259,7 @@ async function seedDocuments(
         academicYear: doc.academicYear,
         semester: doc.semester,
         status: doc.status,
+        visibility: doc.visibility,
         createdById,
         submittedAt: submitted ? new Date() : null,
       },

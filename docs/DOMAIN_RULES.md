@@ -25,6 +25,17 @@ These are implemented so the app can work, and must be revisited when the open q
   - Approvers: pending documents of the organizations they review.
   - Admins: everything not deleted. Deleted documents: nobody.
 - **Archived documents** are hidden from the public under the rule above. Whether archived Paperworks should stay public is not yet decided.
+- **Document visibility** (chosen by the project owner on 2026-10-16; applies to approved documents only, and never widens access to unapproved ones). See `packages/shared/src/document.ts` and `apps/api/src/repositories/document-visibility.ts`:
+  - `public`: anyone, including signed-out visitors.
+  - `members`: any signed-in NwSSU account. **Default for new documents.**
+  - `private`: active members of the owning organization, its approvers and admins.
+  - Approvers also see approved documents (any visibility) of the organizations they review.
+- **Editing and submitting** (`apps/api/src/services/document.service.ts`):
+  - Officers of the owning organization create, edit, submit and delete its documents. Advisers do not.
+  - Title, type, description, year and semester can change only while `draft` or `rejected`, so an approved document cannot be altered after approval. Visibility can change at any point before archiving.
+  - Submitting needs a current file that has passed the virus scan.
+  - A rejection comment is optional until the school answers "Is a written reason required on rejection?".
+- **Admin override:** an ISSC admin passes every organization guard (role or approver). Each use writes an `admin_override` audit entry.
 
 ## Open questions
 

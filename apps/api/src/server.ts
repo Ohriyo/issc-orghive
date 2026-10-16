@@ -8,14 +8,19 @@ import { createPublicUrl } from '#src/lib/public-url';
 import { redisRateLimitStore } from '#src/middleware/rate-limit';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createCollegeRepository } from '#src/repositories/college.repository';
+import { createDocumentRepository } from '#src/repositories/document.repository';
+import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
 import { createMembershipRepository } from '#src/repositories/membership.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createPasswordResetTokenRepository } from '#src/repositories/password-reset-token.repository';
 import { createDb } from '#src/repositories/prisma';
 import { createRefreshTokenRepository } from '#src/repositories/refresh-token.repository';
 import { createUserRepository } from '#src/repositories/user.repository';
+import { createAccessService } from '#src/services/access.service';
 import { createAuthService } from '#src/services/auth.service';
 import { createCollegeService } from '#src/services/college.service';
+import { createDocumentService } from '#src/services/document.service';
+import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createOrganizationService } from '#src/services/organization.service';
 import { createTokenService } from '#src/services/token.service';
 
@@ -38,6 +43,10 @@ redis.on('error', (err) => logger.warn({ err }, 'Redis connection error'));
 const cache = createRedisCache(redis, logger);
 const publicUrl = createPublicUrl(config.PUBLIC_ASSET_BASE_URL);
 const organizations = createOrganizationRepository(db);
+const memberships = createMembershipRepository(db);
+const documents = createDocumentRepository(db);
+const audit = createAuditLogRepository(db);
+const viewers = createDocumentViewerService({ memberships, organizations });
 const tokens = createTokenService({
   privateKeyPem: config.JWT_PRIVATE_KEY,
   publicKeyPem: config.JWT_PUBLIC_KEY,
@@ -51,10 +60,10 @@ const app = createApp({
     tokens,
     auth: createAuthService({
       users: createUserRepository(db),
-      memberships: createMembershipRepository(db),
+      memberships,
       refreshTokens: createRefreshTokenRepository(db),
       resetTokens: createPasswordResetTokenRepository(db),
-      audit: createAuditLogRepository(db),
+      audit,
       tokens,
       passwords: createArgon2Hasher(),
       mailer: createSmtpMailer(config),
@@ -68,6 +77,15 @@ const app = createApp({
       publicUrl,
     }),
     organizations: createOrganizationService({ organizations, cache, publicUrl }),
+    documents: createDocumentService({
+      documents,
+      documentTypes: createDocumentTypeRepository(db),
+      organizations,
+      viewers,
+      audit,
+      cache,
+    }),
+    access: createAccessService({ memberships, organizations, documents, viewers, audit }),
   },
 });
 

@@ -1,6 +1,11 @@
 import type { DocumentViewer } from '#src/repositories/document-visibility';
-import type { MembershipRepository } from '#src/repositories/membership.repository';
+import type { ActiveMembership, MembershipRepository } from '#src/repositories/membership.repository';
 import type { OrganizationRepository } from '#src/repositories/organization.repository';
+
+/** An active `admin` membership on the ISSC is system-wide; `admin` elsewhere grants nothing extra. */
+export function isSystemAdmin(active: ActiveMembership[]): boolean {
+  return active.some((m) => m.role === 'admin' && m.organization.type === 'ISSC');
+}
 
 export interface DocumentViewerServiceDeps {
   memberships: Pick<MembershipRepository, 'findActiveForUser'>;
@@ -24,7 +29,7 @@ export function createDocumentViewerService({
     async forUser(userId: string): Promise<DocumentViewer> {
       const active = await memberships.findActiveForUser(userId, now());
 
-      const isAdmin = active.some((m) => m.role === 'admin' && m.organization.type === 'ISSC');
+      const isAdmin = isSystemAdmin(active);
       const memberOrgIds = [...new Set(active.map((m) => m.organization.id))];
 
       const headedCscIds = active

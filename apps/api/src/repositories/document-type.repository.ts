@@ -8,6 +8,13 @@ export function createDocumentTypeRepository(db: Db) {
         select: { id: true, slug: true, name: true },
       });
     },
+
+    findById(id: string): Promise<{ id: string; slug: string; name: string } | null> {
+      return db.documentType.findUnique({
+        where: { id },
+        select: { id: true, slug: true, name: true },
+      });
+    },
   };
 }
 

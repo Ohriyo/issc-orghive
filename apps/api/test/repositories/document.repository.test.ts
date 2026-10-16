@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { PUBLIC_VIEWER, type DocumentViewer } from '#src/repositories/document-visibility';
-import { buildWorld, resetDb, testDb, type World } from '../db';
+import { buildWorld, createTestDocument, resetDb, testDb, type World } from '../db';
 
 const db = testDb();
 const documents = createDocumentRepository(db);
@@ -90,6 +90,52 @@ describe('document visibility', () => {
     );
     expect(own?.title).toBe('JPICE draft resolution');
     expect(own?.currentVersion?.version).toBe(1);
+  });
+});
+
+describe('document visibility levels (approved documents)', () => {
+  async function approvedWith(visibility: 'members' | 'private') {
+    return createTestDocument(db, {
+      organizationId: world.orgs.jpice.id,
+      typeId: world.types.report.id,
+      title: `JPICE ${visibility} report`,
+      status: 'approved',
+      createdById: world.users.officer.id,
+      visibility,
+    });
+  }
+
+  it('shows members-only documents to any signed-in user, not the public', async () => {
+    const doc = await approvedWith('members');
+    expect(await documents.findById(PUBLIC_VIEWER, doc.id)).toBeNull();
+    expect(await documents.findById(userViewer(), doc.id)).not.toBeNull();
+  });
+
+  it('shows private documents only to the owning organization, its approvers and admins', async () => {
+    const doc = await approvedWith('private');
+    expect(await documents.findById(PUBLIC_VIEWER, doc.id)).toBeNull();
+    expect(await documents.findById(userViewer(), doc.id)).toBeNull();
+    expect(
+      await documents.findById(userViewer({ memberOrgIds: [world.orgs.psme.id] }), doc.id),
+    ).toBeNull();
+    expect(
+      await documents.findById(userViewer({ memberOrgIds: [world.orgs.jpice.id] }), doc.id),
+    ).not.toBeNull();
+    expect(
+      await documents.findById(userViewer({ reviewableOrgIds: [world.orgs.jpice.id] }), doc.id),
+    ).not.toBeNull();
+    expect(await documents.findById(userViewer({ isAdmin: true }), doc.id)).not.toBeNull();
+  });
+
+  it('never widens access to unapproved documents, whatever their visibility', async () => {
+    // jpiceDraft is public visibility but a draft.
+    expect(await documents.findById(userViewer(), world.docs.jpiceDraft.id)).toBeNull();
+    expect(
+      await documents.findById(
+        userViewer({ reviewableOrgIds: [world.orgs.jpice.id] }),
+        world.docs.jpiceDraft.id,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -186,5 +232,58 @@ describe('documentRepository writes', () => {
       await documents.findById(userViewer({ isAdmin: true }), world.docs.jpiceApproved.id),
     ).toBeNull();
     expect(await db.document.count({ where: { id: world.docs.jpiceApproved.id } })).toBe(1);
+  });
+
+  it('creates a metadata-only draft without a version', async () => {
+    const created = await documents.create({
+      organizationId: world.orgs.jpice.id,
+      typeId: world.types.proposal.id,
+      title: 'Metadata only',
+      academicYear: '2026-2027',
+      visibility: 'private',
+      createdById: world.users.officer.id,
+    });
+    expect(created).toMatchObject({ status: 'draft', visibility: 'private', currentVersion: null });
+  });
+
+  it('updates metadata only while the document is in an allowed status', async () => {
+    const id = world.docs.jpiceDraft.id;
+    expect(await documents.update(PUBLIC_VIEWER, id, { title: 'X' }, ['draft'])).toBeNull();
+    expect(await documents.update(member(), id, { title: 'Renamed' }, ['rejected'])).toBeNull();
+    const updated = await documents.update(member(), id, { title: 'Renamed' }, ['draft']);
+    expect(updated?.title).toBe('Renamed');
+  });
+
+  it('changes status only from the given statuses', async () => {
+    const id = world.docs.jpiceApproved.id;
+    expect(await documents.setStatus(member(), id, 'pending', { from: ['draft'] })).toBe(false);
+    expect(await documents.setStatus(member(), id, 'archived', { from: ['approved'] })).toBe(true);
+  });
+
+  it('records a decision on the current version and moves a pending document once', async () => {
+    const approver = userViewer({
+      userId: world.users.governor.id,
+      reviewableOrgIds: [world.orgs.jpice.id],
+    });
+    const id = world.docs.jpicePending.id;
+    const input = { decision: 'approved' as const, approverId: world.users.governor.id };
+    expect(await documents.decide(userViewer(), id, input)).toBe(false);
+    expect(await documents.decide(approver, id, input)).toBe(true);
+    expect(await documents.decide(approver, id, input)).toBe(false); // no longer pending
+
+    const doc = await db.document.findUniqueOrThrow({ where: { id } });
+    expect(doc.status).toBe('approved');
+    const approvals = await db.approval.findMany({ where: { documentId: id } });
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]).toMatchObject({ versionId: doc.currentVersionId, decision: 'approved' });
+  });
+
+  it('resolves the owning organization, but not for deleted documents', async () => {
+    expect(await documents.organizationOf(world.docs.jpiceDraft.id)).toEqual({
+      id: world.orgs.jpice.id,
+      slug: 'jpice',
+    });
+    expect(await documents.organizationOf(world.docs.jpiceDeleted.id)).toBeNull();
+    expect(await documents.organizationOf(crypto.randomUUID())).toBeNull();
   });
 });

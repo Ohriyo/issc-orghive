@@ -30,6 +30,15 @@ enum DocumentStatus {
   archived
 }
 
+/// Who may see an approved document. PROVISIONAL, see docs/DOMAIN_RULES.md:
+/// public = anyone, members = any signed-in account, private = the owning organization,
+/// its approvers and admins.
+enum DocumentVisibility {
+  public
+  members
+  private
+}
+
 /// Midyear is provisional: whether it counts as a term is an open question.
 enum Semester {
   first
@@ -64,6 +73,8 @@ enum AuditAction {
   password_change
   /// A rotated refresh token was presented again; its whole family was revoked.
   token_reuse
+  /// An ISSC admin acted on an organization where they hold no qualifying role.
+  admin_override
 }
 
 model College {
@@ -186,6 +197,7 @@ model Document {
   academicYear     String                   @map("academic_year")
   semester         Semester?
   status           DocumentStatus           @default(draft)
+  visibility       DocumentVisibility       @default(members)
   currentVersionId String?                  @unique @map("current_version_id") @db.Uuid
   createdById      String                   @map("created_by_id") @db.Uuid
   submittedAt      DateTime?                @map("submitted_at")

@@ -18,6 +18,12 @@ const unwiredServices: AppServices = {
   tokens: { verify: () => unwired('tokens') },
   colleges: { list: () => unwired('colleges'), getBySlug: () => unwired('colleges') },
   organizations: { getBySlug: () => unwired('organizations') },
+  documents: new Proxy({} as AppServices['documents'], {
+    get: (_t, key) => () => unwired(`documents.${String(key)}`),
+  }),
+  access: new Proxy({} as AppServices['access'], {
+    get: (_t, key) => () => unwired(`access.${String(key)}`),
+  }),
 };
 
 export function buildTestApp(

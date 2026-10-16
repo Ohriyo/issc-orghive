@@ -23,9 +23,10 @@ export const PUBLIC_VIEWER: DocumentViewer = { kind: 'public' };
  * The visibility rule every document query goes through. PROVISIONAL until the school
  * answers "who can see pending and rejected documents?" (docs/DOMAIN_RULES.md):
  * - Deleted documents: nobody.
- * - Public and other users: approved only.
- * - Active members of the owning organization: every status.
- * - Its approvers: pending documents they must review.
+ * - Public: approved documents with `public` visibility.
+ * - Other signed-in users: approved documents with `public` or `members` visibility.
+ * - Active members of the owning organization: every status and visibility.
+ * - Its approvers: pending documents they must review, and approved ones (any visibility).
  * - Admins: everything not deleted.
  */
 export function visibleDocumentsWhere(viewer: DocumentViewer): Prisma.DocumentWhereInput {
@@ -34,15 +35,17 @@ export function visibleDocumentsWhere(viewer: DocumentViewer): Prisma.DocumentWh
     organization: { deletedAt: null },
   };
 
-  if (viewer.kind === 'public') return { ...notDeleted, status: 'approved' };
+  if (viewer.kind === 'public') {
+    return { ...notDeleted, status: 'approved', visibility: 'public' };
+  }
   if (viewer.isAdmin) return notDeleted;
 
   return {
     ...notDeleted,
     OR: [
-      { status: 'approved' },
+      { status: 'approved', visibility: { in: ['public', 'members'] } },
       { organizationId: { in: viewer.memberOrgIds } },
-      { status: 'pending', organizationId: { in: viewer.reviewableOrgIds } },
+      { status: { in: ['pending', 'approved'] }, organizationId: { in: viewer.reviewableOrgIds } },
     ],
   };
 }

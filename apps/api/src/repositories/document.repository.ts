@@ -1,4 +1,11 @@
-import type { DocumentStatus, Prisma, ScanStatus, Semester } from '#src/generated/prisma/client';
+import type {
+  ApprovalDecision,
+  DocumentStatus,
+  DocumentVisibility,
+  Prisma,
+  ScanStatus,
+  Semester,
+} from '#src/generated/prisma/client';
 import { visibleDocumentsWhere, type DocumentViewer } from './document-visibility';
 import type { Db } from './prisma';
 
@@ -9,6 +16,7 @@ const documentSelect = {
   academicYear: true,
   semester: true,
   status: true,
+  visibility: true,
   submittedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -60,8 +68,25 @@ export interface NewDocument {
   academicYear: string;
   semester?: Semester;
   status?: DocumentStatus;
+  visibility?: DocumentVisibility;
   createdById: string;
-  firstVersion: NewVersion;
+  /** Omitted for a metadata-only draft; the file is uploaded as version 1 later. */
+  firstVersion?: NewVersion;
+}
+
+export interface DocumentPatch {
+  typeId?: string;
+  title?: string;
+  description?: string | null;
+  academicYear?: string;
+  semester?: Semester | null;
+  visibility?: DocumentVisibility;
+}
+
+export interface NewDecision {
+  decision: ApprovalDecision;
+  approverId: string;
+  comment?: string;
 }
 
 /** How many full-text candidates to rank before the visibility filter narrows them. */
@@ -135,9 +160,23 @@ export function createDocumentRepository(db: Db) {
       return { items: page, nextCursor: hasMore ? page[page.length - 1]!.id : null };
     },
 
-    /** Creates the document and its version 1 together. */
+    /**
+     * The organization a document belongs to, for authorization before the document is
+     * loaded. Deliberately skips the visibility filter: it returns no document content,
+     * only which organization's roles to check. Deleted documents resolve to null.
+     */
+    async organizationOf(id: string): Promise<{ id: string; slug: string } | null> {
+      const row = await db.document.findFirst({
+        where: { id, deletedAt: null, organization: { deletedAt: null } },
+        select: { organization: { select: { id: true, slug: true } } },
+      });
+      return row?.organization ?? null;
+    },
+
+    /** Creates the document, and its version 1 when a file is given, together. */
     async create(input: NewDocument): Promise<DocumentRecord> {
       const { firstVersion, ...document } = input;
+      if (!firstVersion) return db.document.create({ data: document, select: documentSelect });
       return db.$transaction(async (tx) => {
         const created = await tx.document.create({ data: document, select: { id: true } });
         const version = await tx.documentVersion.create({
@@ -179,13 +218,69 @@ export function createDocumentRepository(db: Db) {
       });
     },
 
-    /** Returns false when the document is missing or not visible to the viewer. */
-    async setStatus(viewer: DocumentViewer, id: string, status: DocumentStatus): Promise<boolean> {
+    /**
+     * Updates metadata only while the document is in one of `inStatus`, so a concurrent
+     * status change cannot slip an edit past it. Null when missing, not visible, or no
+     * longer in an allowed status.
+     */
+    async update(
+      viewer: DocumentViewer,
+      id: string,
+      patch: DocumentPatch,
+      inStatus: DocumentStatus[],
+    ): Promise<DocumentRecord | null> {
       const { count } = await db.document.updateMany({
-        where: visible(viewer, { id }),
+        where: visible(viewer, { id, status: { in: inStatus } }),
+        data: patch,
+      });
+      if (count !== 1) return null;
+      return db.document.findFirst({ where: visible(viewer, { id }), select: documentSelect });
+    },
+
+    /**
+     * Returns false when the document is missing, not visible to the viewer, or (with
+     * `from`) not currently in one of those statuses.
+     */
+    async setStatus(
+      viewer: DocumentViewer,
+      id: string,
+      status: DocumentStatus,
+      { from }: { from?: DocumentStatus[] } = {},
+    ): Promise<boolean> {
+      const { count } = await db.document.updateMany({
+        where: visible(viewer, { id, ...(from && { status: { in: from } }) }),
         data: { status, ...(status === 'pending' && { submittedAt: new Date() }) },
       });
       return count === 1;
+    },
+
+    /**
+     * Moves a pending document to approved or rejected and records the decision on its
+     * current version, atomically. False when it is not visible or no longer pending.
+     */
+    async decide(viewer: DocumentViewer, id: string, input: NewDecision): Promise<boolean> {
+      return db.$transaction(async (tx) => {
+        const target = await tx.document.findFirst({
+          where: visible(viewer, { id, status: 'pending', currentVersionId: { not: null } }),
+          select: { currentVersionId: true },
+        });
+        if (!target) return false;
+        const { count } = await tx.document.updateMany({
+          where: { id, status: 'pending', currentVersionId: target.currentVersionId },
+          data: { status: input.decision },
+        });
+        if (count !== 1) return false;
+        await tx.approval.create({
+          data: {
+            documentId: id,
+            versionId: target.currentVersionId!,
+            approverId: input.approverId,
+            decision: input.decision,
+            comment: input.comment,
+          },
+        });
+        return true;
+      });
     },
 
     /** Soft delete. Returns false when the document is missing or not visible. */

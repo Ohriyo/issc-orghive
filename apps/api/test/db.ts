@@ -16,8 +16,51 @@ export async function resetDb(client: Db) {
     RESTART IDENTITY CASCADE`);
 }
 
-const TERM_START = new Date('2026-08-01');
-const TERM_END = new Date('2027-07-31');
+export const TERM_START = new Date('2026-08-01');
+export const TERM_END = new Date('2027-07-31');
+
+export interface TestDocumentInput {
+  organizationId: string;
+  typeId: string;
+  title: string;
+  status: 'draft' | 'pending' | 'approved' | 'rejected' | 'archived';
+  createdById: string;
+  academicYear?: string;
+  deleted?: boolean;
+  /** Defaults to public, so status alone decides what the public sees. */
+  visibility?: 'public' | 'members' | 'private';
+}
+
+/** A document with a clean version 1 as its current version. */
+export async function createTestDocument(client: Db, input: TestDocumentInput) {
+  const { deleted, visibility = 'public', academicYear = '2026-2027', ...data } = input;
+  const created = await client.document.create({
+    data: {
+      ...data,
+      academicYear,
+      visibility,
+      submittedAt: input.status === 'draft' ? null : new Date(),
+      deletedAt: deleted ? new Date() : null,
+    },
+  });
+  const version = await client.documentVersion.create({
+    data: {
+      documentId: created.id,
+      version: 1,
+      storageKey: `test/${created.id}.pdf`,
+      originalFilename: `${created.id}.pdf`,
+      mimeType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: 'x'.repeat(64),
+      scanStatus: 'clean',
+      uploadedById: input.createdById,
+    },
+  });
+  return client.document.update({
+    where: { id: created.id },
+    data: { currentVersionId: version.id },
+  });
+}
 
 /**
  * A small world: the ISSC, CSC-CEA with JPICE and PSME, and CSC-CAT.
@@ -116,43 +159,20 @@ export async function buildWorld(client: Db) {
     data: { slug: 'accomplishment-report', name: 'Accomplishment report' },
   });
 
-  let n = 0;
-  async function doc(
+  const doc = (
     organizationId: string,
     title: string,
-    status: 'draft' | 'pending' | 'approved' | 'rejected' | 'archived',
-    extra: { deleted?: boolean; typeId?: string; academicYear?: string } = {},
-  ) {
-    n++;
-    const created = await client.document.create({
-      data: {
-        organizationId,
-        typeId: extra.typeId ?? proposal.id,
-        title,
-        academicYear: extra.academicYear ?? '2026-2027',
-        status,
-        createdById: officer.id,
-        deletedAt: extra.deleted ? new Date() : null,
-      },
+    status: TestDocumentInput['status'],
+    extra: Partial<TestDocumentInput> = {},
+  ) =>
+    createTestDocument(client, {
+      organizationId,
+      title,
+      status,
+      typeId: proposal.id,
+      createdById: officer.id,
+      ...extra,
     });
-    const version = await client.documentVersion.create({
-      data: {
-        documentId: created.id,
-        version: 1,
-        storageKey: `test/${n}.pdf`,
-        originalFilename: `${n}.pdf`,
-        mimeType: 'application/pdf',
-        sizeBytes: 100,
-        sha256: 'x'.repeat(64),
-        scanStatus: 'clean',
-        uploadedById: officer.id,
-      },
-    });
-    return client.document.update({
-      where: { id: created.id },
-      data: { currentVersionId: version.id },
-    });
-  }
 
   const docs = {
     jpiceDraft: await doc(jpice.id, 'JPICE draft resolution', 'draft'),

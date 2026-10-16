@@ -25,6 +25,7 @@ export function documentsRouter({ documents, access, tokens }: DocumentsRouterDe
   router.get('/organizations/:slug/documents', optionalAuth(tokens), viewerCache, controller.list);
   router.post('/organizations/:slug/documents', auth, requireOrgRole('officer'), controller.create);
 
+  router.get('/documents', optionalAuth(tokens), viewerCache, controller.search);
   router.get('/documents/:documentId', optionalAuth(tokens), viewerCache, controller.get);
   router.patch('/documents/:documentId', auth, requireOrgRole('officer'), controller.update);
   router.delete('/documents/:documentId', auth, requireOrgRole('officer'), controller.remove);

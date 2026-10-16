@@ -4,6 +4,7 @@ import {
   documentDecisionRequestSchema,
   documentIdParamsSchema,
   documentListQuerySchema,
+  documentSearchQuerySchema,
   slugParamsSchema,
   updateDocumentRequestSchema,
 } from '@orghive/shared';
@@ -19,6 +20,11 @@ export function createDocumentController(documents: DocumentService) {
     const { slug } = slugParamsSchema.parse(req.params);
     const query = documentListQuerySchema.parse(req.query);
     res.json(await documents.list(maybeAuthOf(res)?.userId, slug, query));
+  };
+
+  const search: RequestHandler = async (req, res) => {
+    const query = documentSearchQuerySchema.parse(req.query);
+    res.json(await documents.search(maybeAuthOf(res)?.userId, query));
   };
 
   const get: RequestHandler = async (req, res) => {
@@ -61,6 +67,7 @@ export function createDocumentController(documents: DocumentService) {
 
   return {
     list,
+    search,
     get,
     create,
     update,

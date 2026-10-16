@@ -7,4 +7,7 @@ export const queryKeys = {
   organizations: {
     detail: (slug: string) => ['organizations', 'detail', slug] as const,
   },
+  documents: {
+    search: (q: string) => ['documents', 'search', q] as const,
+  },
 };

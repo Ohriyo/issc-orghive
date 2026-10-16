@@ -28,3 +28,16 @@ export function safeNext(next: string | null | undefined, fallback = '/account')
   const base = 'https://orghive.invalid';
   return new URL(next, base).origin === base ? next : fallback;
 }
+
+export interface AccountLink {
+  label: 'Login' | 'Account';
+  href: '/login' | '/account';
+}
+
+/** The header's sign-in entry: "Account" once signed in, "Login" otherwise. */
+export function useAccountLink(): AccountLink {
+  const { status } = useAuth();
+  return status === 'authenticated'
+    ? { label: 'Account', href: '/account' }
+    : { label: 'Login', href: '/login' };
+}

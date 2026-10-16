@@ -57,7 +57,7 @@ Severity: **High** = broken for users. **Medium** = works but noticeably worse o
 | 4 | College page | 1024×768 | The two-column layout starts at 1024 with a narrow text column. The H1 breaks one word per line ("College of / Engineering / and / Architecture"), and the description runs about 25 characters per line. | Medium | Fixed: stacks below 1280px (foundation) |
 | 5 | Home (ISSC logo) | 360, 390, 768, 1024 | The logo is drawn 1.31×, 1.40×, 1.19× and 1.11× larger than its 512 px source on high-density screens, so it looks soft. | Medium | Open |
 | 6 | College page (CSC logo) | 360, 390 | The logo is upscaled 1.14× and looks soft. | Low | Open |
-| 7 | Home | all | The header "Login" link is 56×30 px. It's the only way into sign-in from home, and it's under 44 px tall on touch. | Medium | Open |
+| 7 | Home | all | The header "Login" link is 56×30 px. It's the only way into sign-in from home, and it's under 44 px tall on touch. | Medium | Fixed: header rebuilt; every control has a 44px hit area (component 4) |
 | 8 | College page | all | The "← All colleges" back link is 115×26 px: the main way back, under 44 px tall. | Medium | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
 | 9 | Paperworks (404) | all | The "Back to home" button is 119×32 px. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
 | 10 | Login, Change password | all | The "Show password" toggle is 40×40 px. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
@@ -69,6 +69,7 @@ Severity: **High** = broken for users. **Medium** = works but noticeably worse o
 | 16 | Org pages | 360, 390 | The organization's logo hexagon comes after the description, so on phones the page's main image is below the fold. | Low | Open |
 | 17 | All screens | 2560×1440 | Content is capped at roughly 1280–1400 px and centred, which leaves wide empty margins; the 404 page is small in the middle of the screen. Acceptable, noted for the container work. | Low | Open |
 | 18 | Account | all | The "Change password" text link is 167×29 px. | Low | Fixed: 44px hit area (`tap-area` / larger control), look unchanged |
+| 19 | Home | all | The hero's "Browse Repository" button links to `/browse`, which has no route (found 2026-10-16 while rebuilding the header). | High | Open: needs a decision on what it should open (likely the Paperworks or colleges list) |
 
 ## Fix log
 
@@ -78,6 +79,7 @@ Severity: **High** = broken for users. **Medium** = works but noticeably worse o
 | 2026-10-16 | 1. Tap targets and focus | #8, #9, #10, #11, #12, #18 | Re-screenshot at 360/768/1366/1920: every control's hit area >= 44x44 (probed with elementFromPoint), visuals unchanged against design/college-cea.png |
 | 2026-10-16 | 2. HexGrid | — (layout request) | 2 centred columns of smaller hexagons in 16rem on phones, 3 columns in 36rem on tablets, full honeycomb with fillers from lg. Re-screenshot at 360/768/1366/1920: no overflow; desktop unchanged against design/home.png and design/college-cea.png. Honeycomb `sizes` recalculated, so tablets no longer get a too-small logo variant. |
 | 2026-10-16 | 3. SpotlightCarousel | #13, #14 | Arrows from lg; below lg swipe plus 44px dot buttons (a counter above 10 items), smaller centre card on phones with neighbours peeking, larger slides on tablets. Verified in Chromium at 360 with touch emulation: a CDP touch swipe, ArrowRight and a dot tap each moved the carousel; no horizontal scroll. Re-screenshot at 360/768/1366/1920 against design/csc-carousel-cat.png and design/sbo-carousel-icpep.png. |
+| 2026-10-16 | 4. Header and search | #7 | From xl: Search pill plus Home, Colleges, ISSC, Login/Account. Below xl: 44px search and menu icon buttons; the menu is a full-screen Radix dialog (focus trapped, Esc closes, focus returns to the button). New full-screen search overlay over a new `GET /documents?q=` (same visibility filter). **Deviation:** full links start at xl, not lg: the prototype's honeycomb bleeds into the top right and leaves about 28rem, which below 1280px cannot hold the pill plus four links. Verified in Chromium at 360/768/1366/1920: keyboard open, focus trap and focus return, search results signed in, no overlay overflow, links clear the honeycomb by ≥13px at 1280/1366/1920/2560. |
 
 Hover effects now also run on `:focus-visible` (pill lift and brightness, hexagon logo zoom, carousel arrow nudge, document card lift). Tailwind only applies `hover:` on devices that can hover, so nothing sticks or hides on touch.
 

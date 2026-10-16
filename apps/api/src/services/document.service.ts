@@ -4,6 +4,7 @@ import {
   type CreateDocumentRequest,
   type DocumentListQuery,
   type DocumentListResponse,
+  type DocumentSearchQuery,
   type DocumentStatus,
   type DocumentSummary,
   type UpdateDocumentRequest,
@@ -152,6 +153,21 @@ export function createDocumentService({
       if (userId) return load();
       const key = cacheKeys.organizationDocuments(org.slug, queryHash(query));
       return (await cache.getOrSet(key, DOCUMENT_LIST_TTL_SECONDS, load))!;
+    },
+
+    /**
+     * Full-text search across every organization, best matches first, through the same
+     * visibility filter. Not cached in Redis: queries are too varied to reuse.
+     */
+    async search(
+      userId: string | undefined,
+      query: DocumentSearchQuery,
+    ): Promise<DocumentListResponse> {
+      const { items } = await documents.list(await viewerFor(userId), {
+        search: query.q,
+        limit: query.limit ?? 10,
+      });
+      return { items: items.map(toDocumentSummary), nextCursor: null };
     },
 
     /** 404 when the document does not exist or the viewer may not see it. */

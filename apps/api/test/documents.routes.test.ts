@@ -30,8 +30,14 @@ const ROLES: Role[] = [
 let world: World;
 let iecep: { id: string; slug: string };
 let app: ReturnType<typeof buildTestApp>;
-const userIds = {} as Record<Exclude<Role, 'anonymous'> | 'ceaGovernor' | 'pastJpiceOfficer', string>;
-const tokenOf = {} as Record<Exclude<Role, 'anonymous'> | 'ceaGovernor' | 'pastJpiceOfficer', string>;
+const userIds = {} as Record<
+  Exclude<Role, 'anonymous'> | 'ceaGovernor' | 'pastJpiceOfficer',
+  string
+>;
+const tokenOf = {} as Record<
+  Exclude<Role, 'anonymous'> | 'ceaGovernor' | 'pastJpiceOfficer',
+  string
+>;
 
 function daysFromNow(days: number) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
@@ -63,21 +69,20 @@ beforeAll(async () => {
 
   // Terms relative to today, so the matrix does not expire with the calendar.
   const current = { termStart: daysFromNow(-60), termEnd: daysFromNow(300) };
-  const people: [keyof typeof userIds, string | null, 'officer' | 'adviser' | 'admin', object][] =
+  const people: [keyof typeof userIds, string | null, 'officer' | 'adviser' | 'admin', object][] = [
+    ['student', null, 'officer', {}],
+    ['jpiceOfficer', world.orgs.jpice.id, 'officer', current],
+    ['iecepOfficer', iecep.id, 'officer', current],
+    ['ceaAdviser', world.orgs.cscCea.id, 'adviser', current],
+    ['admin', world.orgs.issc.id, 'admin', { termStart: daysFromNow(-60), termEnd: null }],
+    ['ceaGovernor', world.orgs.cscCea.id, 'officer', { ...current, isHead: true }],
     [
-      ['student', null, 'officer', {}],
-      ['jpiceOfficer', world.orgs.jpice.id, 'officer', current],
-      ['iecepOfficer', iecep.id, 'officer', current],
-      ['ceaAdviser', world.orgs.cscCea.id, 'adviser', current],
-      ['admin', world.orgs.issc.id, 'admin', { termStart: daysFromNow(-60), termEnd: null }],
-      ['ceaGovernor', world.orgs.cscCea.id, 'officer', { ...current, isHead: true }],
-      [
-        'pastJpiceOfficer',
-        world.orgs.jpice.id,
-        'officer',
-        { termStart: daysFromNow(-400), termEnd: daysFromNow(-35) },
-      ],
-    ];
+      'pastJpiceOfficer',
+      world.orgs.jpice.id,
+      'officer',
+      { termStart: daysFromNow(-400), termEnd: daysFromNow(-35) },
+    ],
+  ];
   for (const [key, orgId, role, extra] of people) {
     const user = await db.user.create({
       data: { email: `${key.toLowerCase()}@matrix.test`, name: key, passwordHash: 'x' },
@@ -370,7 +375,9 @@ describe('document authorization: cross-organization and term checks', () => {
     );
     expect(res.body).toMatchObject({ id: pending.id, status: 'rejected' });
     expect(
-      await db.auditLog.count({ where: { action: 'admin_override', actorId: userIds.ceaGovernor } }),
+      await db.auditLog.count({
+        where: { action: 'admin_override', actorId: userIds.ceaGovernor },
+      }),
     ).toBe(0);
   });
 
@@ -397,9 +404,11 @@ describe('document reads: visibility and caching headers', () => {
       visibility: 'members',
     });
     const ids = async (token?: string) =>
-      ((await call('get', '/organizations/iecep/documents?limit=100', token).expect(200)).body as {
-        items: { id: string }[];
-      }).items.map((d) => d.id);
+      (
+        (await call('get', '/organizations/iecep/documents?limit=100', token).expect(200)).body as {
+          items: { id: string }[];
+        }
+      ).items.map((d) => d.id);
 
     const anon = await ids();
     expect(anon).toContain(pub.id);
@@ -426,5 +435,47 @@ describe('document reads: visibility and caching headers', () => {
 
   it('401s a read with an invalid token instead of serving the public view', async () => {
     await call('get', '/organizations/iecep/documents', 'abc.def.ghi').expect(401);
+  });
+});
+
+describe('global document search', () => {
+  it('returns only what each viewer may see, across organizations', async () => {
+    const word = `zx${crypto.randomUUID().slice(0, 8)}`;
+    const make = (visibility: 'public' | 'members' | 'private', org = iecep.id) =>
+      createTestDocument(db, {
+        organizationId: org,
+        typeId: world.types.proposal.id,
+        title: `${word} ${visibility} report`,
+        status: 'approved',
+        createdById: userIds.iecepOfficer,
+        visibility,
+      });
+    const pub = await make('public', world.orgs.jpice.id);
+    const members = await make('members');
+    const priv = await make('private');
+
+    const ids = async (token?: string) =>
+      (
+        (await call('get', `/documents?q=${word}`, token).expect(200)).body as {
+          items: { id: string }[];
+        }
+      ).items.map((d) => d.id);
+
+    expect(await ids()).toEqual([pub.id]);
+    expect((await ids(tokenOf.student)).sort()).toEqual([pub.id, members.id].sort());
+    expect(await ids(tokenOf.iecepOfficer)).toContain(priv.id);
+    expect(await ids(tokenOf.jpiceOfficer)).not.toContain(priv.id);
+  });
+
+  it('rejects a query shorter than 2 characters', async () => {
+    await call('get', '/documents?q=a').expect(400);
+    await call('get', '/documents').expect(400);
+  });
+
+  it('caches publicly only for signed-out readers', async () => {
+    const anon = await call('get', '/documents?q=report').expect(200);
+    expect(anon.headers['cache-control']).toContain('public');
+    const signedIn = await call('get', '/documents?q=report', tokenOf.student).expect(200);
+    expect(signedIn.headers['cache-control']).toBe('private, no-store');
   });
 });

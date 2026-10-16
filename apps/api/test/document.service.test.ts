@@ -60,6 +60,7 @@ function setup(doc: DocumentRecord | null = record()) {
     documents,
     documentTypes: {
       findById: (id: string) => Promise.resolve(id === TYPE.id ? TYPE : null),
+      list: vi.fn(() => Promise.resolve([TYPE])),
     },
     organizations: {
       findBySlug: (slug: string) => Promise.resolve(slug === 'jpice' ? (JPICE as never) : null),
@@ -99,6 +100,14 @@ describe('documentService.list', () => {
     await expect(setup().service.list(undefined, 'nope', {})).rejects.toMatchObject({
       status: 404,
     });
+  });
+});
+
+describe('documentService.listTypes', () => {
+  it('lists document types and caches them', async () => {
+    const { service, cache } = setup();
+    expect(await service.listTypes()).toEqual({ types: [TYPE] });
+    expect(cache.store.has('document-types:list')).toBe(true);
   });
 });
 

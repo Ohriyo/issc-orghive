@@ -12,6 +12,7 @@ export interface Cache {
 export const cacheKeys = {
   collegeList: () => 'college:list',
   college: (slug: string) => `college:${slug}`,
+  documentTypes: () => 'document-types:list',
   organization: (slug: string) => `org:${slug}`,
   organizationDocuments: (slug: string, queryHash: string) => `org:${slug}:docs:${queryHash}`,
   /** Every cached document list of one organization. Delete it on any document write. */

@@ -27,6 +27,10 @@ export function createDocumentController(documents: DocumentService) {
     res.json(await documents.search(maybeAuthOf(res)?.userId, query));
   };
 
+  const listTypes: RequestHandler = async (_req, res) => {
+    res.json(await documents.listTypes());
+  };
+
   const get: RequestHandler = async (req, res) => {
     const { documentId } = documentIdParamsSchema.parse(req.params);
     res.json(await documents.get(maybeAuthOf(res)?.userId, documentId));
@@ -67,6 +71,7 @@ export function createDocumentController(documents: DocumentService) {
 
   return {
     list,
+    listTypes,
     search,
     get,
     create,

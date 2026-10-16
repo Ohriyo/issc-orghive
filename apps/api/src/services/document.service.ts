@@ -4,13 +4,14 @@ import {
   type CreateDocumentRequest,
   type DocumentListQuery,
   type DocumentListResponse,
+  type DocumentTypeListResponse,
   type DocumentSearchQuery,
   type DocumentStatus,
   type DocumentSummary,
   type UpdateDocumentRequest,
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
-import { type Cache, cacheKeys } from '#src/lib/cache';
+import { type Cache, cacheKeys, PUBLIC_READ_TTL_SECONDS } from '#src/lib/cache';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import type { DocumentRecord, DocumentRepository } from '#src/repositories/document.repository';
 import type { DocumentTypeRepository } from '#src/repositories/document-type.repository';
@@ -39,7 +40,7 @@ export interface DocumentServiceDeps {
     DocumentRepository,
     'findById' | 'list' | 'create' | 'update' | 'setStatus' | 'decide' | 'softDelete'
   >;
-  documentTypes: Pick<DocumentTypeRepository, 'findById'>;
+  documentTypes: Pick<DocumentTypeRepository, 'findById' | 'list'>;
   organizations: Pick<OrganizationRepository, 'findBySlug'>;
   viewers: Pick<DocumentViewerService, 'forUser'>;
   audit: Pick<AuditLogRepository, 'record'>;
@@ -127,6 +128,14 @@ export function createDocumentService({
   }
 
   return {
+    /** Every document type, for upload forms and filters. Public, cached 10 minutes. */
+    async listTypes(): Promise<DocumentTypeListResponse> {
+      const types = await cache.getOrSet(cacheKeys.documentTypes(), PUBLIC_READ_TTL_SECONDS, () =>
+        documentTypes.list(),
+      );
+      return { types: types ?? [] };
+    },
+
     /** Throws 404 for an unknown organization. Signed-out results are cached. */
     async list(
       userId: string | undefined,

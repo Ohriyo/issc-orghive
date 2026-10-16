@@ -71,6 +71,18 @@ export const documentListQuerySchema = z.object({
 });
 export type DocumentListQuery = z.infer<typeof documentListQuerySchema>;
 
+/** A kind of Paperworks document, e.g. "Activity proposal". Types are data, not an enum. */
+export const documentTypeSchema = z
+  .object({ id: z.uuid(), slug: z.string(), name: z.string() })
+  .meta({ id: 'DocumentType' });
+export type DocumentType = z.infer<typeof documentTypeSchema>;
+
+/** GET /document-types, in name order. */
+export const documentTypeListResponseSchema = z
+  .object({ types: z.array(documentTypeSchema) })
+  .meta({ id: 'DocumentTypeListResponse' });
+export type DocumentTypeListResponse = z.infer<typeof documentTypeListResponseSchema>;
+
 /** GET /documents?q=: search every organization's Paperworks the viewer may see. */
 export const documentSearchQuerySchema = z.object({
   q: z.string().trim().min(2).max(200),

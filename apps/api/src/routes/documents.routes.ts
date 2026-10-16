@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { createDocumentController } from '#src/controllers/document.controller';
-import { viewerCache } from '#src/middleware/public-cache';
+import { publicCache, viewerCache } from '#src/middleware/public-cache';
 import { createOrgGuards, optionalAuth, requireAuth } from '#src/middleware/require-auth';
 import type { AccessService } from '#src/services/access.service';
 import type { DocumentService } from '#src/services/document.service';
@@ -25,6 +25,7 @@ export function documentsRouter({ documents, access, tokens }: DocumentsRouterDe
   router.get('/organizations/:slug/documents', optionalAuth(tokens), viewerCache, controller.list);
   router.post('/organizations/:slug/documents', auth, requireOrgRole('officer'), controller.create);
 
+  router.get('/document-types', publicCache, controller.listTypes);
   router.get('/documents', optionalAuth(tokens), viewerCache, controller.search);
   router.get('/documents/:documentId', optionalAuth(tokens), viewerCache, controller.get);
   router.patch('/documents/:documentId', auth, requireOrgRole('officer'), controller.update);

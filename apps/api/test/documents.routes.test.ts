@@ -479,3 +479,13 @@ describe('global document search', () => {
     expect(signedIn.headers['cache-control']).toBe('private, no-store');
   });
 });
+
+describe('GET /document-types', () => {
+  it('lists the types publicly, cacheable', async () => {
+    const res = await call('get', '/document-types').expect(200);
+    expect((res.body as { types: { slug: string }[] }).types.map((t) => t.slug)).toEqual(
+      expect.arrayContaining(['activity-proposal', 'accomplishment-report']),
+    );
+    expect(res.headers['cache-control']).toContain('public');
+  });
+});

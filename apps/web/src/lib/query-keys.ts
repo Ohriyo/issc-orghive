@@ -9,5 +9,9 @@ export const queryKeys = {
   },
   documents: {
     search: (q: string) => ['documents', 'search', q] as const,
+    list: (slug: string, filters: Record<string, string | undefined>) =>
+      ['documents', 'list', slug, filters] as const,
+    detail: (id: string) => ['documents', 'detail', id] as const,
+    types: ['documents', 'types'] as const,
   },
 };

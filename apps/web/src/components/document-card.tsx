@@ -15,7 +15,8 @@ export interface DocumentCardProps {
   /** ISO date string. */
   date: string;
   href: string;
-  fileType: DocumentFileType;
+  /** Omitted while the document has no file yet (a metadata-only draft). */
+  fileType?: DocumentFileType;
   /** First-page preview. Without it (or if it fails) the card shows the file type in a hexagon. */
   thumbnailSrc?: string;
   /** Decided by the presenter; the card only renders it. */
@@ -64,7 +65,7 @@ function formatDate(iso: string): string {
 
 /**
  * A Paperworks entry: preview, type, title and date. The whole card is one link.
- * Below 640 px it becomes a compact row so a list of documents stays scannable on a phone.
+ * Below 768 px (md) it becomes a compact row so a list of documents stays scannable on a phone.
  */
 export function DocumentCard({
   title,
@@ -80,19 +81,19 @@ export function DocumentCard({
 }: DocumentCardProps) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const showThumbnail = thumbnailSrc && !thumbnailFailed;
-  const extension = fileType.toUpperCase();
+  const extension = fileType?.toUpperCase();
 
   return (
     <article
       className={cn(
-        'group relative flex overflow-hidden rounded-xl bg-white shadow-pool ring-1 ring-ink/10 sm:flex-col',
+        'group relative flex overflow-hidden rounded-xl bg-white shadow-pool ring-1 ring-ink/10 md:flex-col',
         'ease-cinematic transition-[translate,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-pool-lift has-[a:focus-visible]:-translate-y-0.5',
         'has-[a:focus-visible]:outline-3 has-[a:focus-visible]:outline-offset-2 has-[a:focus-visible]:outline-ink',
         'motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:has-[a:focus-visible]:translate-y-0',
         className,
       )}
     >
-      <div className="relative w-24 shrink-0 overflow-hidden bg-surface sm:aspect-4/3 sm:w-full">
+      <div className="relative w-24 shrink-0 overflow-hidden bg-surface md:aspect-4/3 md:w-full">
         {showThumbnail ? (
           <img
             src={thumbnailSrc}
@@ -104,24 +105,24 @@ export function DocumentCard({
           />
         ) : (
           <div className="grid size-full place-items-center p-2">
-            <HexFrame className="w-16 sm:w-24" shadow={false} contentClassName="p-0">
-              <span className="text-caption font-semibold tracking-wide text-white sm:text-small">
-                {extension}
+            <HexFrame className="w-16 md:w-24" shadow={false} contentClassName="p-0">
+              <span className="text-caption font-semibold tracking-wide text-white md:text-small">
+                {extension ?? '—'}
               </span>
             </HexFrame>
           </div>
         )}
       </div>
 
-      {/* The forest band runs down the side on phones and across the top from 640 px. */}
-      <div aria-hidden="true" className="bg-forest-band w-1.5 shrink-0 sm:h-1.5 sm:w-auto" />
+      {/* The forest band runs down the side on phones and across the top from 768 px. */}
+      <div aria-hidden="true" className="bg-forest-band w-1.5 shrink-0 md:h-1.5 md:w-auto" />
 
       <div className="relative flex min-w-0 flex-1 flex-col gap-1.5 p-4">
         {org && (
-          // The organization's seal straddles the forest band from 640 px up.
+          // The organization's seal straddles the forest band from 768 px up.
           <HexFrame
             ringWidth={2.5}
-            className="absolute -top-7 right-4 hidden w-14 sm:block"
+            className="absolute -top-7 right-4 hidden w-14 md:block"
             contentClassName="p-[14%]"
           >
             <OrgLogo
@@ -133,7 +134,7 @@ export function DocumentCard({
             />
           </HexFrame>
         )}
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:pr-14">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 md:pr-14">
           <span
             title={typeLabel}
             className="max-w-full truncate rounded-full bg-ink px-2.5 py-1 text-caption font-semibold text-white"
@@ -167,7 +168,7 @@ export function DocumentCard({
               band={false}
               ring={false}
               shadow={false}
-              className="w-6 sm:hidden"
+              className="w-6 md:hidden"
               contentClassName="p-[12%]"
             >
               <OrgLogo
@@ -183,7 +184,7 @@ export function DocumentCard({
         )}
         <p className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-small text-ink-muted">
           <time dateTime={date}>{formatDate(date)}</time>
-          <span>{extension}</span>
+          <span>{extension ?? 'No file yet'}</span>
           {isNew && (
             <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
               <span aria-hidden="true" className="size-1.5 rounded-full bg-leaf" />
@@ -202,12 +203,12 @@ export function DocumentCardSkeleton({ className }: { className?: string }) {
     <div
       aria-hidden="true"
       className={cn(
-        'flex animate-pulse overflow-hidden rounded-xl bg-white ring-1 ring-ink/10 motion-reduce:animate-none sm:flex-col',
+        'flex animate-pulse overflow-hidden rounded-xl bg-white ring-1 ring-ink/10 motion-reduce:animate-none md:flex-col',
         className,
       )}
     >
-      <div className="w-24 shrink-0 bg-surface-deep/50 sm:aspect-4/3 sm:w-full" />
-      <div className="w-1.5 bg-surface-deep sm:h-1.5 sm:w-auto" />
+      <div className="w-24 shrink-0 bg-surface-deep/50 md:aspect-4/3 md:w-full" />
+      <div className="w-1.5 bg-surface-deep md:h-1.5 md:w-auto" />
       <div className="flex flex-1 flex-col gap-2 p-4">
         <div className="h-5 w-24 rounded-full bg-surface-deep/70" />
         <div className="h-4 w-4/5 rounded bg-surface-deep/70" />

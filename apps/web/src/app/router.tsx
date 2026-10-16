@@ -36,6 +36,18 @@ export const routes: RouteObject[] = [
         }),
       },
       {
+        path: 'orgs/:slug/paperworks',
+        lazy: async () => ({
+          Component: (await import('@/features/paperworks/paperworks-page')).PaperworksPage,
+        }),
+      },
+      {
+        path: 'documents/:id',
+        lazy: async () => ({
+          Component: (await import('@/features/documents/document-page')).DocumentPage,
+        }),
+      },
+      {
         path: 'organizations/:slug/*',
         lazy: async () => ({
           Component: (await import('@/features/organizations/organization-page'))

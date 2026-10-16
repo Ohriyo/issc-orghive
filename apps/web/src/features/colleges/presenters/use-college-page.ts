@@ -26,6 +26,7 @@ export function toSboHoneycomb(sbos: CollegeDetail['sbos']): HexGridCell[] {
     id: sbo.slug,
     label: sbo.name,
     logoSrc: sbo.logoUrl ?? undefined,
+    logoSrcSet: sbo.logoSrcSet ?? undefined,
     shortName: sbo.acronym,
     href: `/orgs/${sbo.slug}`,
   }));
@@ -40,6 +41,7 @@ export interface CscCard {
   acronym: string;
   name: string;
   logoSrc?: string;
+  logoSrcSet?: string;
   description: TextSegment[] | null;
   paperworksHref: string;
 }
@@ -84,6 +86,7 @@ export function toCollegePage(college: CollegeDetail): CollegePageModel {
           acronym: college.csc.acronym,
           name: college.csc.name,
           logoSrc: college.csc.logoUrl ?? undefined,
+          logoSrcSet: college.csc.logoSrcSet ?? undefined,
           description: college.csc.description
             ? emphasize(college.csc.description, [college.csc.acronym, college.name])
             : null,

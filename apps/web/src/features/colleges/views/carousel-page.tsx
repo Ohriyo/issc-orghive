@@ -59,8 +59,8 @@ export function CarouselPage({
       />
       <main className="pt-8 pb-10 md:pt-6">
         <header className="px-4 text-center">
-          <h1 className="text-h1 font-bold text-balance text-ink lg:text-display">{title}</h1>
-          {subtitle ? <p className="mt-2 text-body-lg text-ink lg:text-lead">{subtitle}</p> : null}
+          <h1 className="text-display font-bold text-balance text-ink">{title}</h1>
+          {subtitle ? <p className="mt-2 text-lead text-ink">{subtitle}</p> : null}
         </header>
         <SpotlightCarousel
           // Remount once data arrives, so the carousel starts on initialIndex instead of

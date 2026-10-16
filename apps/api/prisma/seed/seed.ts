@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import argon2 from 'argon2';
 import { Redis } from 'ioredis';
+import sharp from 'sharp';
 import { z } from 'zod';
 import { documentStatusSchema, documentVisibilitySchema, semesterSchema } from '@orghive/shared';
 import { loadConfig } from '#src/config';
+import { logoVariantKey } from '#src/lib/public-url';
 import { createDb, type Db } from '#src/repositories/prisma';
 import { ceaSbos, colleges, cscSlug, documentTypes, issc, users, type SeedUserKey } from './data';
 
@@ -116,11 +118,33 @@ async function seedOrganizations(db: Db) {
   return orgIds;
 }
 
+/** Widths for srcset. Never larger than the source: upscaling adds bytes, not detail. */
+const LOGO_WIDTHS = [128, 256, 512, 1024];
+
+function logoWidthsFor(sourceWidth: number): number[] {
+  const widths = LOGO_WIDTHS.filter((w) => w < sourceWidth);
+  return [...widths, Math.min(sourceWidth, LOGO_WIDTHS.at(-1)!)];
+}
+
+async function putPublicLogo(key: string, body: Buffer) {
+  if (await objectExists(key)) return;
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: config.S3_BUCKET,
+      Key: key,
+      Body: body,
+      ContentType: 'image/webp',
+      CacheControl: 'public, max-age=31536000, immutable',
+    }),
+  );
+}
+
 /**
  * Uploads assets/logos/<org-slug>.webp to the public-read `logos/` prefix and sets each
  * organization's logoKey. The key includes a content hash, so a replaced logo gets a new
- * URL and CDNs can cache logos forever. Colleges have no logo of their own yet; their
- * seals are used as the CSC logos for now.
+ * URL and CDNs can cache logos forever. Resized copies for srcset are stored next to it
+ * (`<key>-<width>.webp`) and their widths recorded in logoWidths. Colleges have no logo of
+ * their own yet; their seals are used as the CSC logos for now.
  */
 async function seedLogos(db: Db) {
   const dir = join(SEED_DIR, 'assets', 'logos');
@@ -130,21 +154,23 @@ async function seedLogos(db: Db) {
     const body = readFileSync(join(dir, file));
     const hash = createHash('sha256').update(body).digest('hex').slice(0, 12);
     const key = `logos/${slug}-${hash}.webp`;
-    if (!(await objectExists(key))) {
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: config.S3_BUCKET,
-          Key: key,
-          Body: body,
-          ContentType: 'image/webp',
-          CacheControl: 'public, max-age=31536000, immutable',
-        }),
-      );
+    await putPublicLogo(key, body);
+
+    const { width: sourceWidth } = await sharp(body).metadata();
+    const widths = logoWidthsFor(sourceWidth);
+    for (const width of widths) {
+      const resized = await sharp(body).resize({ width }).webp({ quality: 82 }).toBuffer();
+      await putPublicLogo(logoVariantKey(key, width), resized);
     }
+
     const { count } = await db.organization.updateMany({
       // `not` alone skips NULL (SQL three-valued logic), so match a missing logo explicitly.
-      where: { slug, OR: [{ logoKey: null }, { logoKey: { not: key } }] },
-      data: { logoKey: key },
+      // Also catches logos seeded before variants existed (logoWidths still empty).
+      where: {
+        slug,
+        OR: [{ logoKey: null }, { logoKey: { not: key } }, { logoWidths: { isEmpty: true } }],
+      },
+      data: { logoKey: key, logoWidths: widths },
     });
     updated += count;
   }

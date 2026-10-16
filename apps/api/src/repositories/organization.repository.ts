@@ -9,9 +9,18 @@ const organizationSelect = {
   name: true,
   description: true,
   logoKey: true,
+  logoWidths: true,
   parentId: true,
   parent: {
-    select: { type: true, slug: true, acronym: true, name: true, logoKey: true, deletedAt: true },
+    select: {
+      type: true,
+      slug: true,
+      acronym: true,
+      name: true,
+      logoKey: true,
+      logoWidths: true,
+      deletedAt: true,
+    },
   },
   college: { select: { id: true, code: true, slug: true, name: true } },
 } satisfies Prisma.OrganizationSelect;

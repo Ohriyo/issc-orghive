@@ -12,6 +12,7 @@ const JPICE: OrganizationDetail = {
   name: 'Junior Philippine Institute of Civil Engineers',
   description: 'The JPICE is a dynamic organization committed to civil engineering students.',
   logoUrl: 'https://cdn.test/logos/jpice.png',
+  logoSrcSet: null,
   parent: null,
   college: { code: 'CEA', slug: 'cea', name: 'College of Engineering and Architecture' },
 };

@@ -15,6 +15,7 @@ export function toCollegeItems(body: CollegeListResponse): SpotlightItem[] {
     motto: college.motto ?? undefined,
     // Colleges have no logo of their own yet; the CSC's logo stands in for the college.
     logoSrc: college.csc?.logoUrl ?? undefined,
+    logoSrcSet: college.csc?.logoSrcSet ?? undefined,
     shortName: college.code,
     href: `/colleges/${college.slug}`,
   }));

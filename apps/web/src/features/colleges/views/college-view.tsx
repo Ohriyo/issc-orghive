@@ -1,5 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router';
+import { Container } from '@/components/container';
+import { LOGO_SIZES } from '@/components/logo-sizes';
 import { EmphasizedText } from '@/components/emphasized-text';
 import { HexFrame } from '@/components/hex-frame';
 import { HexGrid } from '@/components/hex-grid';
@@ -28,10 +30,9 @@ export type CollegeViewProps = Exclude<CollegePageState, { status: 'not-found' }
  * padded by the wave's overlap (WAVE_OVERLAP) so the wave never covers it.
  */
 const HONEYCOMB_BOX =
-  'mt-12 lg:absolute lg:bottom-[calc(min(9vw,8rem)*-0.15)] lg:left-[calc(50%-6rem)] lg:mt-0 lg:w-[min(60vw,52rem)]';
-const TITLE =
-  'text-h1 font-bold text-balance text-ink lg:text-[length:min(4.5vw,4.5rem)] lg:leading-[1.02] lg:tracking-tight';
-const COLUMN = 'relative z-10 lg:max-w-[calc(50%-8rem)]';
+  'mt-12 xl:absolute xl:bottom-[calc(min(9vw,8rem)*-0.15)] xl:left-[calc(50%-6rem)] xl:mt-0 xl:w-[min(60vw,52rem)]';
+const TITLE = 'text-title font-bold text-balance text-ink';
+const COLUMN = 'relative z-10 xl:max-w-[calc(50%-8rem)]';
 
 export function CollegeView(props: CollegeViewProps) {
   // The honeycomb is positioned out of flow, so the section reserves its height, but only
@@ -46,10 +47,10 @@ export function CollegeView(props: CollegeViewProps) {
           aria-labelledby="college-heading"
           className={cn(
             'relative isolate',
-            hasHoneycomb && 'lg:min-h-[calc(min(60vw,52rem)*0.77+2rem)]',
+            hasHoneycomb && 'xl:min-h-[calc(min(60vw,52rem)*0.77+2rem)]',
           )}
         >
-          <div className="mx-auto max-w-7xl px-4 pt-6 pb-4 sm:px-8 lg:px-20 lg:pt-10 lg:pb-[calc(min(9vw,8rem)+2rem)]">
+          <Container className="pt-6 pb-4 lg:pt-10 xl:pb-[calc(min(9vw,8rem)+2rem)]">
             <Link
               to="/colleges"
               className="relative z-10 inline-flex items-center gap-2 text-body font-medium text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 hover:decoration-leaf"
@@ -75,10 +76,10 @@ export function CollegeView(props: CollegeViewProps) {
                 <IntroSkeleton />
               )}
             </div>
-          </div>
+          </Container>
         </section>
 
-        <WaveDivider className="relative z-10 -mt-4 lg:-mt-[min(9vw,8rem)]" />
+        <WaveDivider className="relative z-10 -mt-4 xl:-mt-[min(9vw,8rem)]" />
 
         {props.status === 'ready' ? (
           <CscSection
@@ -104,7 +105,7 @@ function CollegeIntro({ page }: { page: CollegePageModel }) {
           {page.name}
         </h1>
         {page.intro ? (
-          <p className="mt-8 max-w-[34rem] text-body-lg text-pretty text-ink lg:mt-10 lg:text-lead">
+          <p className="mt-8 max-w-[34rem] text-lead text-pretty text-ink lg:mt-10">
             <EmphasizedText segments={page.intro} />
           </p>
         ) : null}
@@ -135,9 +136,9 @@ function IntroSkeleton() {
       </h1>
       <div className={COLUMN}>
         <div className="space-y-3">
-          <Skeleton className="h-10 w-[85%] lg:h-[min(4.5vw,4.5rem)]" />
-          <Skeleton className="h-10 w-full lg:h-[min(4.5vw,4.5rem)]" />
-          <Skeleton className="h-10 w-[70%] lg:h-[min(4.5vw,4.5rem)]" />
+          <Skeleton className="h-(--text-title) w-[85%]" />
+          <Skeleton className="h-(--text-title) w-full" />
+          <Skeleton className="h-(--text-title) w-[70%]" />
         </div>
         <div className="mt-10 max-w-[34rem] space-y-3">
           {['w-full', 'w-[94%]', 'w-full', 'w-[88%]', 'w-[60%]'].map((width) => (
@@ -170,67 +171,74 @@ function CscSection({ csc, collegeName, code, sbosHref, sboCount }: CscSectionPr
   const heading = csc?.acronym ?? `CSC-${code}`;
   return (
     <section aria-labelledby="csc-heading" className="relative">
-      <Reveal className="mx-auto grid max-w-7xl items-center gap-12 px-4 pt-4 pb-20 sm:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:gap-16 lg:px-20 lg:pb-28">
-        <div className="lg:order-last">
-          <h2 id="csc-heading" className="text-h1 font-bold text-ink xl:text-display">
-            <span className="block">{heading}</span>{' '}
-            <span className="mt-3 block text-body-lg font-normal tracking-normal text-pretty sm:text-lead">
-              {csc?.name ?? `Collegiate Student Council of the ${collegeName}`}
-            </span>
-          </h2>
-          {csc?.description ? (
-            <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink">
-              <EmphasizedText segments={csc.description} />
-            </p>
-          ) : null}
-          {!csc ? (
-            <p className="mt-8 max-w-[30rem] text-body text-ink-muted">
-              This college&rsquo;s student council has not been added yet. Its Paperworks will
-              appear here once an admin adds it.
-            </p>
-          ) : null}
-          {csc || sboCount > 0 ? (
-            <nav aria-label={`${heading} sections`} className="mt-10">
-              <ul className="flex flex-wrap gap-x-8 gap-y-4">
-                {csc ? (
-                  <li>
-                    <PillButton asChild size="lg">
-                      <Link to={csc.paperworksHref}>Paperworks</Link>
-                    </PillButton>
-                  </li>
-                ) : null}
-                {sboCount > 0 ? (
-                  <li>
-                    <PillButton asChild size="lg">
-                      <Link to={sbosHref} className="underline decoration-1 underline-offset-4">
-                        SBO <span className="sr-only">(student body organizations)</span>
-                      </Link>
-                    </PillButton>
-                  </li>
-                ) : null}
-              </ul>
-            </nav>
-          ) : null}
-        </div>
-        <HexFrame className="mx-auto w-full max-w-[20rem] sm:max-w-[26rem] lg:max-w-[34rem]">
-          <OrgLogo
-            name={csc?.name ?? heading}
-            src={csc?.logoSrc}
-            alt=""
-            fallbackText={heading}
-            className="size-full"
-          />
-        </HexFrame>
-      </Reveal>
+      <Container
+        asChild
+        className="grid items-center gap-12 pt-4 pb-section-lg lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:gap-16"
+      >
+        <Reveal>
+          <div className="lg:order-last">
+            <h2 id="csc-heading" className="text-display font-bold text-ink">
+              <span className="block">{heading}</span>{' '}
+              <span className="mt-3 block text-lead font-normal tracking-normal text-pretty">
+                {csc?.name ?? `Collegiate Student Council of the ${collegeName}`}
+              </span>
+            </h2>
+            {csc?.description ? (
+              <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink">
+                <EmphasizedText segments={csc.description} />
+              </p>
+            ) : null}
+            {!csc ? (
+              <p className="mt-8 max-w-[30rem] text-body text-ink-muted">
+                This college&rsquo;s student council has not been added yet. Its Paperworks will
+                appear here once an admin adds it.
+              </p>
+            ) : null}
+            {csc || sboCount > 0 ? (
+              <nav aria-label={`${heading} sections`} className="mt-10">
+                <ul className="flex flex-wrap gap-x-8 gap-y-4">
+                  {csc ? (
+                    <li>
+                      <PillButton asChild size="lg">
+                        <Link to={csc.paperworksHref}>Paperworks</Link>
+                      </PillButton>
+                    </li>
+                  ) : null}
+                  {sboCount > 0 ? (
+                    <li>
+                      <PillButton asChild size="lg">
+                        <Link to={sbosHref} className="underline decoration-1 underline-offset-4">
+                          SBO <span className="sr-only">(student body organizations)</span>
+                        </Link>
+                      </PillButton>
+                    </li>
+                  ) : null}
+                </ul>
+              </nav>
+            ) : null}
+          </div>
+          <HexFrame className="mx-auto w-full max-w-[20rem] sm:max-w-[26rem] lg:max-w-[34rem]">
+            <OrgLogo
+              name={csc?.name ?? heading}
+              src={csc?.logoSrc}
+              srcSet={csc?.logoSrcSet}
+              sizes={LOGO_SIZES.feature}
+              alt=""
+              fallbackText={heading}
+              className="size-full"
+            />
+          </HexFrame>
+        </Reveal>
+      </Container>
     </section>
   );
 }
 
 function CscSkeleton() {
   return (
-    <div
+    <Container
       aria-hidden="true"
-      className="mx-auto grid max-w-7xl items-center gap-12 px-4 pt-4 pb-20 sm:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:gap-16 lg:px-20 lg:pb-28"
+      className="grid items-center gap-12 pt-4 pb-section-lg lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:gap-16"
     >
       <div className="lg:order-last">
         <Skeleton className="h-12 w-56 lg:h-16 lg:w-72" />
@@ -250,6 +258,6 @@ function CscSkeleton() {
         shadow={false}
         className="mx-auto w-full max-w-[20rem] animate-pulse opacity-70 motion-reduce:animate-none sm:max-w-[26rem] lg:max-w-[34rem]"
       />
-    </div>
+    </Container>
   );
 }

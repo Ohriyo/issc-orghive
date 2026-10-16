@@ -16,6 +16,7 @@ export interface OrganizationPageModel {
   acronym: string;
   name: string;
   logoSrc?: string;
+  logoSrcSet?: string;
   description: TextSegment[] | null;
   paperworksHref: string;
   /** Where the organization sits in the hierarchy, e.g. "A student body organization of" + its college. */
@@ -36,6 +37,7 @@ export function toOrganizationPage(org: OrganizationDetail): OrganizationPageMod
     acronym: org.acronym,
     name: org.name,
     logoSrc: org.logoUrl ?? undefined,
+    logoSrcSet: org.logoSrcSet ?? undefined,
     description: org.description ? emphasize(org.description, [org.acronym, org.name]) : null,
     paperworksHref: `/orgs/${org.slug}/paperworks`,
     context:

@@ -15,6 +15,7 @@ const ISSC: OrganizationDetail = {
   name: 'Institutional Supreme Student Council',
   description: 'The ISSC is the highest student governing body in the university.',
   logoUrl: null,
+  logoSrcSet: null,
   parent: null,
   college: null,
 };

@@ -13,6 +13,7 @@ const CSC_CEA = {
   name: 'CSC of CEA',
   description: 'The CSC-CEA serves all CEA-tizens.',
   logoKey: 'logos/csc-cea.png',
+  logoWidths: [] as number[],
 } as const;
 
 const CEA: CollegeRecord = {
@@ -43,6 +44,7 @@ function sbo(slug: string): OrganizationRecord {
     name: slug,
     description: null,
     logoKey: null,
+    logoWidths: [],
     parentId: CSC_CEA.id,
     parent: null,
     college: null,
@@ -86,6 +88,7 @@ describe('collegeService.list', () => {
             acronym: 'CSC-CEA',
             name: 'CSC of CEA',
             logoUrl: 'https://cdn.test/logos/csc-cea.png',
+            logoSrcSet: null,
           },
         },
       ],

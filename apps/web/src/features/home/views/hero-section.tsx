@@ -1,5 +1,6 @@
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router';
+import { Container } from '@/components/container';
 import { HexGrid, type HexGridCell } from '@/components/hex-grid';
 import { PillButton } from '@/components/pill-button';
 import { Reveal } from '@/components/reveal';
@@ -23,9 +24,9 @@ export function HeroSection({ colleges }: HeroSectionProps) {
     >
       <HeroBackground />
 
-      <div className="relative mx-auto max-w-7xl px-4 pt-32 pb-16 sm:px-8 lg:px-20 lg:pt-[min(23vw,20rem)] lg:pb-24">
+      <Container className="relative pt-32 pb-section lg:pt-[min(23vw,20rem)]">
         <Reveal className="max-w-md lg:max-w-[min(36vw,30rem)]">
-          <h1 id="hero-heading" className="text-h3 font-normal text-ink sm:text-h2 sm:font-normal">
+          <h1 id="hero-heading" className="text-h2 font-normal text-ink">
             Organizing Unity, Archiving Transparency
           </h1>
           <div className="mt-10 flex items-center gap-4 lg:mt-20">
@@ -62,7 +63,7 @@ export function HeroSection({ colleges }: HeroSectionProps) {
             }
           />
         </div>
-      </div>
+      </Container>
     </section>
   );
 }

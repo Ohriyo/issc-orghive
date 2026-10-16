@@ -1,14 +1,16 @@
 import { Search } from 'lucide-react';
 import { Link } from 'react-router';
+import { Container } from '@/components/container';
 import { PillButton } from '@/components/pill-button';
 
 /** Floats over the hero, top left, as in the prototype. */
 export function SiteHeader() {
   return (
     <header className="absolute inset-x-0 top-0 z-20">
-      <nav
+      <Container
+        as="nav"
         aria-label="Main"
-        className="mx-auto flex max-w-7xl items-center gap-8 px-4 pt-6 sm:gap-16 sm:px-8 sm:pt-10 lg:px-20"
+        className="flex items-center gap-8 pt-6 sm:gap-16 sm:pt-10"
       >
         <PillButton asChild size="lg">
           <Link to="/search">
@@ -22,7 +24,7 @@ export function SiteHeader() {
         >
           Login
         </Link>
-      </nav>
+      </Container>
     </header>
   );
 }

@@ -7,6 +7,11 @@ export type SlugParams = z.infer<typeof slugParamsSchema>;
 
 /** Public, CDN-cacheable logo URL, or null when the organization has no logo. */
 const logoUrlSchema = z.url().nullable().meta({ description: 'Public logo URL (CDN-cacheable)' });
+/** For <img srcset>: the same logo resized, e.g. "https://…/jpice-ab12-128.webp 128w, …". */
+const logoSrcSetSchema = z
+  .string()
+  .nullable()
+  .meta({ description: 'srcset of resized logo variants (128w, 256w, …), or null' });
 
 export const organizationSummarySchema = z
   .object({
@@ -15,6 +20,7 @@ export const organizationSummarySchema = z
     acronym: z.string(),
     name: z.string(),
     logoUrl: logoUrlSchema,
+    logoSrcSet: logoSrcSetSchema,
   })
   .meta({ id: 'OrganizationSummary' });
 export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;

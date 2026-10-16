@@ -75,6 +75,7 @@ const CEA: CollegeDetail = {
     acronym,
     name: `${acronym} full name`,
     logoUrl: null,
+    logoSrcSet: null,
   })),
 };
 

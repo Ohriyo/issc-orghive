@@ -9,6 +9,7 @@ const JPICE: OrganizationDetail = {
   name: 'Junior Philippine Institute of Civil Engineers',
   description: 'The JPICE is a dynamic organization.',
   logoUrl: 'https://cdn.test/jpice.png',
+  logoSrcSet: null,
   parent: null,
   college: { code: 'CEA', slug: 'cea', name: 'College of Engineering and Architecture' },
 };
@@ -38,7 +39,7 @@ describe('toOrganizationPage', () => {
   });
 
   it('leaves out a missing description and logo', () => {
-    const page = toOrganizationPage({ ...JPICE, description: null, logoUrl: null });
+    const page = toOrganizationPage({ ...JPICE, description: null, logoUrl: null, logoSrcSet: null });
     expect(page.description).toBeNull();
     expect(page.logoSrc).toBeUndefined();
   });

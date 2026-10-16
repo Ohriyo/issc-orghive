@@ -72,7 +72,13 @@ describe('collegeSeo', () => {
       name: CEA_REF.name,
       motto: null,
       description: null,
-      csc: { ...JPICE, type: 'CSC', name: 'CSC of CEA', logoUrl: 'https://cdn.test/csc.png' },
+      csc: {
+        ...JPICE,
+        type: 'CSC',
+        name: 'CSC of CEA',
+        logoUrl: 'https://cdn.test/csc.png',
+        logoSrcSet: null,
+      },
     });
     expect(seo.title).toBe('College of Engineering and Architecture | Orghive');
     expect(seo.path).toBe('/colleges/cea');

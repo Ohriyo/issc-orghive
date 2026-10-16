@@ -13,6 +13,7 @@ import { Link, useNavigate } from 'react-router';
 import { cn } from '@/lib/utils';
 import { HexFrame } from '../hex-frame';
 import { OrgLogo } from '../org-logo';
+import { LOGO_SIZES } from '../logo-sizes';
 import { focusReveal, fadeReveal, usePrefersReducedMotion } from '../motion';
 import { PillButton } from '../pill-button';
 import { useSpotlightTween, type SpotlightVariant } from './use-spotlight-tween';
@@ -22,6 +23,7 @@ export interface SpotlightItem {
   name: string;
   motto?: string;
   logoSrc?: string;
+  logoSrcSet?: string;
   /** Defaults to "<name> logo". */
   logoAlt?: string;
   /** Where "Proceed" goes. */
@@ -204,9 +206,14 @@ export function SpotlightCarousel({
                 onClick={(event) => onSlideClick(event, index, item)}
                 className={cn(
                   'relative min-w-0 shrink-0 grow-0 cursor-pointer',
+                  // Width follows the carousel; max-w also caps it by the screen height
+                  // (a slide is about 2.4x as tall as wide for towers, 1.9x for hexagons),
+                  // so on short laptop screens (1366x768) the selected slide and its
+                  // Proceed button stay above the fold. It has no effect on phones in
+                  // portrait or on screens 1080px tall and up.
                   variant === 'tower'
-                    ? 'basis-[64%] @xl:basis-[40%] @3xl:basis-[28%] @5xl:basis-[21%]'
-                    : 'basis-[58%] @xl:basis-[50%] @3xl:basis-[40%] @5xl:basis-[31%]',
+                    ? 'max-w-[max(10rem,calc((100dvh-11rem)*0.42))] basis-[64%] @xl:basis-[40%] @3xl:basis-[28%] @5xl:basis-[21%]'
+                    : 'max-w-[max(10rem,calc((100dvh-14.5rem)*0.52))] basis-[58%] @xl:basis-[50%] @3xl:basis-[40%] @5xl:basis-[31%]',
                 )}
               >
                 <div
@@ -257,6 +264,8 @@ function Logo({ item, className }: { item: SpotlightItem; className?: string }) 
     <OrgLogo
       name={item.name}
       src={item.logoSrc}
+      srcSet={item.logoSrcSet}
+      sizes={LOGO_SIZES.carousel}
       alt={item.logoAlt}
       fallbackText={item.shortName}
       className={className}

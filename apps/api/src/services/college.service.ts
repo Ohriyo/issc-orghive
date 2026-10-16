@@ -6,7 +6,7 @@ import type {
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 import { type Cache, cacheKeys, PUBLIC_READ_TTL_SECONDS } from '#src/lib/cache';
-import type { PublicUrl } from '#src/lib/public-url';
+import { logoSrcSet, type PublicUrl } from '#src/lib/public-url';
 import type { CollegeRecord, CollegeRepository } from '#src/repositories/college.repository';
 import type { OrganizationRepository } from '#src/repositories/organization.repository';
 
@@ -19,6 +19,7 @@ export interface CollegeServiceDeps {
 
 type OrgFields = Pick<OrganizationSummary, 'type' | 'slug' | 'acronym' | 'name'> & {
   logoKey: string | null;
+  logoWidths: number[];
 };
 
 export function toOrganizationSummary(org: OrgFields, publicUrl: PublicUrl): OrganizationSummary {
@@ -28,6 +29,7 @@ export function toOrganizationSummary(org: OrgFields, publicUrl: PublicUrl): Org
     acronym: org.acronym,
     name: org.name,
     logoUrl: publicUrl(org.logoKey),
+    logoSrcSet: logoSrcSet(publicUrl, org.logoKey, org.logoWidths),
   };
 }
 

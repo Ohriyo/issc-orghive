@@ -13,6 +13,7 @@ export function toSboItems(college: CollegeDetail): SpotlightItem[] {
     id: sbo.slug,
     name: sbo.name,
     logoSrc: sbo.logoUrl ?? undefined,
+    logoSrcSet: sbo.logoSrcSet ?? undefined,
     shortName: sbo.acronym,
     href: `/orgs/${sbo.slug}`,
   }));

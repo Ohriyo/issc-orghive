@@ -6,6 +6,8 @@ import { PillButton } from '@/components/pill-button';
 import { Reveal } from '@/components/reveal';
 import { WaveDivider } from '@/components/wave-divider';
 import type { SectionState } from '../presenters/use-home-data';
+import { Container } from '@/components/container';
+import { LOGO_SIZES } from '@/components/logo-sizes';
 import { SectionError } from '@/components/section-error';
 
 export interface IsscSectionProps {
@@ -18,7 +20,7 @@ export function IsscSection({ issc }: IsscSectionProps) {
     <section aria-labelledby="issc-heading" className="relative isolate overflow-hidden">
       <WaveDivider className="mb-6 lg:-mb-8" />
 
-      <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-4 pb-16 sm:px-8 lg:grid-cols-2 lg:gap-8 lg:px-20 lg:pb-24">
+      <Container className="relative grid items-center gap-14 pb-section lg:grid-cols-2 lg:gap-8">
         <Reveal className="relative z-10">
           <IsscContent issc={issc} />
         </Reveal>
@@ -48,6 +50,8 @@ export function IsscSection({ issc }: IsscSectionProps) {
               <OrgLogo
                 name={issc.data.name}
                 src={issc.data.logoUrl ?? undefined}
+                srcSet={issc.data.logoSrcSet ?? undefined}
+                sizes={LOGO_SIZES.feature}
                 fallbackText={issc.data.acronym}
                 className="size-full"
               />
@@ -56,7 +60,7 @@ export function IsscSection({ issc }: IsscSectionProps) {
             )}
           </HexFrame>
         </Reveal>
-      </div>
+      </Container>
     </section>
   );
 }
@@ -65,10 +69,7 @@ function IsscContent({ issc }: IsscSectionProps) {
   if (issc.isError) {
     return (
       <>
-        <h2
-          id="issc-heading"
-          className="text-h1 font-bold whitespace-nowrap text-ink xl:text-display"
-        >
+        <h2 id="issc-heading" className="text-display font-bold whitespace-nowrap text-ink">
           NwSSU-ISSC
         </h2>
         <SectionError
@@ -103,11 +104,9 @@ function IsscContent({ issc }: IsscSectionProps) {
 
   return (
     <>
-      <h2 id="issc-heading" className="text-h1 font-bold text-ink xl:text-display">
+      <h2 id="issc-heading" className="text-display font-bold text-ink">
         <span className="block whitespace-nowrap">NwSSU-{acronym}</span>{' '}
-        <span className="mt-2 block text-body-lg font-normal tracking-normal sm:text-lead">
-          {name}
-        </span>
+        <span className="mt-2 block text-lead font-normal tracking-normal">{name}</span>
       </h2>
       {description ? (
         <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink">{description}</p>

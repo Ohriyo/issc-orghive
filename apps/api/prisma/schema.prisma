@@ -103,6 +103,9 @@ model Organization {
   description String?
   /// Object-storage key under `logos/`; that prefix is public-read and served via PUBLIC_ASSET_BASE_URL.
   logoKey     String?          @map("logo_key")
+  /// Widths of the resized variants stored next to logoKey as `<key without .webp>-<w>.webp`,
+  /// for srcset. Empty when only the original exists.
+  logoWidths  Int[]            @default([]) @map("logo_widths")
   parentId    String?          @map("parent_id") @db.Uuid
   collegeId   String?          @map("college_id") @db.Uuid
   deletedAt   DateTime?        @map("deleted_at")

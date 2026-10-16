@@ -18,6 +18,7 @@ const collegeSelect = {
       name: true,
       description: true,
       logoKey: true,
+      logoWidths: true,
     },
   },
 } satisfies Prisma.CollegeSelect;

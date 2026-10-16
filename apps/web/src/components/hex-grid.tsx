@@ -1,8 +1,9 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Link } from 'react-router';
-import { useMediaQuery } from '@/hooks/use-media-query';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { cn } from '@/lib/utils';
 import { HexFrame } from './hex-frame';
+import { LOGO_SIZES } from './logo-sizes';
 import { OrgLogo } from './org-logo';
 
 export interface HexGridItem {
@@ -10,6 +11,7 @@ export interface HexGridItem {
   /** Accessible name, e.g. the organization's full name. */
   label: string;
   logoSrc?: string;
+  logoSrcSet?: string;
   /** Defaults to "<label> logo". */
   logoAlt?: string;
   /** Short name shown if the logo is missing or fails, e.g. "CEA". Defaults to initials. */
@@ -67,14 +69,17 @@ export function HexGrid({
   className,
   label,
 }: HexGridProps) {
-  const isDesktop = useMediaQuery('(min-width: 768px)');
+  const isDesktop = useBreakpoint('md');
   const cols = Math.max(1, isDesktop ? columns : mobileColumns);
 
   if (error) return <div className={className}>{error}</div>;
   if (!isLoading && cells.length === 0) return <div className={className}>{emptyState}</div>;
 
   const shown: ShownCell[] = isLoading
-    ? Array.from({ length: isDesktop ? skeletonCount : mobileSkeletonCount }, () => 'skeleton' as const)
+    ? Array.from(
+        { length: isDesktop ? skeletonCount : mobileSkeletonCount },
+        () => 'skeleton' as const,
+      )
     : !isDesktop && hideFillersOnMobile
       ? cells.filter(Boolean)
       : cells;
@@ -149,6 +154,8 @@ function HexGridCellView({ cell }: { cell: ShownCell }) {
       <OrgLogo
         name={cell.label}
         src={cell.logoSrc}
+        srcSet={cell.logoSrcSet}
+        sizes={LOGO_SIZES.honeycomb}
         alt={cell.logoAlt}
         fallbackText={cell.shortName}
         className="ease-cinematic size-full transition-transform duration-500 group-hover:scale-105 motion-reduce:transition-none"

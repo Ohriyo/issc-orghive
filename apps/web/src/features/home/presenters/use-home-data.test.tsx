@@ -20,6 +20,7 @@ function college(code: string, logoUrl: string | null = null): CollegeSummary {
       acronym: `CSC-${code}`,
       name: `CSC of ${code}`,
       logoUrl,
+      logoSrcSet: null,
     },
   };
 }
@@ -33,6 +34,7 @@ const ISSC: OrganizationDetail = {
   name: 'Institutional Supreme Student Council',
   description: 'The highest student governing body.',
   logoUrl: null,
+  logoSrcSet: null,
   parent: null,
   college: null,
 };

@@ -5,6 +5,13 @@ import { cn } from '@/lib/utils';
 export interface OrgLogoProps {
   name: string;
   src?: string;
+  /** Resized variants for the browser to pick from, e.g. "…-128.webp 128w, …-256.webp 256w". */
+  srcSet?: string;
+  /**
+   * How wide the logo is drawn, for choosing from srcSet, e.g. "(width >= 64rem) 24rem, 60vw".
+   * Required in practice whenever srcSet is given: the browser otherwise assumes 100vw.
+   */
+  sizes?: string;
   /** Defaults to "<name> logo". Pass "" when the name is already shown next to the logo. */
   alt?: string;
   /** Short name shown when the image is missing or fails, e.g. "CSC-CEA". Defaults to initials. */
@@ -22,6 +29,8 @@ export interface OrgLogoProps {
 export function OrgLogo({
   name,
   src,
+  srcSet,
+  sizes,
   alt,
   fallbackText,
   priority = false,
@@ -67,6 +76,12 @@ export function OrgLogo({
   return (
     <img
       src={src}
+      srcSet={srcSet}
+      sizes={srcSet ? sizes : undefined}
+      // Logos are square. The attributes only give the browser the aspect ratio before the
+      // file arrives; the rendered size comes from className.
+      width={512}
+      height={512}
       alt={label}
       draggable={false}
       loading={priority ? 'eager' : 'lazy'}

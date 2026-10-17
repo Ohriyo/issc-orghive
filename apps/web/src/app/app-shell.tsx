@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Outlet } from 'react-router';
 import { Toaster } from 'sonner';
 import { useAccountMenu } from '@/features/auth/presenters/use-account-menu';
+import { useNotifications } from '@/features/notifications/presenters/use-notifications';
 import { useDocumentSearch } from '@/features/search/presenters/use-document-search';
 import { useScrolled } from '@/hooks/use-scrolled';
 import { EMPTY_CHROME, PageChromeContext, type PageChrome } from '@/navigation/page-chrome';
@@ -18,6 +19,7 @@ export function AppShell() {
   const context = useMemo(() => ({ chrome, setChrome }), [chrome]);
   const search = useDocumentSearch();
   const account = useAccountMenu();
+  const notifications = useNotifications(account.status === 'authenticated');
   const scrolled = useScrolled();
   const overlay = chrome.overlay === true;
 
@@ -33,6 +35,7 @@ export function AppShell() {
         <AppHeader
           search={search}
           account={account}
+          notifications={notifications}
           section={chrome.section}
           overlay={overlay}
           solid={!overlay || scrolled}

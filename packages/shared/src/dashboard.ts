@@ -18,38 +18,32 @@ export const dashboardMembershipSchema = z.object({
 });
 export type DashboardMembership = z.infer<typeof dashboardMembershipSchema>;
 
-/** Document counts by status. Deleted documents are not counted. */
-export const documentStatusCountsSchema = z.object({
-  draft: z.number().int().nonnegative(),
-  pending: z.number().int().nonnegative(),
-  approved: z.number().int().nonnegative(),
-  rejected: z.number().int().nonnegative(),
+/**
+ * What the dashboard counts per organization, among the documents the user may see:
+ * available documents by visibility, then the other lifecycle states. Deleted documents are
+ * not counted.
+ */
+export const documentCountsSchema = z.object({
+  public: z.number().int().nonnegative(),
+  members: z.number().int().nonnegative(),
+  private: z.number().int().nonnegative(),
+  scanning: z.number().int().nonnegative(),
+  quarantined: z.number().int().nonnegative(),
   archived: z.number().int().nonnegative(),
 });
-export type DocumentStatusCounts = z.infer<typeof documentStatusCountsSchema>;
-
-/** A rejected document with the reviewer's latest decision on it. */
-export const rejectedDocumentSchema = z.object({
-  document: documentSummarySchema,
-  /** The reviewer's comment; optional until the school decides (docs/DOMAIN_RULES.md). */
-  remark: z.string().nullable(),
-  reviewerName: z.string().nullable(),
-  decidedAt: z.iso.datetime().nullable(),
-});
-export type RejectedDocument = z.infer<typeof rejectedDocumentSchema>;
+export type DocumentCounts = z.infer<typeof documentCountsSchema>;
 
 export const DASHBOARD_ACTIVITY_KINDS = [
   'upload',
-  'approve',
-  'reject',
   'quarantine',
   'archive',
   'restore',
+  'visibility_change',
 ] as const;
 export const dashboardActivityKindSchema = z.enum(DASHBOARD_ACTIVITY_KINDS);
 export type DashboardActivityKind = z.infer<typeof dashboardActivityKindSchema>;
 
-/** One upload or decision in an organization, from the audit log. */
+/** One upload, scan result, archive or visibility change in an organization, from the audit log. */
 export const dashboardActivitySchema = z.object({
   id: z.uuid(),
   kind: dashboardActivityKindSchema,
@@ -65,12 +59,12 @@ export type DashboardActivity = z.infer<typeof dashboardActivitySchema>;
 /** Everything the dashboard shows for one of the user's organizations. */
 export const dashboardOrganizationSchema = z.object({
   organization: organizationSummarySchema.extend({ id: z.uuid() }),
-  counts: documentStatusCountsSchema,
+  counts: documentCountsSchema,
   /** The 5 most recently created documents, any status. */
   recentDocuments: z.array(documentSummarySchema),
-  /** Rejected documents, newest decision first, with the reviewer's remarks. */
-  needsRevision: z.array(rejectedDocumentSchema),
-  /** The latest uploads and decisions, newest first. */
+  /** The user's own uploads the virus scan refused, most recent first. */
+  quarantined: z.array(documentSummarySchema),
+  /** The latest activity, newest first. */
   activity: z.array(dashboardActivitySchema),
 });
 export type DashboardOrganization = z.infer<typeof dashboardOrganizationSchema>;
@@ -80,13 +74,6 @@ export const dashboardResponseSchema = z
   .object({
     memberships: z.array(dashboardMembershipSchema),
     organizations: z.array(dashboardOrganizationSchema),
-    /**
-     * Present when the user reviews another organization's documents (approval chain in
-     * docs/DOMAIN_RULES.md): how many are waiting. Null for everyone else.
-     */
-    reviews: z
-      .object({ pending: z.number().int().nonnegative(), organizations: z.number().int() })
-      .nullable(),
     /** An ISSC admin: the dashboard links to /admin. */
     isAdmin: z.boolean(),
   })

@@ -2,7 +2,7 @@ import type {
   DashboardMembership,
   DashboardOrganization,
   DashboardResponse,
-  DocumentStatusCounts,
+  DocumentCounts,
 } from '@orghive/shared';
 import type { PublicUrl } from '#src/lib/public-url';
 import type { Storage } from '#src/lib/storage';
@@ -15,15 +15,12 @@ import type { DocumentViewerService } from '#src/services/document-viewer.servic
 
 /** How many documents and activity entries each organization shows. */
 export const DASHBOARD_RECENT_DOCUMENTS = 5;
-export const DASHBOARD_NEEDS_REVISION = 10;
+export const DASHBOARD_QUARANTINED = 10;
 export const DASHBOARD_ACTIVITY = 10;
 
 export interface DashboardServiceDeps {
   memberships: Pick<MembershipRepository, 'findActiveDetailsForUser'>;
-  dashboard: Pick<
-    DashboardRepository,
-    'countByStatus' | 'listRejected' | 'listActivity' | 'countAwaitingReview'
-  >;
+  dashboard: Pick<DashboardRepository, 'countForDashboard' | 'listQuarantined' | 'listActivity'>;
   documents: Pick<DocumentRepository, 'list'>;
   viewers: Pick<DocumentViewerService, 'forUser'>;
   storage: Pick<Storage, 'presignGet'>;
@@ -31,11 +28,12 @@ export interface DashboardServiceDeps {
   now?: () => Date;
 }
 
-const NO_DOCUMENTS: DocumentStatusCounts = {
-  draft: 0,
-  pending: 0,
-  approved: 0,
-  rejected: 0,
+const NO_DOCUMENTS: DocumentCounts = {
+  public: 0,
+  members: 0,
+  private: 0,
+  scanning: 0,
+  quarantined: 0,
   archived: 0,
 };
 
@@ -67,16 +65,16 @@ export function createDashboardService({
       if (viewer.kind !== 'user') throw new Error('A signed-in viewer was expected');
 
       const orgs = [...new Map(active.map((m) => [m.organization.id, m.organization])).values()];
-      const counts = await dashboard.countByStatus(
+      const counts = await dashboard.countForDashboard(
         viewer,
         orgs.map((o) => o.id),
       );
 
       const organizations: DashboardOrganization[] = await Promise.all(
         orgs.map(async (org) => {
-          const [recent, rejected, activity] = await Promise.all([
+          const [recent, quarantined, activity] = await Promise.all([
             documents.list(viewer, { organizationId: org.id, limit: DASHBOARD_RECENT_DOCUMENTS }),
-            dashboard.listRejected(viewer, org.id, DASHBOARD_NEEDS_REVISION),
+            dashboard.listQuarantined(viewer, org.id, DASHBOARD_QUARANTINED),
             dashboard.listActivity(viewer, org.id, DASHBOARD_ACTIVITY),
           ]);
           return {
@@ -85,13 +83,8 @@ export function createDashboardService({
             recentDocuments: await Promise.all(
               recent.items.map((doc) => presentSummary(storage, toStoredSummary(doc))),
             ),
-            needsRevision: await Promise.all(
-              rejected.map(async ({ approvals, ...doc }) => ({
-                document: await presentSummary(storage, toStoredSummary(doc)),
-                remark: approvals[0]?.comment ?? null,
-                reviewerName: approvals[0]?.approver.name ?? null,
-                decidedAt: approvals[0]?.decidedAt.toISOString() ?? null,
-              })),
+            quarantined: await Promise.all(
+              quarantined.map((doc) => presentSummary(storage, toStoredSummary(doc))),
             ),
             activity: activity.map((entry) => ({
               id: entry.id,
@@ -113,18 +106,7 @@ export function createDashboardService({
         termEnd: m.termEnd ? isoDay(m.termEnd) : null,
       }));
 
-      const reviewable = viewer.reviewableOrgIds;
-      return {
-        memberships: membershipRows,
-        organizations,
-        reviews: reviewable.length
-          ? {
-              pending: await dashboard.countAwaitingReview(viewer, reviewable),
-              organizations: reviewable.length,
-            }
-          : null,
-        isAdmin: viewer.isAdmin,
-      };
+      return { memberships: membershipRows, organizations, isAdmin: viewer.isAdmin };
     },
   };
 }

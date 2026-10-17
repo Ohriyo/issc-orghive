@@ -5,16 +5,18 @@ import { organizationTypeSchema, slugSchema } from './organization';
 import { documentTagsSchema, uploadKeySchema } from './upload';
 
 /**
- * Who may see an approved document (docs/DOMAIN_RULES.md, provisional):
+ * Who may see an available document. The owning organization's officers choose it on upload
+ * and may change it at any time; nobody else can (docs/DOMAIN_RULES.md):
  * - public: anyone, including signed-out visitors.
- * - members: any signed-in NwSSU account.
- * - private: active members of the owning organization, its approvers and admins.
- * Unapproved documents follow the status rule whatever their visibility.
+ * - members: active members of the owning organization, any role.
+ * - private: the owning organization's officers.
+ * Before a document is available only its uploader sees it. Admins see every available or
+ * archived document for support (audited) but cannot change its visibility.
  */
 export const DOCUMENT_VISIBILITIES = ['public', 'members', 'private'] as const;
 export const documentVisibilitySchema = z.enum(DOCUMENT_VISIBILITIES);
 export type DocumentVisibility = z.infer<typeof documentVisibilitySchema>;
-export const DEFAULT_DOCUMENT_VISIBILITY: DocumentVisibility = 'members';
+export const DEFAULT_DOCUMENT_VISIBILITY: DocumentVisibility = 'public';
 
 /** Route params for `/documents/:documentId`. */
 export const documentIdParamsSchema = z.object({ documentId: z.uuid() });
@@ -40,8 +42,8 @@ export type DocumentMetadata = z.input<typeof documentMetadataSchema>;
 
 /**
  * POST /organizations/:slug/documents: the metadata plus the key of a file already PUT to
- * storage with an upload URL. Creates the document with that file as version 1, pending
- * review, and queues its virus scan and processing.
+ * storage with an upload URL. Creates the document with that file as version 1, `scanning`,
+ * and queues its virus scan and processing; it becomes `available` once the file is clean.
  */
 export const createDocumentRequestSchema = documentMetadataSchema.extend({
   uploadKey: uploadKeySchema,
@@ -58,13 +60,16 @@ export const versionParamsSchema = z.object({ documentId: z.uuid(), versionId: z
 /**
  * Where a file is in processing: `pending` until the worker has checked it, `clean` once
  * it passed, `infected` if ClamAV flagged it, `invalid` if its bytes are not the type it
- * claimed. Only clean files can be downloaded or approved.
+ * claimed. Only clean files can be downloaded.
  */
 export const SCAN_STATUSES = ['pending', 'clean', 'infected', 'invalid'] as const;
 export const scanStatusSchema = z.enum(SCAN_STATUSES);
 export type ScanStatus = z.infer<typeof scanStatusSchema>;
 
-/** PATCH /documents/:documentId. At least one field; `null` clears an optional one. */
+/**
+ * PATCH /documents/:documentId: details only, at any time before archiving. At least one
+ * field; `null` clears an optional one. Visibility has its own endpoint (below).
+ */
 export const updateDocumentRequestSchema = z
   .strictObject({
     typeId: z.uuid(),
@@ -72,7 +77,6 @@ export const updateDocumentRequestSchema = z
     description: descriptionSchema.nullable(),
     academicYear: academicYearSchema,
     semester: semesterSchema.nullable(),
-    visibility: documentVisibilitySchema,
     tags: documentTagsSchema,
   })
   .partial()
@@ -80,13 +84,13 @@ export const updateDocumentRequestSchema = z
 export type UpdateDocumentRequest = z.infer<typeof updateDocumentRequestSchema>;
 
 /**
- * POST /documents/:documentId/approve and /reject. Whether a reason is required on
- * rejection is an open question in docs/DOMAIN_RULES.md, so it is optional for now.
+ * PATCH /documents/:documentId/visibility: the owning organization's officers only (admins
+ * cannot), at any time. Audited.
  */
-export const documentDecisionRequestSchema = z.strictObject({
-  comment: z.string().trim().min(1).max(2000).optional(),
+export const updateVisibilityRequestSchema = z.strictObject({
+  visibility: documentVisibilitySchema,
 });
-export type DocumentDecisionRequest = z.infer<typeof documentDecisionRequestSchema>;
+export type UpdateVisibilityRequest = z.infer<typeof updateVisibilityRequestSchema>;
 
 /** GET /organizations/:slug/documents query string. Unknown keys are dropped. */
 export const documentListQuerySchema = z.object({
@@ -94,6 +98,7 @@ export const documentListQuerySchema = z.object({
   academicYear: academicYearSchema.optional(),
   semester: semesterSchema.optional(),
   status: documentStatusSchema.optional(),
+  visibility: documentVisibilitySchema.optional(),
   q: z.string().trim().min(1).max(200).optional(),
   cursor: z.uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
@@ -129,7 +134,6 @@ export const documentSummarySchema = z
     status: documentStatusSchema,
     visibility: documentVisibilitySchema,
     tags: z.array(z.string()),
-    submittedAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
     organization: z.object({

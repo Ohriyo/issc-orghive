@@ -1,12 +1,16 @@
 import type {
-  ApprovalDecision,
   DocumentStatus,
   DocumentVisibility,
   Prisma,
   ScanStatus,
   Semester,
 } from '#src/generated/prisma/client';
-import { visibleDocumentsWhere, type DocumentViewer } from './document-visibility';
+import {
+  visibleDocumentsWhere,
+  visibleVersionsWhere,
+  withoutAdmin,
+  type DocumentViewer,
+} from './document-visibility';
 import type { Db } from './prisma';
 
 export const documentSelect = {
@@ -18,7 +22,6 @@ export const documentSelect = {
   status: true,
   visibility: true,
   tags: true,
-  submittedAt: true,
   createdAt: true,
   updatedAt: true,
   organization: { select: { id: true, slug: true, acronym: true, name: true, type: true } },
@@ -50,6 +53,16 @@ const versionSelect = {
 
 export type VersionRecord = Prisma.DocumentVersionGetPayload<{ select: typeof versionSelect }>;
 
+/** A version plus what the service needs to audit an admin download of it. */
+const downloadableSelect = {
+  ...versionSelect,
+  document: { select: { organizationId: true, visibility: true } },
+} satisfies Prisma.DocumentVersionSelect;
+
+export type DownloadableVersion = Prisma.DocumentVersionGetPayload<{
+  select: typeof downloadableSelect;
+}>;
+
 /** What the worker needs to process one version. */
 const processingSelect = {
   id: true,
@@ -74,12 +87,21 @@ export type ProcessingRecord = Prisma.DocumentVersionGetPayload<{
 
 export type DocumentRecord = Prisma.DocumentGetPayload<{ select: typeof documentSelect }>;
 
+/** Enough of a document to link to it. */
+export interface DocumentBrief {
+  id: string;
+  title: string;
+  status: DocumentStatus;
+  visibility: DocumentVisibility;
+}
+
 export interface DocumentListFilters {
   organizationId?: string;
   typeId?: string;
   academicYear?: string;
   semester?: Semester;
   status?: DocumentStatus;
+  visibility?: DocumentVisibility;
   /** Full-text search over title and description. */
   search?: string;
   /** Id of the last document on the previous page (ids are UUIDv7, so they sort by time). */
@@ -96,6 +118,9 @@ export interface NewVersion {
   sha256?: string;
   uploadedById: string;
   scanStatus?: ScanStatus;
+  /** Server-generated files (the Semestral End Report) arrive already processed. */
+  thumbnailKey?: string | null;
+  processedAt?: Date;
 }
 
 export interface NewDocument {
@@ -109,7 +134,6 @@ export interface NewDocument {
   visibility?: DocumentVisibility;
   tags?: string[];
   createdById: string;
-  submittedAt?: Date;
   /** Omitted only for metadata-only documents (tests, imports); uploads always send one. */
   firstVersion?: NewVersion;
 }
@@ -120,15 +144,11 @@ export interface DocumentPatch {
   description?: string | null;
   academicYear?: string;
   semester?: Semester | null;
-  visibility?: DocumentVisibility;
   tags?: string[];
 }
 
-export interface NewDecision {
-  decision: ApprovalDecision;
-  approverId: string;
-  comment?: string;
-}
+/** A document can be edited or re-uploaded in these states. */
+const NOT_ARCHIVED: DocumentStatus[] = ['scanning', 'available', 'quarantined'];
 
 /** How many full-text candidates to rank before the visibility filter narrows them. */
 const SEARCH_CANDIDATES = 200;
@@ -162,6 +182,34 @@ export function createDocumentRepository(db: Db) {
     },
 
     /**
+     * Which of these documents the viewer may see, with what they need to show a link to
+     * each (project task files, for example). Others are left out.
+     */
+    async findVisibleBriefs(
+      viewer: DocumentViewer,
+      ids: string[],
+    ): Promise<Map<string, DocumentBrief>> {
+      if (ids.length === 0) return new Map();
+      const rows = await db.document.findMany({
+        where: visible(viewer, { id: { in: ids } }),
+        select: { id: true, title: true, status: true, visibility: true },
+      });
+      return new Map(rows.map((row) => [row.id, row]));
+    },
+
+    /**
+     * True when an admin can see this document only because they are an admin (for example
+     * a private file of an organization they hold no office in). Services audit such views.
+     */
+    async visibleOnlyAsAdmin(viewer: DocumentViewer, id: string): Promise<boolean> {
+      if (viewer.kind !== 'user' || !viewer.isAdmin) return false;
+      const asMember = await db.document.count({
+        where: { AND: [visibleDocumentsWhere(withoutAdmin(viewer)), { id }] },
+      });
+      return asMember === 0;
+    },
+
+    /**
      * Newest first. With `search`, results come in relevance order and only the best
      * `limit` matches are returned (no further pages).
      */
@@ -176,6 +224,7 @@ export function createDocumentRepository(db: Db) {
         academicYear: filters.academicYear,
         semester: filters.semester,
         status: filters.status,
+        visibility: filters.visibility,
       };
 
       if (filters.search?.trim()) {
@@ -235,7 +284,7 @@ export function createDocumentRepository(db: Db) {
     /**
      * Adds the next version, not yet current: a re-upload replaces what readers see only
      * once the worker has found it clean (markClean). Files are never overwritten. Null when
-     * the document is missing or not visible to the viewer.
+     * the document is missing, not visible to the viewer or archived.
      */
     async addVersion(
       viewer: DocumentViewer,
@@ -244,13 +293,18 @@ export function createDocumentRepository(db: Db) {
     ): Promise<{ id: string; version: number } | null> {
       return db.$transaction(async (tx) => {
         const target = await tx.document.findFirst({
-          where: visible(viewer, { id: documentId }),
+          where: visible(viewer, { id: documentId, status: { in: NOT_ARCHIVED } }),
           select: {
             id: true,
+            status: true,
             versions: { select: { version: true }, orderBy: { version: 'desc' }, take: 1 },
           },
         });
         if (!target) return null;
+        // A quarantined document has no clean file yet: with a new upload it is scanning again.
+        if (target.status === 'quarantined') {
+          await tx.document.update({ where: { id: documentId }, data: { status: 'scanning' } });
+        }
         return tx.documentVersion.create({
           data: { ...input, documentId, version: (target.versions[0]?.version ?? 0) + 1 },
           select: { id: true, version: true },
@@ -258,12 +312,16 @@ export function createDocumentRepository(db: Db) {
       });
     },
 
-    /** Every version of a document the viewer may see, newest first. */
+    /**
+     * The versions of a document the viewer may see, newest first: clean ones, plus their
+     * own uploads that are still being scanned or were refused.
+     */
     listVersions(
       viewer: DocumentViewer,
       documentId: string,
     ): Promise<{
       organizationId: string;
+      visibility: DocumentVisibility;
       currentVersionId: string | null;
       versions: VersionRecord[];
     } | null> {
@@ -271,21 +329,31 @@ export function createDocumentRepository(db: Db) {
         where: visible(viewer, { id: documentId }),
         select: {
           organizationId: true,
+          visibility: true,
           currentVersionId: true,
-          versions: { select: versionSelect, orderBy: { version: 'desc' } },
+          versions: {
+            where: visibleVersionsWhere(viewer),
+            select: versionSelect,
+            orderBy: { version: 'desc' },
+          },
         },
       });
     },
 
-    /** One version, only if its document is visible to the viewer. */
+    /** One version, only if the viewer may see it and its document. */
     findVersion(
       viewer: DocumentViewer,
       documentId: string,
       versionId: string,
-    ): Promise<VersionRecord | null> {
+    ): Promise<DownloadableVersion | null> {
       return db.documentVersion.findFirst({
-        where: { id: versionId, documentId, document: visibleDocumentsWhere(viewer) },
-        select: versionSelect,
+        where: {
+          AND: [
+            { id: versionId, documentId, document: visibleDocumentsWhere(viewer) },
+            visibleVersionsWhere(viewer),
+          ],
+        },
+        select: downloadableSelect,
       });
     },
 
@@ -306,9 +374,9 @@ export function createDocumentRepository(db: Db) {
     },
 
     /**
-     * The worker found the file clean. Version 1 (already current) gets its search text; a
-     * re-upload becomes the current version and sends the document back to review (a new
-     * upload needs a new approval), unless a newer version already took its place.
+     * The worker found the file clean. It becomes (or stays) the current version unless a
+     * newer clean version already took its place, and a document that was scanning or
+     * quarantined becomes available. Clean is enough: nothing is reviewed.
      */
     async markClean(
       versionId: string,
@@ -331,43 +399,40 @@ export function createDocumentRepository(db: Db) {
               select: {
                 id: true,
                 currentVersionId: true,
-                currentVersion: { select: { version: true } },
+                currentVersion: { select: { version: true, scanStatus: true } },
               },
             },
           },
         });
         const doc = version.document;
-        if (doc.currentVersionId === versionId) {
-          await tx.document.update({
-            where: { id: doc.id },
-            data: { contentText: result.contentText },
-          });
+        const isCurrent = doc.currentVersionId === versionId;
+        const current = doc.currentVersion;
+        if (!isCurrent && current?.scanStatus === 'clean' && current.version > version.version) {
           return { becameCurrent: false };
         }
-        if ((doc.currentVersion?.version ?? 0) > version.version) return { becameCurrent: false };
         await tx.document.update({
           where: { id: doc.id },
-          data: {
-            currentVersionId: versionId,
-            contentText: result.contentText,
-            status: 'pending',
-            submittedAt: now,
-          },
+          data: { currentVersionId: versionId, contentText: result.contentText },
         });
-        return { becameCurrent: true };
+        await tx.document.updateMany({
+          where: { id: doc.id, status: { in: ['scanning', 'quarantined'] } },
+          data: { status: 'available' },
+        });
+        return { becameCurrent: !isCurrent };
       });
     },
 
     /**
      * The worker refused the file (virus, or not the type it claimed). The version now
-     * points at its quarantined copy. A refused version 1 also rejects the document; a
-     * refused re-upload leaves the document on its last clean version.
+     * points at its quarantined copy. A document without a clean current file becomes
+     * quarantined; a refused re-upload of an available document leaves it on its last clean
+     * version.
      */
     async markRefused(
       versionId: string,
       result: { scanStatus: 'infected' | 'invalid'; reason: string; quarantineKey: string },
       now: Date,
-    ): Promise<{ rejectedDocument: boolean }> {
+    ): Promise<{ quarantinedDocument: boolean }> {
       return db.$transaction(async (tx) => {
         const version = await tx.documentVersion.update({
           where: { id: versionId },
@@ -377,116 +442,68 @@ export function createDocumentRepository(db: Db) {
             storageKey: result.quarantineKey,
             processedAt: now,
           },
-          select: { document: { select: { id: true, currentVersionId: true } } },
+          select: {
+            document: {
+              select: { id: true, currentVersion: { select: { scanStatus: true } } },
+            },
+          },
         });
-        if (version.document.currentVersionId !== versionId) return { rejectedDocument: false };
-        await tx.document.update({
-          where: { id: version.document.id },
-          data: { status: 'rejected' },
+        const doc = version.document;
+        if (doc.currentVersion?.scanStatus === 'clean') return { quarantinedDocument: false };
+        const { count } = await tx.document.updateMany({
+          where: { id: doc.id, status: { in: ['scanning', 'quarantined'] } },
+          data: { status: 'quarantined' },
         });
-        return { rejectedDocument: true };
+        return { quarantinedDocument: count === 1 };
       });
     },
 
     /**
-     * Updates metadata only while the document is in one of `inStatus`, so a concurrent
-     * status change cannot slip an edit past it. Null when missing, not visible, or no
-     * longer in an allowed status.
+     * Updates the details of a document that is not archived, checked in the same statement
+     * so a concurrent archive cannot slip an edit past it. Null when missing, not visible or
+     * archived.
      */
     async update(
       viewer: DocumentViewer,
       id: string,
       patch: DocumentPatch,
-      inStatus: DocumentStatus[],
     ): Promise<DocumentRecord | null> {
       const { count } = await db.document.updateMany({
-        where: visible(viewer, { id, status: { in: inStatus } }),
+        where: visible(viewer, { id, status: { in: NOT_ARCHIVED } }),
         data: patch,
       });
       if (count !== 1) return null;
       return db.document.findFirst({ where: visible(viewer, { id }), select: documentSelect });
     },
 
-    /**
-     * Returns false when the document is missing, not visible to the viewer, or (with
-     * `from`) not currently in one of those statuses.
-     */
-    async setStatus(
+    /** Who can see the document, in any state. Null when missing or not visible. */
+    async setVisibility(
       viewer: DocumentViewer,
       id: string,
-      status: DocumentStatus,
-      { from }: { from?: DocumentStatus[] } = {},
-    ): Promise<boolean> {
+      visibility: DocumentVisibility,
+    ): Promise<DocumentRecord | null> {
       const { count } = await db.document.updateMany({
-        where: visible(viewer, { id, ...(from && { status: { in: from } }) }),
-        data: { status, ...(status === 'pending' && { submittedAt: new Date() }) },
+        where: visible(viewer, { id }),
+        data: { visibility },
       });
-      return count === 1;
+      if (count !== 1) return null;
+      return db.document.findFirst({ where: visible(viewer, { id }), select: documentSelect });
     },
 
-    /**
-     * Moves a pending document to approved or rejected and records the decision on its
-     * current version, atomically. False when it is not visible or no longer pending.
-     */
-    async decide(viewer: DocumentViewer, id: string, input: NewDecision): Promise<boolean> {
-      return db.$transaction(async (tx) => {
-        const target = await tx.document.findFirst({
-          where: visible(viewer, {
-            id,
-            status: 'pending',
-            currentVersion: { is: { scanStatus: 'clean' } },
-          }),
-          select: { currentVersionId: true },
-        });
-        if (!target) return false;
-        const { count } = await tx.document.updateMany({
-          where: { id, status: 'pending', currentVersionId: target.currentVersionId },
-          data: { status: input.decision },
-        });
-        if (count !== 1) return false;
-        await tx.approval.create({
-          data: {
-            documentId: id,
-            versionId: target.currentVersionId!,
-            approverId: input.approverId,
-            decision: input.decision,
-            comment: input.comment,
-          },
-        });
-        return true;
-      });
-    },
-
-    /**
-     * approved | rejected -> archived, remembering the status it had so a restore can
-     * return to it. False when the document is missing, not visible or in another status.
-     */
+    /** available -> archived. False when missing, not visible or not available. */
     async archive(viewer: DocumentViewer, id: string): Promise<boolean> {
-      const doc = await db.document.findFirst({
-        where: visible(viewer, { id, status: { in: ['approved', 'rejected'] } }),
-        select: { status: true },
-      });
-      if (!doc) return false;
       const { count } = await db.document.updateMany({
-        where: visible(viewer, { id, status: doc.status }),
-        data: { status: 'archived', archivedFromStatus: doc.status },
+        where: visible(viewer, { id, status: 'available' }),
+        data: { status: 'archived' },
       });
       return count === 1;
     },
 
-    /**
-     * archived -> the status it had before. False when it is not archived, or was archived
-     * before that status was recorded (nothing safe to return to).
-     */
+    /** archived -> available. False when missing, not visible or not archived. */
     async restore(viewer: DocumentViewer, id: string): Promise<boolean> {
-      const doc = await db.document.findFirst({
-        where: visible(viewer, { id, status: 'archived', archivedFromStatus: { not: null } }),
-        select: { archivedFromStatus: true },
-      });
-      if (!doc?.archivedFromStatus) return false;
       const { count } = await db.document.updateMany({
         where: visible(viewer, { id, status: 'archived' }),
-        data: { status: doc.archivedFromStatus, archivedFromStatus: null },
+        data: { status: 'available' },
       });
       return count === 1;
     },

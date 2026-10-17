@@ -2,6 +2,9 @@ import { OriginLink } from '@/navigation/origin-link';
 import { Container } from '@/components/container';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
+import { STATUS_STYLE } from '@/components/status-style';
+import { VISIBILITY_LABEL } from '@/components/visibility';
+import { VisibilitySelect } from '@/components/visibility-select';
 import type { DocumentPageState } from '../presenters/use-document';
 import type { DocumentFilesModel } from '../presenters/use-document-files';
 import { DocumentFiles } from './document-files';
@@ -9,14 +12,6 @@ import { DocumentFiles } from './document-files';
 export type DocumentViewProps = Exclude<DocumentPageState, { status: 'not-found' }> & {
   files: DocumentFilesModel;
 };
-
-const STATUS_LABEL = {
-  draft: 'Draft',
-  pending: 'Pending review',
-  approved: 'Approved',
-  rejected: 'Rejected',
-  archived: 'Archived',
-} as const;
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { dateStyle: 'long' });
 
@@ -69,9 +64,24 @@ export function DocumentView(props: DocumentViewProps) {
                 </div>
                 <div>
                   <dt className="text-small text-ink-muted">Status</dt>
-                  <dd className="text-ink">{STATUS_LABEL[props.page.status]}</dd>
+                  <dd className="text-ink">{STATUS_STYLE[props.page.status].label}</dd>
                 </div>
+                {props.visibility.canChange ? null : (
+                  <div>
+                    <dt className="text-small text-ink-muted">Who can see it</dt>
+                    <dd className="text-ink">{VISIBILITY_LABEL[props.page.visibility]}</dd>
+                  </div>
+                )}
               </dl>
+              {props.visibility.canChange ? (
+                <VisibilitySelect
+                  className="mt-6 max-w-sm"
+                  value={props.page.visibility}
+                  disabled={props.visibility.saving}
+                  error={props.visibility.error}
+                  onChange={props.visibility.change}
+                />
+              ) : null}
               <DocumentFiles files={props.files} />
             </article>
           </>

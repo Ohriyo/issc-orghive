@@ -246,8 +246,8 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
       guard.allowNextNavigation();
       back.finish(
         saved === 1
-          ? 'Uploaded and sent for review. It goes to the reviewer once the virus scan passes.'
-          : `${saved} documents uploaded and sent for review.`,
+          ? 'Uploaded. Only you see it until the virus scan passes; then it is shared as you chose.'
+          : `${saved} documents uploaded. Each is shared as you chose once its virus scan passes.`,
       );
     }
   });

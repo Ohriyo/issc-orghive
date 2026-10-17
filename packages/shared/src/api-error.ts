@@ -13,6 +13,8 @@ export const ErrorCode = {
   /** The reset link is unknown, expired or already used. */
   INVALID_RESET_TOKEN: 'INVALID_RESET_TOKEN',
   FORBIDDEN: 'FORBIDDEN',
+  /** 403: the organization is frozen (a report is overdue) and cannot create projects. */
+  ORGANIZATION_FROZEN: 'ORGANIZATION_FROZEN',
   NOT_FOUND: 'NOT_FOUND',
   CONFLICT: 'CONFLICT',
   RATE_LIMITED: 'RATE_LIMITED',

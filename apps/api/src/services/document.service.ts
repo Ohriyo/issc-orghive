@@ -10,6 +10,7 @@ import {
   type DocumentSummary,
   type DocumentVersion,
   type DocumentVersionListResponse,
+  type DocumentVisibility,
   type DownloadUrlResponse,
   type UpdateDocumentRequest,
 } from '@orghive/shared';
@@ -37,17 +38,18 @@ export const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
 /** Previews are signed when served (never cached signed), valid long enough to view a page. */
 export const THUMBNAIL_URL_TTL_SECONDS = 15 * 60;
 
-/** Content may change only before review; afterwards an edit would bypass approval. */
-const EDITABLE: DocumentStatus[] = ['draft', 'rejected'];
-/** Visibility may change at any point before archiving. */
-const VISIBILITY_EDITABLE: DocumentStatus[] = ['draft', 'pending', 'approved', 'rejected'];
-const SUBMITTABLE: DocumentStatus[] = ['draft', 'rejected'];
-/** The end of the lifecycle (CLAUDE.md): approved | rejected -> archived. */
-const ARCHIVABLE: DocumentStatus[] = ['approved', 'rejected'];
+/** Archived documents cannot change; anything else may be edited (nothing is reviewed). */
+const EDITABLE: DocumentStatus[] = ['scanning', 'available', 'quarantined'];
 
 /** The signed-in user making a change. */
 export interface Actor {
   userId: string;
+  ip?: string;
+}
+
+/** Whoever is reading: signed out (no userId) or signed in. */
+export interface Reader {
+  userId?: string;
   ip?: string;
 }
 
@@ -58,8 +60,8 @@ export interface DocumentServiceDeps {
     | 'list'
     | 'create'
     | 'update'
-    | 'setStatus'
-    | 'decide'
+    | 'setVisibility'
+    | 'visibleOnlyAsAdmin'
     | 'softDelete'
     | 'archive'
     | 'restore'
@@ -99,7 +101,6 @@ export function toStoredSummary(doc: DocumentRecord): StoredSummary {
     status: doc.status,
     visibility: doc.visibility,
     tags: doc.tags,
-    submittedAt: doc.submittedAt?.toISOString() ?? null,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
     organization: {
@@ -215,6 +216,28 @@ export function createDocumentService({
     return cache.deleteMatching(cacheKeys.organizationDocumentsPattern(org.slug));
   }
 
+  /**
+   * Admins may see any available or archived document for support, but each time they see
+   * one only because they are an admin, it is audited (docs/PROJECT_WORKFLOW_SPEC.md 0.1).
+   */
+  async function auditAdminView(
+    viewer: DocumentViewer,
+    reader: Reader,
+    doc: { id: string; organizationId: string; visibility: DocumentVisibility },
+    access: 'view' | 'versions' | 'download',
+  ) {
+    if (viewer.kind !== 'user' || !(await documents.visibleOnlyAsAdmin(viewer, doc.id))) return;
+    await audit.record({
+      action: 'admin_override',
+      actorId: viewer.userId,
+      entityType: 'document',
+      entityId: doc.id,
+      organizationId: doc.organizationId,
+      metadata: { access, visibility: doc.visibility },
+      ip: reader.ip,
+    });
+  }
+
   function auditUpload(actor: Actor, org: OrgRef, documentId: string, file: object) {
     return audit.record({
       action: 'upload',
@@ -252,6 +275,7 @@ export function createDocumentService({
           academicYear: query.academicYear,
           semester: query.semester,
           status: query.status,
+          visibility: query.visibility,
           search: query.q,
           cursor: query.cursor,
           limit: query.limit,
@@ -285,13 +309,18 @@ export function createDocumentService({
     },
 
     /** 404 when the document does not exist or the viewer may not see it. */
-    async get(userId: string | undefined, id: string): Promise<DocumentSummary> {
-      return reload(await viewerFor(userId), id);
+    async get(reader: Reader, id: string): Promise<DocumentSummary> {
+      const viewer = await viewerFor(reader.userId);
+      const doc = await documents.findById(viewer, id);
+      if (!doc) throw AppError.notFound('Document not found');
+      await auditAdminView(viewer, reader, { ...doc, organizationId: doc.organization.id }, 'view');
+      return summarize(doc);
     },
 
     /**
      * Creates a document in `org` from a file already uploaded with an upload URL: version 1,
-     * pending review, then queued for the virus scan and processing. Audited as an upload.
+     * `scanning` (only the uploader sees it) and queued for the virus scan; the worker makes
+     * it available once the file is clean. Audited as an upload.
      */
     async create(
       actor: Actor,
@@ -309,8 +338,7 @@ export function createDocumentService({
         semester: input.semester,
         visibility: input.visibility,
         tags: input.tags,
-        status: 'pending',
-        submittedAt: now(),
+        status: 'scanning',
         createdById: actor.userId,
         firstVersion: { ...file, uploadedById: actor.userId },
       });
@@ -325,8 +353,8 @@ export function createDocumentService({
     },
 
     /**
-     * A re-upload: the next version, not current until the worker finds it clean (then the
-     * document goes back to review). Nothing is overwritten. 409 for archived documents.
+     * A re-upload: the next version, not current until the worker finds it clean. Nothing is
+     * overwritten, and nothing needs approving again. 409 for archived documents.
      */
     async addVersion(
       actor: Actor,
@@ -360,25 +388,16 @@ export function createDocumentService({
     },
 
     /**
-     * Every version, newest first. The organization's members, its approvers and admins see
-     * all of them (including ones still scanning or refused); everyone else sees clean ones.
+     * Every version the viewer may see, newest first. The repository decides which: clean
+     * ones, plus the viewer's own uploads while they are scanned or after they are refused.
      */
-    async listVersions(
-      userId: string | undefined,
-      id: string,
-    ): Promise<DocumentVersionListResponse> {
-      const viewer = await viewerFor(userId);
+    async listVersions(reader: Reader, id: string): Promise<DocumentVersionListResponse> {
+      const viewer = await viewerFor(reader.userId);
       const found = await documents.listVersions(viewer, id);
       if (!found) throw AppError.notFound('Document not found');
-      const insider =
-        viewer.kind === 'user' &&
-        (viewer.isAdmin ||
-          viewer.memberOrgIds.includes(found.organizationId) ||
-          viewer.reviewableOrgIds.includes(found.organizationId));
+      await auditAdminView(viewer, reader, { id, ...found }, 'versions');
       return {
-        versions: found.versions
-          .filter((v) => insider || v.scanStatus === 'clean')
-          .map((v) => toDocumentVersion(v, found.currentVersionId)),
+        versions: found.versions.map((v) => toDocumentVersion(v, found.currentVersionId)),
       };
     },
 
@@ -387,16 +406,18 @@ export function createDocumentService({
      * files; 404 when the viewer may not see the document.
      */
     async downloadUrl(
-      userId: string | undefined,
+      reader: Reader,
       id: string,
       versionId: string,
       disposition: 'attachment' | 'inline' = 'attachment',
     ): Promise<DownloadUrlResponse> {
-      const version = await documents.findVersion(await viewerFor(userId), id, versionId);
+      const viewer = await viewerFor(reader.userId);
+      const version = await documents.findVersion(viewer, id, versionId);
       if (!version) throw AppError.notFound('Document not found');
       if (version.scanStatus !== 'clean') {
         throw AppError.conflict('This file is not available: it has not passed the virus scan');
       }
+      await auditAdminView(viewer, reader, { id, ...version.document }, 'download');
       const url = await storage.presignGet(
         version.storageKey,
         { filename: version.originalFilename, contentType: version.mimeType, disposition },
@@ -408,10 +429,7 @@ export function createDocumentService({
       };
     },
 
-    /**
-     * Content edits only while draft or rejected. Changing only `visibility` is allowed
-     * until the document is archived. 409 otherwise.
-     */
+    /** Details may change at any time before archiving; 409 for an archived document. */
     async update(
       actor: Actor,
       org: OrgRef,
@@ -420,82 +438,54 @@ export function createDocumentService({
     ): Promise<DocumentSummary> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
-      const visibilityOnly = Object.keys(patch).every((key) => key === 'visibility');
-      const allowed = visibilityOnly ? VISIBILITY_EDITABLE : EDITABLE;
-      if (!allowed.includes(doc.status)) {
+      if (!EDITABLE.includes(doc.status)) {
         throw AppError.conflict(`A ${doc.status} document cannot be edited`);
       }
       if (patch.typeId) await assertTypeExists(patch.typeId);
 
-      const updated = await documents.update(viewer, id, patch, allowed);
+      const updated = await documents.update(viewer, id, patch);
       if (!updated) throw AppError.conflict('The document changed; reload and try again');
       await invalidate(org);
       return summarize(updated);
     },
 
-    /** draft | rejected -> pending. The current file must have passed the virus scan. */
-    async submit(actor: Actor, org: OrgRef, id: string): Promise<DocumentSummary> {
-      const viewer = await viewers.forUser(actor.userId);
-      const doc = await loadInOrg(viewer, org, id);
-      if (!SUBMITTABLE.includes(doc.status)) {
-        throw AppError.conflict(`A ${doc.status} document cannot be submitted`);
-      }
-      if (!doc.currentVersion) throw AppError.conflict('Upload the file before submitting');
-      if (doc.currentVersion.scanStatus !== 'clean') {
-        throw AppError.conflict('The file has not passed the virus scan yet');
-      }
-      if (!(await documents.setStatus(viewer, id, 'pending', { from: SUBMITTABLE }))) {
-        throw AppError.conflict('The document changed; reload and try again');
-      }
-      await invalidate(org);
-      return reload(viewer, id);
-    },
-
     /**
-     * pending -> approved | rejected, recorded on the current version and audited. The
-     * current file must have passed the virus scan.
+     * Who can see the document, at any time and in any state. Only the organization's own
+     * officers get here (the route refuses admins). Audited when it changes.
      */
-    async decide(
+    async setVisibility(
       actor: Actor,
       org: OrgRef,
       id: string,
-      decision: 'approved' | 'rejected',
-      comment?: string,
+      visibility: DocumentVisibility,
     ): Promise<DocumentSummary> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
-      if (doc.status !== 'pending') {
-        throw AppError.conflict(`Only pending documents can be ${decision}`);
-      }
-      if (doc.currentVersion?.scanStatus !== 'clean') {
-        throw AppError.conflict('The file has not passed the virus scan yet');
-      }
-      if (!(await documents.decide(viewer, id, { decision, approverId: actor.userId, comment }))) {
-        throw AppError.conflict('The document changed; reload and try again');
-      }
+      if (doc.visibility === visibility) return summarize(doc);
+
+      const updated = await documents.setVisibility(viewer, id, visibility);
+      if (!updated) throw AppError.notFound('Document not found');
       await audit.record({
-        action: decision === 'approved' ? 'approve' : 'reject',
+        action: 'visibility_change',
         actorId: actor.userId,
         entityType: 'document',
         entityId: id,
         organizationId: org.id,
-        metadata: { version: doc.currentVersion.version },
+        metadata: { from: doc.visibility, to: visibility },
         ip: actor.ip,
       });
       await invalidate(org);
-      // Not reloaded: approvers may not see a document once they reject it (visibility rule),
-      // yet the decision they just made succeeded.
-      return summarize({ ...doc, status: decision, updatedAt: now() });
+      return summarize(updated);
     },
 
     /**
-     * approved | rejected -> archived, audited. Archived documents leave public Paperworks
-     * and can no longer change; restore() brings one back. 409 from any other status.
+     * available -> archived, audited. Archived documents leave the Paperworks (only the
+     * organization's officers see them) and cannot change; restore() brings one back.
      */
     async archive(actor: Actor, org: OrgRef, id: string): Promise<DocumentSummary> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
-      if (!ARCHIVABLE.includes(doc.status)) {
+      if (doc.status !== 'available') {
         throw AppError.conflict(`A ${doc.status} document cannot be archived`);
       }
       if (!(await documents.archive(viewer, id))) {
@@ -507,36 +497,32 @@ export function createDocumentService({
         entityType: 'document',
         entityId: id,
         organizationId: org.id,
-        metadata: { from: doc.status },
         ip: actor.ip,
       });
       await invalidate(org);
       return reload(viewer, id);
     },
 
-    /** archived -> the status it had before archiving, audited. 409 otherwise. */
+    /** archived -> available, with the visibility it had. Audited. 409 otherwise. */
     async restore(actor: Actor, org: OrgRef, id: string): Promise<DocumentSummary> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
-      if (doc.status !== 'archived')
+      if (doc.status !== 'archived') {
         throw AppError.conflict('Only archived documents can be restored');
-      if (!(await documents.restore(viewer, id))) {
-        throw AppError.conflict(
-          'This document was archived before restoring was possible; ask an admin to restore it',
-        );
       }
-      const restored = await reload(viewer, id);
+      if (!(await documents.restore(viewer, id))) {
+        throw AppError.conflict('The document changed; reload and try again');
+      }
       await audit.record({
         action: 'restore',
         actorId: actor.userId,
         entityType: 'document',
         entityId: id,
         organizationId: org.id,
-        metadata: { to: restored.status },
         ip: actor.ip,
       });
       await invalidate(org);
-      return restored;
+      return reload(viewer, id);
     },
 
     /** Soft delete, audited. */

@@ -3,11 +3,11 @@ import {
   Archive,
   ArchiveRestore,
   CheckCircle2,
-  ClipboardCheck,
+  Eye,
   FileUp,
+  Gavel,
   Settings,
   ShieldAlert,
-  XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { OriginLink } from '@/navigation/origin-link';
@@ -18,10 +18,11 @@ import { STATUS_STYLE } from '@/components/status-style';
 import { cn } from '@/lib/utils';
 import type {
   ActivityItem,
+  AttentionItem,
   RecentDocument,
-  RevisionItem,
   RolePanel,
   StatTile,
+  TileKey,
 } from '../presenters/use-dashboard';
 
 const SECTION_TITLE = 'text-h3 font-bold text-ink';
@@ -29,14 +30,25 @@ const TEXT_LINK =
   'tap-area font-semibold text-ink underline decoration-1 underline-offset-4 transition-colors duration-300 hover:decoration-leaf focus-visible:decoration-leaf';
 const dateFormat = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
 
-/** Drafts, Pending review, Approved, Needs revision: each opens My documents on that tab. */
+/** A shape cue per tile, so a tile never relies on color alone. */
+const TILE_DOT: Record<TileKey, string> = {
+  public: 'rounded-full bg-leaf',
+  members: 'rounded-full border-2 border-leaf',
+  private: 'rounded-sm bg-ink-muted',
+  quarantined: STATUS_STYLE.quarantined.dot,
+};
+
+/** Public, Members only, Private, Blocked by scan: each opens My documents filtered to it. */
 export function StatTiles({ tiles }: { tiles: StatTile[] }) {
   return (
-    <ul aria-label="Documents by status" className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
+    <ul
+      aria-label="Documents by who can see them"
+      className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4"
+    >
       {tiles.map((tile) => {
-        const alert = tile.status === 'rejected' && tile.count > 0;
+        const alert = tile.alert;
         return (
-          <li key={tile.status}>
+          <li key={tile.key}>
             <OriginLink
               to={tile.href}
               aria-label={`${tile.label}, ${tile.count} ${tile.count === 1 ? 'document' : 'documents'}`}
@@ -48,10 +60,7 @@ export function StatTiles({ tiles }: { tiles: StatTile[] }) {
               )}
             >
               <span className="flex items-center gap-2 text-small font-semibold text-ink-muted">
-                <span
-                  aria-hidden="true"
-                  className={cn('size-2.5', STATUS_STYLE[tile.status].dot)}
-                />
+                <span aria-hidden="true" className={cn('size-2.5', TILE_DOT[tile.key])} />
                 {tile.label}
               </span>
               <span
@@ -70,7 +79,13 @@ export function StatTiles({ tiles }: { tiles: StatTile[] }) {
   );
 }
 
-function ReviseControl({ item, onRevise }: { item: RevisionItem; onRevise: (file: File) => void }) {
+function ReviseControl({
+  item,
+  onRevise,
+}: {
+  item: AttentionItem;
+  onRevise: (file: File) => void;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const state = item.revise;
   const busy = state.status === 'uploading' || state.status === 'saving';
@@ -96,8 +111,8 @@ function ReviseControl({ item, onRevise }: { item: RevisionItem; onRevise: (file
         className="max-sm:w-full"
       >
         <FileUp aria-hidden="true" />
-        Revise
-        <span className="sr-only">: upload a new version of {item.title}</span>
+        Upload a clean copy
+        <span className="sr-only">: of {item.title}</span>
       </PillButton>
       <div aria-live="polite" className="text-small sm:text-right">
         {state.status === 'uploading' || state.status === 'saving' ? (
@@ -121,7 +136,7 @@ function ReviseControl({ item, onRevise }: { item: RevisionItem; onRevise: (file
           </div>
         ) : state.status === 'done' ? (
           <span className="text-ink">
-            Uploaded. It goes back to review once the virus scan passes.
+            Uploaded. It is shared as you chose once the virus scan passes.
           </span>
         ) : state.status === 'error' ? (
           <span role="alert" className="font-medium text-destructive">
@@ -133,13 +148,13 @@ function ReviseControl({ item, onRevise }: { item: RevisionItem; onRevise: (file
   );
 }
 
-/** Rejected documents with the reviewer's remark, and Revise for officers. */
+/** The user's own uploads the virus scan blocked, with a way to upload a clean copy. */
 export function NeedsAttention({
   items,
   canRevise,
   onRevise,
 }: {
-  items: RevisionItem[];
+  items: AttentionItem[];
   canRevise: boolean;
   onRevise: (documentId: string, file: File) => void;
 }) {
@@ -151,7 +166,7 @@ export function NeedsAttention({
       {items.length === 0 ? (
         <p className="mt-4 flex items-start gap-3 rounded-2xl bg-white/70 p-5 text-body text-ink ring-1 ring-ink/10">
           <CheckCircle2 aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-leaf" />
-          Nothing needs a revision. Rejected documents show up here with the reviewer’s remarks.
+          Nothing needs you. If the virus scan blocks one of your uploads, it shows up here.
         </p>
       ) : (
         <ul className="mt-4 flex flex-col gap-4">
@@ -162,7 +177,7 @@ export function NeedsAttention({
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status="rejected" />
+                  <StatusBadge status="quarantined" />
                   <span className="text-small text-ink-muted">{item.typeLabel}</span>
                 </div>
                 <h3 className="mt-2 text-body-lg leading-snug font-semibold text-ink">
@@ -173,20 +188,10 @@ export function NeedsAttention({
                     {item.title}
                   </OriginLink>
                 </h3>
-                {item.remark ? (
-                  <figure className="mt-3 rounded-2xl bg-surface p-4">
-                    <blockquote className="text-body text-ink">“{item.remark}”</blockquote>
-                    {item.decidedBy ? (
-                      <figcaption className="mt-1.5 text-small text-ink-muted">
-                        {item.decidedBy}
-                      </figcaption>
-                    ) : null}
-                  </figure>
-                ) : (
-                  <p className="mt-3 text-body text-ink-muted">
-                    The reviewer left no remark{item.decidedBy ? ` (${item.decidedBy})` : ''}.
-                  </p>
-                )}
+                <p className="mt-3 text-body text-ink-muted">
+                  The virus scan refused this file, so nobody else can see it. Upload a clean copy
+                  to share it.
+                </p>
               </div>
               {canRevise ? (
                 <ReviseControl item={item} onRevise={(file) => onRevise(item.id, file)} />
@@ -201,14 +206,13 @@ export function NeedsAttention({
 
 const ACTIVITY_ICON: Record<ActivityItem['kind'], { icon: LucideIcon; className: string }> = {
   upload: { icon: FileUp, className: 'text-ink' },
-  approve: { icon: CheckCircle2, className: 'text-leaf' },
-  reject: { icon: XCircle, className: 'text-destructive' },
   quarantine: { icon: ShieldAlert, className: 'text-destructive' },
   archive: { icon: Archive, className: 'text-ink-muted' },
   restore: { icon: ArchiveRestore, className: 'text-ink' },
+  visibility_change: { icon: Eye, className: 'text-ink' },
 };
 
-/** The last uploads and decisions; before any are recorded, the latest documents. */
+/** The latest activity; before any is recorded, the latest documents. */
 export function RecentActivity({
   activity,
   recentDocuments,
@@ -257,7 +261,7 @@ export function RecentActivity({
       ) : recentDocuments.length > 0 ? (
         <>
           <p className="mt-2 text-small text-ink-muted">
-            No uploads or decisions recorded yet. The latest documents:
+            No activity recorded yet. The latest documents:
           </p>
           <ul className="mt-3 flex flex-col rounded-2xl bg-white px-5 ring-1 ring-ink/10">
             {recentDocuments.map((doc) => (
@@ -277,61 +281,56 @@ export function RecentActivity({
           </ul>
         </>
       ) : (
-        <p className="mt-4 text-body text-ink-muted">No uploads or decisions yet.</p>
+        <p className="mt-4 text-body text-ink-muted">No uploads yet.</p>
       )}
     </section>
   );
 }
 
 /** Extra work that comes with a role. Each panel renders only when its role applies. */
+const PANEL_TEXT: Record<
+  RolePanel['kind'],
+  { icon: LucideIcon; title: string; body: string; action: string }
+> = {
+  appeals: {
+    icon: Gavel,
+    title: 'Appeals',
+    body: 'Blocked projects and frozen organizations waiting for your decision.',
+    action: 'Open appeals',
+  },
+  admin: {
+    icon: Settings,
+    title: 'Administration',
+    body: 'Organizations, memberships and accounts across Orghive.',
+    action: 'Open admin',
+  },
+};
+
 export function RolePanels({ panels }: { panels: RolePanel[] }) {
   if (panels.length === 0) return null;
   return (
     <section aria-label="Your other roles" className="flex flex-col gap-4">
-      {panels.map((panel) =>
-        panel.kind === 'reviews' ? (
+      {panels.map((panel) => {
+        const text = PANEL_TEXT[panel.kind];
+        const Icon = text.icon;
+        return (
           <div
-            key="reviews"
-            className="bg-forest-sheen flex flex-col gap-4 rounded-2xl p-5 text-white shadow-pool md:flex-row md:items-center md:justify-between md:gap-8 md:p-6"
-          >
-            <div className="flex items-start gap-4">
-              <ClipboardCheck aria-hidden="true" className="mt-1 size-6 shrink-0" />
-              <div>
-                <h2 className="text-body-lg font-semibold">Pending reviews</h2>
-                <p className="mt-1 text-body text-white/90">
-                  <span className="text-h2 leading-none font-bold tabular-nums text-white">
-                    {panel.pending}
-                  </span>{' '}
-                  {panel.pending === 1 ? 'document is' : 'documents are'} waiting for your decision,
-                  from the {panel.organizations}{' '}
-                  {panel.organizations === 1 ? 'organization' : 'organizations'} you review.
-                </p>
-              </div>
-            </div>
-            <PillButton asChild variant="light" size="md" className="self-start md:self-center">
-              <OriginLink to={panel.href}>Open review queue</OriginLink>
-            </PillButton>
-          </div>
-        ) : (
-          <div
-            key="admin"
+            key={panel.kind}
             className="flex flex-col gap-4 rounded-2xl bg-white p-5 shadow-pool ring-1 ring-ink/10 md:flex-row md:items-center md:justify-between md:gap-8 md:p-6"
           >
             <div className="flex items-start gap-4">
-              <Settings aria-hidden="true" className="mt-1 size-6 shrink-0 text-ink" />
+              <Icon aria-hidden="true" className="mt-1 size-6 shrink-0 text-ink" />
               <div>
-                <h2 className="text-body-lg font-semibold text-ink">Administration</h2>
-                <p className="mt-1 text-body text-ink-muted">
-                  Organizations, memberships and accounts across Orghive.
-                </p>
+                <h2 className="text-body-lg font-semibold text-ink">{text.title}</h2>
+                <p className="mt-1 text-body text-ink-muted">{text.body}</p>
               </div>
             </div>
             <PillButton asChild size="md" className="self-start md:self-center">
-              <OriginLink to={panel.href}>Open admin</OriginLink>
+              <OriginLink to={panel.href}>{text.action}</OriginLink>
             </PillButton>
           </div>
-        ),
-      )}
+        );
+      })}
     </section>
   );
 }

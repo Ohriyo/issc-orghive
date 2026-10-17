@@ -122,8 +122,34 @@ function dashboardRoutes(): RouteObject[] {
       }),
     },
     {
-      path: 'dashboard/reviews',
-      lazy: async () => ({ Component: (await comingSoon()).ReviewQueuePage }),
+      path: 'dashboard/projects',
+      lazy: async () => ({
+        Component: (await import('@/features/projects/projects-page')).ProjectsPage,
+      }),
+    },
+    {
+      path: 'dashboard/projects/new',
+      lazy: async () => ({
+        Component: (await import('@/features/projects/new-project-page')).NewProjectPage,
+      }),
+    },
+    {
+      path: 'dashboard/appeals',
+      lazy: async () => ({
+        Component: (await import('@/features/appeals/appeal-pages')).AppealQueuePage,
+      }),
+    },
+    {
+      path: 'dashboard/appeals/new',
+      lazy: async () => ({
+        Component: (await import('@/features/appeals/appeal-pages')).SubmitAppealPage,
+      }),
+    },
+    {
+      path: 'projects/:id',
+      lazy: async () => ({
+        Component: (await import('@/features/projects/project-page')).ProjectPage,
+      }),
     },
     { path: 'admin', lazy: async () => ({ Component: (await comingSoon()).AdminPage }) },
   ];

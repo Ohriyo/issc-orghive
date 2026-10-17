@@ -17,15 +17,8 @@ import { useUnsavedChangesGuard } from '@/navigation/use-unsaved-changes';
 import type { FilterOption } from '@/features/paperworks/presenters/use-paperworks';
 import { tagsToText, textToTags } from '@/features/uploads/presenters/use-upload-documents';
 
-const VISIBILITY = [
-  { value: 'public', label: 'Public', hint: 'Anyone, without signing in' },
-  { value: 'members', label: 'Signed-in users', hint: 'Anyone with an NwSSU account' },
-  { value: 'private', label: 'Private', hint: 'Your organization, its approvers and admins' },
-] as const;
-
 export interface EditDocumentDialogProps {
   doc: DocumentSummary;
-  contentEditable: boolean;
   types: DocumentType[];
   years: FilterOption[];
   semesters: FilterOption[];
@@ -46,13 +39,12 @@ function defaults(doc: DocumentSummary): DocumentMetadata {
 }
 
 /**
- * Edit a document's details, validated with the shared schema. Once submitted only the
- * visibility can change (an approved document must stay as approved), so the other
- * fields are shown read-only with the reason.
+ * Edit a document's details, validated with the shared schema. Details can change at any
+ * time before archiving: nothing is reviewed, so nothing needs approving again. Who can see
+ * the document has its own control next to it.
  */
 export function EditDocumentDialog({
   doc,
-  contentEditable,
   types,
   years,
   semesters,
@@ -66,7 +58,6 @@ export function EditDocumentDialog({
     defaultValues: defaults(doc),
   });
   const errors = form.formState.errors;
-  const locked = !contentEditable;
   const dirty = open && form.formState.isDirty;
   // Leaving the page, or closing the dialog, with unsaved edits asks first.
   const guard = useUnsavedChangesGuard(dirty);
@@ -136,13 +127,11 @@ export function EditDocumentDialog({
             </Dialog.Close>
           </div>
           <Dialog.Description className="mt-1 text-body text-ink-muted">
-            {locked
-              ? 'This document is in review or approved, so only who can see it may change. Other details change only while it is a draft or rejected.'
-              : 'Changes save to this document; the file stays the same.'}
+            Changes save to this document; the file stays the same.
           </Dialog.Description>
 
           <form onSubmit={(event) => void submit(event)} noValidate className="mt-6">
-            <fieldset disabled={locked} className="grid gap-5 md:grid-cols-2 disabled:opacity-70">
+            <div className="grid gap-5 md:grid-cols-2">
               <TextField
                 label="Title"
                 className="md:col-span-2"
@@ -193,31 +182,7 @@ export function EditDocumentDialog({
                   setValueAs: (value: string) => value || undefined,
                 })}
               />
-            </fieldset>
-            <fieldset className="mt-5">
-              <legend className="text-body font-medium text-ink">
-                Who can see it once approved
-              </legend>
-              <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                {VISIBILITY.map((choice) => (
-                  <label
-                    key={choice.value}
-                    className="flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl border border-input bg-white p-3 transition-colors duration-300 hover:border-forest-500 has-checked:border-forest-500 has-checked:bg-accent has-focus-visible:outline-3 has-focus-visible:outline-ink"
-                  >
-                    <input
-                      type="radio"
-                      value={choice.value}
-                      className="mt-1 size-4 accent-forest-700"
-                      {...form.register('visibility')}
-                    />
-                    <span>
-                      <span className="block font-medium text-ink">{choice.label}</span>
-                      <span className="block text-small text-ink-muted">{choice.hint}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+            </div>
             {saveError ? (
               <p role="alert" className="mt-5 text-body font-medium text-destructive">
                 {saveError}

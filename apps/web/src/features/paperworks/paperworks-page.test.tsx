@@ -32,11 +32,10 @@ function doc(overrides: Partial<DocumentSummary> = {}): DocumentSummary {
     description: null,
     academicYear: '2026-2027',
     semester: 'first',
-    status: 'approved',
+    status: 'available',
     visibility: 'public',
     tags: [],
-    submittedAt: '2026-09-01T00:00:00.000Z',
-    createdAt: '2026-08-20T00:00:00.000Z',
+    createdAt: '2026-09-01T00:00:00.000Z',
     updatedAt: '2026-09-01T00:00:00.000Z',
     organization: { type: 'SBO', slug: 'jpice', acronym: 'JPICE', name: JPICE.name },
     type: PROPOSAL,
@@ -110,7 +109,7 @@ describe('usePaperworks helpers', () => {
     ]);
   });
 
-  it('shapes a card: file type from the MIME type, status only when not approved', () => {
+  it('shapes a card: file type from the MIME type, status only when not available', () => {
     const now = new Date('2026-09-05').getTime();
     expect(toDocumentCard(doc(), now)).toMatchObject({
       href: '/documents/0195f3c0-0000-7000-8000-0000000000d1',
@@ -119,8 +118,8 @@ describe('usePaperworks helpers', () => {
       isNew: true,
       status: undefined,
     });
-    expect(toDocumentCard(doc({ status: 'pending', currentVersion: null }), now)).toMatchObject({
-      status: 'pending',
+    expect(toDocumentCard(doc({ status: 'scanning', currentVersion: null }), now)).toMatchObject({
+      status: 'scanning',
       fileType: undefined,
     });
   });
@@ -170,9 +169,7 @@ describe('/orgs/:slug/paperworks', () => {
   it('explains an empty archive', async () => {
     serve({ docs: [] });
     renderAt('/orgs/jpice/paperworks');
-    expect(
-      await screen.findByText(/No Paperworks have been published here yet/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/No Paperworks have been shared here yet/)).toBeInTheDocument();
   });
 
   it('shows not found for an unknown organization', async () => {

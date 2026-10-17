@@ -1,6 +1,8 @@
 // Seed content. Names, mottos and descriptions are transcribed from the prototype in design/.
 // Where the design gives no description (IECEP, ICpEP.SE, PSME), it is left empty on purpose.
 
+import { PROJECT_TASK_DOCUMENT_TYPES } from '@orghive/shared';
+
 export const issc = {
   slug: 'issc',
   acronym: 'ISSC',
@@ -119,11 +121,15 @@ export const ceaSbos: SboSeed[] = [
   },
 ];
 
-/** The three types the sample documents use. The official list is still an open question. */
+/**
+ * The types the sample documents use, plus the ones project task files are archived as.
+ * The official list is still an open question.
+ */
 export const documentTypes = [
   { slug: 'activity-proposal', name: 'Activity proposal' },
   { slug: 'accomplishment-report', name: 'Accomplishment report' },
   { slug: 'resolution', name: 'Resolution' },
+  ...Object.values(PROJECT_TASK_DOCUMENT_TYPES),
 ];
 
 export type SeedUserKey = 'admin' | 'jpice-officer' | 'jpice-adviser' | 'cea-governor';

@@ -28,6 +28,18 @@ const unwiredServices: AppServices = {
     get: (_t, key) => () => unwired(`access.${String(key)}`),
   }),
   dashboard: { forUser: () => unwired('dashboard') },
+  projects: new Proxy({} as AppServices['projects'], {
+    get: (_t, key) => () => unwired(`projects.${String(key)}`),
+  }),
+  appeals: new Proxy({} as AppServices['appeals'], {
+    get: (_t, key) => () => unwired(`appeals.${String(key)}`),
+  }),
+  notifications: new Proxy({} as AppServices['notifications'], {
+    get: (_t, key) => () => unwired(`notifications.${String(key)}`),
+  }),
+  reports: new Proxy({} as AppServices['reports'], {
+    get: (_t, key) => () => unwired(`reports.${String(key)}`),
+  }),
 };
 
 export function buildTestApp(

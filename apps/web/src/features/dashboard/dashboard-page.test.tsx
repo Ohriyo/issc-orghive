@@ -50,10 +50,9 @@ function doc(overrides: Partial<DocumentSummary> = {}): DocumentSummary {
     description: null,
     academicYear: '2026-2027',
     semester: 'first',
-    status: 'rejected',
+    status: 'available',
     visibility: 'members',
     tags: [],
-    submittedAt: '2026-10-10T00:00:00.000Z',
     createdAt: '2026-10-10T00:00:00.000Z',
     updatedAt: '2026-10-14T00:00:00.000Z',
     organization: {
@@ -83,20 +82,13 @@ function org(
       logoUrl: null,
       logoSrcSet: null,
     },
-    counts: { draft: 1, pending: 2, approved: 24, rejected: 1, archived: 0 },
+    counts: { public: 20, members: 3, private: 1, scanning: 2, quarantined: 1, archived: 0 },
     recentDocuments: [doc()],
-    needsRevision: [
-      {
-        document: doc(),
-        remark: 'Attach the signed page from the minutes.',
-        reviewerName: 'Maria Santos',
-        decidedAt: '2026-10-14T03:00:00.000Z',
-      },
-    ],
+    quarantined: [doc({ status: 'quarantined' })],
     activity: [
       {
         id: '0195f3c0-0000-7000-8000-0000000000f1',
-        kind: 'reject',
+        kind: 'visibility_change',
         at: '2026-10-14T03:00:00.000Z',
         actorName: 'Maria Santos',
         document: { id: DOC_ID, title: 'Resolution No. 2026-03: Officers’ Code of Conduct' },
@@ -119,14 +111,13 @@ function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardRespons
       },
     ],
     organizations: [org(JPICE_ID, 'JPICE')],
-    reviews: null,
     isAdmin: false,
     ...overrides,
   };
 }
 
 const fetchMock = vi.fn<typeof fetch>();
-const calls: { url: string; method: string }[] = [];
+const calls: { url: string; method: string; body?: object }[] = [];
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(
@@ -137,7 +128,11 @@ function json(body: unknown, status = 200) {
 function serve(body: DashboardResponse, documents: DocumentSummary[] = [doc()]) {
   fetchMock.mockImplementation((input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    calls.push({ url, method: init?.method ?? 'GET' });
+    const sent = typeof init?.body === 'string' ? (JSON.parse(init.body) as object) : undefined;
+    calls.push({ url, method: init?.method ?? 'GET', body: sent });
+    if (url.endsWith(`/documents/${DOC_ID}/visibility`)) {
+      return json(doc({ ...(sent as Partial<DocumentSummary>) }));
+    }
     if (url.endsWith('/me/dashboard')) return json(body);
     if (url.endsWith('/document-types')) return json({ types: [TYPE] });
     if (url.includes('/organizations/jpice/documents')) {
@@ -203,9 +198,10 @@ describe('dashboard presenter helpers', () => {
     expect(activityLead({ ...base, kind: 'quarantine', actorName: null })).toBe(
       'The virus scan blocked version 2 of',
     );
+    expect(activityLead({ ...base, kind: 'visibility_change' })).toBe('Juan changed who can see');
   });
 
-  it('sends only changed fields, and only visibility once a document is in review', () => {
+  it('sends only changed details, never visibility (it has its own endpoint)', () => {
     const values = {
       typeId: TYPE.id,
       title: 'New title',
@@ -214,13 +210,10 @@ describe('dashboard presenter helpers', () => {
       visibility: 'public' as const,
       tags: [],
     };
-    expect(patchFor(doc(), values)).toEqual({
-      title: 'New title',
-      semester: null,
-      visibility: 'public',
-    });
-    expect(patchFor(doc({ status: 'approved' }), values)).toEqual({ visibility: 'public' });
-    expect(patchFor(doc({ status: 'approved' }), { ...values, visibility: 'members' })).toBeNull();
+    expect(patchFor(doc(), values)).toEqual({ title: 'New title', semester: null });
+    expect(
+      patchFor(doc(), { ...values, title: doc().title, semester: 'first', visibility: 'private' }),
+    ).toBeNull();
   });
 });
 
@@ -240,17 +233,22 @@ describe('/dashboard', () => {
       expect(screen.getByText(/Term ends/)).toBeInTheDocument();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
-      const tiles = screen.getByRole('list', { name: 'Documents by status' });
+      const tiles = screen.getByRole('list', { name: 'Documents by who can see them' });
+      expect(within(tiles).getByRole('link', { name: 'Public, 20 documents' })).toHaveAttribute(
+        'href',
+        '/dashboard/documents?org=jpice&status=available&visibility=public',
+      );
       expect(
-        within(tiles).getByRole('link', { name: 'Needs revision, 1 document' }),
-      ).toHaveAttribute('href', '/dashboard/documents?org=jpice&status=rejected');
+        within(tiles).getByRole('link', { name: 'Blocked by scan, 1 document' }),
+      ).toHaveAttribute('href', '/dashboard/documents?org=jpice&status=quarantined');
       expect(within(tiles).getAllByRole('link')).toHaveLength(4);
 
-      expect(screen.getByText('“Attach the signed page from the minutes.”')).toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: /Revise: upload a new version/ }),
+        screen.getByRole('button', { name: /Upload a clean copy: of Resolution/ }),
       ).toBeInTheDocument();
-      expect(screen.getByText('Maria Santos rejected')).toBeInTheDocument();
+      expect(screen.getByText('Maria Santos changed who can see')).toBeInTheDocument();
+      // Nothing waits for a review.
+      expect(screen.queryByText(/review/i)).not.toBeInTheDocument();
 
       // Upload opens the upload flow for this organization (desktop header and phone bar).
       const uploads = screen.getAllByRole('link', { name: 'Upload document' });
@@ -310,9 +308,9 @@ describe('/dashboard', () => {
 
   it('welcomes a new organization with no documents', async () => {
     const empty = org(JPICE_ID, 'JPICE', {
-      counts: { draft: 0, pending: 0, approved: 0, rejected: 0, archived: 0 },
+      counts: { public: 0, members: 0, private: 0, scanning: 0, quarantined: 0, archived: 0 },
       recentDocuments: [],
-      needsRevision: [],
+      quarantined: [],
       activity: [],
     });
     serve(dashboard({ organizations: [empty] }));
@@ -324,16 +322,18 @@ describe('/dashboard', () => {
         { timeout: 5000 },
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('list', { name: 'Documents by status' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('list', { name: 'Documents by who can see them' }),
+    ).not.toBeInTheDocument();
   });
 
-  it('shows role panels only when the role applies', async () => {
-    serve(dashboard({ reviews: { pending: 4, organizations: 6 }, isAdmin: true }));
+  it('shows the admin panel only to admins, and no review queue to anyone', async () => {
+    serve(dashboard({ isAdmin: true }));
     renderAt('/dashboard');
     expect(
-      await screen.findByRole('link', { name: 'Open review queue' }, { timeout: 5000 }),
-    ).toHaveAttribute('href', '/dashboard/reviews');
-    expect(screen.getByRole('link', { name: 'Open admin' })).toHaveAttribute('href', '/admin');
+      await screen.findByRole('link', { name: 'Open admin' }, { timeout: 5000 }),
+    ).toHaveAttribute('href', '/admin');
+    expect(screen.queryByRole('link', { name: /review/i })).not.toBeInTheDocument();
   });
 
   it('hides upload and revise from an adviser', async () => {
@@ -353,7 +353,7 @@ describe('/dashboard', () => {
     renderAt('/dashboard');
     expect(await screen.findByText('Adviser', {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Upload document' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Revise/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Upload a clean copy/ })).not.toBeInTheDocument();
   });
 
   it('explains what to do without an organization', async () => {
@@ -384,19 +384,20 @@ describe('/dashboard', () => {
 });
 
 describe('/dashboard/documents', () => {
-  it('lists every status in tabs and archives an approved document', async () => {
-    serve(dashboard(), [doc({ status: 'approved', title: 'Site visit report' })]);
+  it('lists the lifecycle in tabs and archives an available document', async () => {
+    serve(dashboard(), [doc({ title: 'Site visit report' })]);
     renderAt('/dashboard/documents?org=jpice');
 
     const tabs = await screen.findByRole('navigation', { name: 'Status' }, { timeout: 5000 });
-    expect(within(tabs).getByRole('link', { name: /All\s*28/ })).toHaveAttribute(
+    expect(within(tabs).getByRole('link', { name: /All\s*27/ })).toHaveAttribute(
       'aria-current',
       'page',
     );
-    expect(within(tabs).getByRole('link', { name: /Needs revision\s*1/ })).toHaveAttribute(
+    expect(within(tabs).getByRole('link', { name: /Available\s*24/ })).toHaveAttribute(
       'href',
-      '/dashboard/documents?org=jpice&status=rejected',
+      '/dashboard/documents?org=jpice&status=available',
     );
+    expect(within(tabs).getByRole('link', { name: /Blocked by scan\s*1/ })).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Archive: Site visit report' }));
     await waitFor(() =>
@@ -404,14 +405,60 @@ describe('/dashboard/documents', () => {
     );
   });
 
-  it('asks the API for the chosen status', async () => {
+  it('asks the API for the chosen status and visibility, and can clear the visibility', async () => {
     serve(dashboard(), [doc()]);
-    renderAt('/dashboard/documents?org=jpice&status=rejected');
+    renderAt('/dashboard/documents?org=jpice&status=available&visibility=members');
     expect(
       await screen.findByRole('button', { name: /Edit details/ }, { timeout: 5000 }),
     ).toBeInTheDocument();
     expect(
-      calls.some((c) => c.url.includes('/organizations/jpice/documents?limit=20&status=rejected')),
+      calls.some((c) =>
+        c.url.includes(
+          '/organizations/jpice/documents?limit=20&status=available&visibility=members',
+        ),
+      ),
     ).toBe(true);
+    expect(screen.getByText(/Showing only: Members only/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Show every visibility' })).toHaveAttribute(
+      'href',
+      '/dashboard/documents?org=jpice&status=available',
+    );
+  });
+
+  it('lets an officer change who can see a document in one step', async () => {
+    serve(dashboard(), [doc({ title: 'Site visit report' })]);
+    renderAt('/dashboard/documents?org=jpice');
+    const select = await screen.findByRole(
+      'combobox',
+      { name: 'Who can see it: Site visit report' },
+      { timeout: 5000 },
+    );
+    expect(select).toHaveValue('members');
+    fireEvent.change(select, { target: { value: 'private' } });
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        url: `/api/v1/documents/${DOC_ID}/visibility`,
+        method: 'PATCH',
+        body: { visibility: 'private' },
+      }),
+    );
+  });
+
+  it('shows an admin who can see a document, without a control to change it', async () => {
+    serve(
+      dashboard({
+        isAdmin: true,
+        memberships: [
+          { organizationId: JPICE_ID, role: 'admin', isHead: false, title: null, termEnd: null },
+        ],
+      }),
+      [doc({ title: 'Site visit report' })],
+    );
+    renderAt('/dashboard/documents?org=jpice');
+    expect(
+      await screen.findByRole('button', { name: /Edit details/ }, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /Who can see it/ })).not.toBeInTheDocument();
+    expect(screen.getByText('· Members only')).toBeInTheDocument();
   });
 });

@@ -39,6 +39,13 @@ function orgCrumbs(org: OrgPlace): Crumb[] {
     : [HOME, self];
 }
 
+/** An organization's project list (all projects when the organization is not known yet). */
+function projectsCrumb(org: { slug: string; acronym: string } | null): Crumb {
+  return org
+    ? { label: `${org.acronym} projects`, href: `/dashboard/projects?org=${org.slug}` }
+    : { label: 'Projects', href: '/dashboard/projects' };
+}
+
 /** The last crumb is the current page: no link. */
 function here(label: string): Crumb {
   return { label };
@@ -122,6 +129,59 @@ export const chrome = {
       section: 'dashboard',
       trail: [DASHBOARD, ...orgCrumb, here(label)],
       parent: toDestination(DASHBOARD),
+    };
+  },
+
+  /** /dashboard/projects?org= → parent the Dashboard. */
+  projects(org: { slug: string; acronym: string } | null): PageChrome {
+    return {
+      label: org ? `${org.acronym} projects` : 'Projects',
+      section: 'dashboard',
+      trail: [DASHBOARD, here(org ? `${org.acronym} projects` : 'Projects')],
+      parent: toDestination(DASHBOARD),
+    };
+  },
+
+  /** /dashboard/projects/new?org= → parent the organization's projects. */
+  newProject(org: { slug: string; acronym: string } | null): PageChrome {
+    const list = projectsCrumb(org);
+    return {
+      section: 'dashboard',
+      trail: [DASHBOARD, list, here('New project')],
+      parent: toDestination(list),
+    };
+  },
+
+  /** /projects/:id → parent its organization's projects. */
+  project(org: { slug: string; acronym: string } | null, name: string | null): PageChrome {
+    const list = projectsCrumb(org);
+    return {
+      section: 'dashboard',
+      trail: [DASHBOARD, list, here(name ?? 'Project')],
+      parent: toDestination(list),
+    };
+  },
+
+  /** /dashboard/appeals: the decision queue, parent the Dashboard. */
+  appeals(): PageChrome {
+    return {
+      section: 'dashboard',
+      trail: [DASHBOARD, here('Appeals')],
+      parent: toDestination(DASHBOARD),
+    };
+  },
+
+  /**
+   * /dashboard/appeals/new: from a blocked project, parent that project; from a freeze on
+   * the dashboard, parent the Dashboard.
+   */
+  submitAppeal(project: { id: string; name: string } | null): PageChrome {
+    const projectCrumb = project && { label: project.name, href: `/projects/${project.id}` };
+    return {
+      label: 'Submit an appeal',
+      section: 'dashboard',
+      trail: [DASHBOARD, ...(projectCrumb ? [projectCrumb] : []), here('Appeal')],
+      parent: toDestination(projectCrumb ?? DASHBOARD),
     };
   },
 

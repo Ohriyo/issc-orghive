@@ -125,7 +125,7 @@ function Documents({
         <p role="status" className="max-w-prose text-body-lg text-ink">
           {hasFilters
             ? 'No documents match these filters. Clear a filter to see more.'
-            : 'No Paperworks have been published here yet. Approved documents will appear here.'}
+            : 'No Paperworks have been shared here yet. Documents appear here once they pass the virus scan.'}
         </p>
       );
     case 'ready':

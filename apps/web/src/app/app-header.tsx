@@ -7,6 +7,8 @@ import { OrghiveLogo } from '@/components/orghive-logo';
 import { PillButton } from '@/components/pill-button';
 import type { AccountMenuModel } from '@/features/auth/presenters/use-account-menu';
 import { Avatar, UserMenu } from '@/features/auth/views/user-menu';
+import type { NotificationsModel } from '@/features/notifications/presenters/use-notifications';
+import { NotificationBell } from '@/features/notifications/views/notification-bell';
 import type { DocumentSearchModel } from '@/features/search/presenters/use-document-search';
 import { SearchOverlay } from '@/features/search/views/search-overlay';
 import { cn } from '@/lib/utils';
@@ -15,6 +17,8 @@ import type { NavSection } from '@/navigation/page-chrome';
 export interface AppHeaderProps {
   search: DocumentSearchModel;
   account: AccountMenuModel;
+  /** The bell, when signed in. Optional so tests and previews can leave it out. */
+  notifications?: NotificationsModel;
   /** The section to highlight. */
   section: NavSection | null;
   /**
@@ -43,7 +47,8 @@ function navItems(signedIn: boolean): NavItem[] {
 }
 
 const NAV_LINK =
-  'tap-area text-body font-medium text-ink underline decoration-transparent decoration-2 underline-offset-8 transition-colors duration-300 hover:decoration-leaf focus-visible:decoration-leaf aria-[current=true]:font-semibold aria-[current=true]:decoration-ink';
+  // min-w-9: with tap-area's 6px sides, a short label like "ISSC" still clears 44px.
+  'tap-area min-w-9 text-center text-body font-medium text-ink underline decoration-transparent decoration-2 underline-offset-8 transition-colors duration-300 hover:decoration-leaf focus-visible:decoration-leaf aria-[current=true]:font-semibold aria-[current=true]:decoration-ink';
 
 const ICON_BUTTON =
   'bg-forest-band grid size-11 shrink-0 cursor-pointer place-items-center rounded-full text-white shadow-pool';
@@ -54,7 +59,14 @@ const ICON_BUTTON =
  * breakpoint the links move into a menu dialog. Sticky, but in the page flow, so it never
  * covers content or carousel arrows.
  */
-export function AppHeader({ search, account, section, overlay, solid }: AppHeaderProps) {
+export function AppHeader({
+  search,
+  account,
+  notifications = { status: 'off' },
+  section,
+  overlay,
+  solid,
+}: AppHeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const signedIn = account.status === 'authenticated';
   const items = navItems(signedIn);
@@ -111,6 +123,7 @@ export function AppHeader({ search, account, section, overlay, solid }: AppHeade
           >
             <Search aria-hidden="true" className="size-5" />
           </button>
+          <NotificationBell model={notifications} />
           {account.status === 'authenticated' ? (
             <UserMenu account={account} className={fullInline} />
           ) : (

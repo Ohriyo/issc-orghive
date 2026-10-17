@@ -1,6 +1,6 @@
 # Orghive
 
-Orghive is NwSSU's official digital archive for student-organization documents (proposals, reports, resolutions, accomplishment reports). Students browse and download; organization officers upload; the head of the parent organization approves (see `docs/DOMAIN_RULES.md`); ISSC admins manage everything.
+Orghive is NwSSU's official digital archive for student-organization documents (proposals, reports, resolutions, accomplishment reports). Students browse and download; organization officers upload and decide who can see each file; ISSC admins manage everything. The project workflow (projects, deadlines, appeals, semestral reports) is specified in `docs/PROJECT_WORKFLOW_SPEC.md`.
 
 The full plan is in `docs/PLAN.md` (exported from the planning doc). The design prototype PNGs are in `design/`. Build prompts for each feature are in `docs/BUILD_PROMPTS.md`.
 
@@ -15,14 +15,26 @@ There are three organization levels. Store all three in one `organizations` tabl
 "Paperworks" is the user-facing name for an organization's document archive. Use it in the UI. Use `documents` in code.
 
 Roles are **per organization**, stored in `memberships(user_id, organization_id, role, is_head, title, term_start, term_end)`:
-- `officer`: upload and edit that organization's documents.
-- `adviser`: advises the organization. Only the ISSC adviser approves (ISSC documents).
-- `admin`: system-wide when held on the ISSC.
-- `is_head` marks the organization's head (CSC Governor, SBO or ISSC President). Approvals follow `docs/DOMAIN_RULES.md`: SBO documents by the parent CSC's head, CSC documents by the ISSC, ISSC documents by the ISSC adviser.
+- `officer`: upload and edit that organization's documents, and set who can see each one.
+- `adviser`: advises the organization. A member: sees its `members` files, cannot upload.
+- `admin`: system-wide when held on the ISSC. Sees every document for support (audited), but never changes a document's visibility.
+- `is_head` marks the organization's head (CSC Governor, SBO or ISSC President). Heads decide **appeals** (F11), not documents.
 
 A membership past `term_end` grants nothing.
 
-Document lifecycle: `draft → pending → approved | rejected → archived`. Deletes are soft (`deleted_at`). Re-uploads create a new row in `document_versions`. Never overwrite a file.
+Document lifecycle: `uploading → scanning → available | quarantined → archived` (`uploading` is browser-side only). Deletes are soft (`deleted_at`). Re-uploads create a new row in `document_versions`. Never overwrite a file.
+
+**Documents are never reviewed or approved** (`docs/PROJECT_WORKFLOW_SPEC.md` section 0). Do not add review statuses, approve/reject endpoints, a review queue or reviewer dashboards for documents. Who sees a document is its `visibility` alone, set by the owning organization's officers on upload and changeable any time (`PATCH /documents/:id/visibility`, `requireOwnOrgRole('officer')`, audited):
+- `public`: anyone, signed in or not. `members`: active members of that organization. `private`: its officers.
+- Until the virus scan passes, only the uploader sees a file. Archived documents: that organization's officers.
+- Admins see every available or archived document; each view they get only as an admin is audited (`admin_override`).
+- The only approvals in Orghive are **appeals** to unblock a project or an organization (F11).
+
+**Projects** (spec 2A/2B) each have a milestone checklist (`ProjectTask`). Every unlock and deadline rule lives in one pure function, `apps/api/src/services/project-rules.ts`; never re-implement it elsewhere. Deadlines are 14 Manila calendar days (`packages/shared/src/manila-time.ts`). A task's file goes through the normal document pipeline, and the task is submitted once that file passes the scan.
+
+**Compliance and appeals** (spec 3, `docs/DOMAIN_RULES.md`): `planProject` also decides when a project is blocked (proposal late) and which reports are overdue (the organization freezes, `OrgFreeze`). Who decides an appeal lives in one pure function, `apps/api/src/services/appeal-rules.ts`; never re-implement it. Checks run hourly (`check-compliance` job) and on read, and must stay idempotent: act on a block only when `applyPlan` reports the status change, and give every notification a dedupe key.
+
+**Semestral End Report** (spec 4): the page order lives in one pure function, `planReport` (`apps/api/src/services/report-rules.ts`); semesters are fixed date ranges (`semesterRange` in `packages/shared/src/report.ts`). The worker renders the template with headless Chromium (`playwright-core`) and merges with `pdf-lib`; the result is an `available`, `private` document.
 
 ## Architecture: hybrid Model-View-Presenter
 
@@ -36,8 +48,8 @@ Layer rules. These are the ones most often broken, so check every change against
 - **Views** (`apps/web/src/**/views`, `components`) render props and emit events. No `fetch`, no TanStack Query calls, no business rules.
 - **Client presenters** (`apps/web/src/features/*/presenters/use*.ts`) own data fetching via TanStack Query, shaping, and loading, error and optimistic state. No JSX.
 - **Routes/controllers** parse the request, validate with the shared Zod schema, call one service, and send the response. No Prisma, no business logic.
-- **Services** (server presenters) hold business rules: permissions, approval flow, versioning, cache invalidation. No `req`/`res`.
-- **Repositories** are the only place that imports Prisma. Every document query applies the visibility filter here.
+- **Services** (server presenters) hold business rules: permissions, appeal flow, versioning, cache invalidation. No `req`/`res`.
+- **Repositories** are the only place that imports Prisma. Every document query applies the visibility filter here (`document-visibility.ts`), and nowhere else: services and views never re-implement who sees what.
 - A validation rule is defined once, in `packages/shared`, and imported by both apps.
 
 ## Stack
@@ -65,12 +77,12 @@ pnpm lint && pnpm typecheck          # run before every commit
 
 - Access token: JWT, 15 min, EdDSA or RS256 via `jose`. Held in **memory only**, never in `localStorage` or `sessionStorage`.
 - Refresh token: random 256-bit string, stored **hashed**, sent as an `httpOnly; Secure; SameSite=Strict; Path=/api/v1/auth` cookie, rotated on every use. If a revoked token is reused, revoke the whole family.
-- Every mutating route has `requireAuth` plus `requireOrgRole(role)` scoped to the target organization.
+- Every mutating route has `requireAuth` plus `requireOrgRole(role)` scoped to the target organization. Decisions that belong to the organization alone (visibility) use `requireOwnOrgRole(role)`, which admins do not pass.
 - Validate every body, query and param with Zod. Never trust `req.body` unvalidated.
-- Uploads: allow-list PDF, DOCX, XLSX, PPTX, JPG and PNG. Check magic bytes. Max 25 MB. Each upload stays `pending` until the ClamAV scan passes.
+- Uploads: allow-list PDF, DOCX, XLSX, PPTX, JPG and PNG. Check magic bytes. Max 25 MB. Each upload stays `scanning` (visible to its uploader only) until the ClamAV scan passes.
 - Downloads use signed URLs that expire in 5 minutes. The bucket is private.
 - Never log tokens, passwords or full request bodies. Secrets come from env only; keep `.env.example` current.
-- Write an audit log entry for login, upload, approve/reject, delete and role changes.
+- Write an audit log entry for login, upload, visibility change, archive/restore, delete, role changes, appeal decisions (approve/reject), and every admin view of a document they see only as an admin.
 
 ## Caching
 
@@ -107,9 +119,9 @@ Every UI change follows these; the `orghive-responsive` skill has the full check
 - Every page renders inside `AppShell` (`apps/web/src/app/app-shell.tsx`): one sticky header, the Back button, breadcrumbs, toasts. Never add a page-level header.
 - Each route component calls `usePageChrome(chrome.…())` from `src/navigation/trails.ts` to publish its trail, section and logical parent.
 - Back uses only `<BackButton/>` / `useBackNavigation` (rendered by the shell). No hand-written back links, no `navigate(-1)`.
-- Links into sub-screens (upload, document, edit, review) use `<OriginLink>` or `useOriginNavigate`, which pass `state.from`.
+- Links into sub-screens (upload, document, edit, appeal) use `<OriginLink>` or `useOriginNavigate`, which pass `state.from`.
 - Without an origin, Back falls back to the logical parent: upload, edit and My documents go to `/dashboard`; a document goes to its Paperworks; an org page goes to its college, then `/colleges`, then home.
-- After a successful upload, edit or review, call `finish(toast)`: back to the origin with `replace`. Forms with unsaved changes use `useUnsavedChangesGuard`.
+- After a successful upload, edit or appeal decision, call `finish(toast)`: back to the origin with `replace`. Forms with unsaved changes use `useUnsavedChangesGuard`.
 
 ## Working agreements for Claude
 
@@ -119,7 +131,7 @@ Every UI change follows these; the `orghive-responsive` skill has the full check
 - Run `pnpm lint && pnpm typecheck && pnpm test` before saying a task is done, and report the result.
 - Don't add a dependency without saying why. Prefer the libraries listed above.
 - Use Conventional Commits: `feat(documents): …`, `fix(auth): …`.
-- When unsure about a domain rule (who approves what, required documents), ask. Don't invent one.
+- When unsure about a domain rule (who decides appeals, deadlines, required documents), ask. Don't invent one.
 
 ## graphify
 

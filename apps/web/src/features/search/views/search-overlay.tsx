@@ -70,7 +70,7 @@ function SearchResultsView({
     case 'idle':
       return (
         <p className="max-w-prose text-body text-ink-muted">
-          Search every organization&rsquo;s approved Paperworks by title or description. Type at
+          Search every organization&rsquo;s Paperworks you can see by title or description. Type at
           least two characters.
         </p>
       );

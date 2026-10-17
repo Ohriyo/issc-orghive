@@ -4,6 +4,7 @@ import type { VirusScanner } from '#src/lib/clamav';
 import type { JobQueue } from '#src/lib/queue';
 import type { Storage } from '#src/lib/storage';
 import type { Logger } from '#src/logger';
+import type { AppealRepository } from '#src/repositories/appeal.repository';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import type { DocumentRepository, ProcessingRecord } from '#src/repositories/document.repository';
 import type { UploadIntentRepository } from '#src/repositories/upload-intent.repository';
@@ -26,10 +27,46 @@ export interface ProcessingServiceDeps {
   audit: Pick<AuditLogRepository, 'record'>;
   cache: Pick<Cache, 'deleteMatching'>;
   logger: Pick<Logger, 'warn' | 'info'>;
+  /** Called once a document's file is found clean (project tasks listen; see worker.ts). */
+  onDocumentScanned?: (documentId: string) => Promise<void>;
   now?: () => Date;
 }
 
 export type ProcessOutcome = 'clean' | 'infected' | 'invalid' | 'skipped';
+
+export type UploadVerdict =
+  { clean: true } | { clean: false; scanStatus: 'infected' | 'invalid'; reason: string };
+
+/**
+ * The checks every uploaded file passes before anyone may open it, in order: the stored
+ * size matches, ClamAV finds nothing, the magic bytes are the declared type.
+ */
+export async function inspectUpload(
+  body: Buffer,
+  declared: { sizeBytes: number; mimeType: string },
+  { scanner, tools }: { scanner: VirusScanner; tools: Pick<FileTools, 'detectMimeType'> },
+): Promise<UploadVerdict> {
+  if (body.length !== declared.sizeBytes || body.length > MAX_UPLOAD_BYTES) {
+    return {
+      clean: false,
+      scanStatus: 'invalid',
+      reason: `Stored size ${body.length} does not match ${declared.sizeBytes}`,
+    };
+  }
+  // Virus first: malware is reported as malware whatever type it claims to be.
+  const scan = await scanner.scan(body);
+  if (!scan.clean)
+    return { clean: false, scanStatus: 'infected', reason: `ClamAV: ${scan.signature}` };
+  const detected = await tools.detectMimeType(body);
+  if (detected !== declared.mimeType) {
+    return {
+      clean: false,
+      scanStatus: 'invalid',
+      reason: `Content is ${detected ?? 'an unknown type'}, not ${declared.mimeType}`,
+    };
+  }
+  return { clean: true };
+}
 
 /** Abandoned uploads (URL expired, never claimed) are deleted after this grace period. */
 export const ABANDONED_AFTER_MS = 60 * 60 * 1000;
@@ -48,6 +85,7 @@ export function createProcessingService({
   audit,
   cache,
   logger,
+  onDocumentScanned = () => Promise.resolve(),
   now = () => new Date(),
 }: ProcessingServiceDeps) {
   async function refuse(
@@ -58,7 +96,7 @@ export function createProcessingService({
     // uploads/<org>/<uuid> -> quarantine/<org>/<uuid>: outside every served prefix.
     const quarantineKey = rec.storageKey.replace(/^uploads\//, 'quarantine/');
     await storage.move(rec.storageKey, quarantineKey);
-    const { rejectedDocument } = await documents.markRefused(
+    const { quarantinedDocument } = await documents.markRefused(
       rec.id,
       { scanStatus, reason, quarantineKey },
       now(),
@@ -73,7 +111,7 @@ export function createProcessingService({
         version: rec.version,
         scanStatus,
         reason,
-        rejectedDocument,
+        quarantinedDocument,
       },
     });
     await cache.deleteMatching(
@@ -118,25 +156,13 @@ export function createProcessingService({
       if (!rec || rec.scanStatus !== 'pending') return 'skipped';
 
       const body = await storage.read(rec.storageKey);
-      if (body.length !== rec.sizeBytes || body.length > MAX_UPLOAD_BYTES) {
-        return refuse(rec, 'invalid', `Stored size ${body.length} does not match ${rec.sizeBytes}`);
-      }
-
-      // Virus first: malware is reported as malware whatever type it claims to be.
-      const scan = await scanner.scan(body);
-      if (!scan.clean) return refuse(rec, 'infected', `ClamAV: ${scan.signature}`);
-
-      const detected = await tools.detectMimeType(body);
-      if (detected !== rec.mimeType) {
-        return refuse(
-          rec,
-          'invalid',
-          `Content is ${detected ?? 'an unknown type'}, not ${rec.mimeType}`,
-        );
-      }
+      const verdict = await inspectUpload(body, rec, { scanner, tools });
+      if (!verdict.clean) return refuse(rec, verdict.scanStatus, verdict.reason);
 
       const extras = await preview(rec, body);
       await documents.markClean(versionId, { sha256: tools.sha256Hex(body), ...extras }, now());
+      // A project task's file: its project may move on (the task is submitted).
+      await onDocumentScanned(rec.document.id);
       await cache.deleteMatching(
         cacheKeys.organizationDocumentsPattern(rec.document.organization.slug),
       );
@@ -165,5 +191,56 @@ export function createPendingRequeue(deps: {
     const ids = await deps.findStalePending(before);
     for (const id of ids) await deps.queue.enqueueProcessing(id);
     return ids.length;
+  };
+}
+
+export interface AttachmentProcessingDeps {
+  appeals: Pick<AppealRepository, 'findAttachment' | 'markAttachmentScanned'>;
+  storage: Pick<Storage, 'read' | 'move'>;
+  scanner: VirusScanner;
+  tools: Pick<FileTools, 'detectMimeType'>;
+  audit: Pick<AuditLogRepository, 'record'>;
+  logger: Pick<Logger, 'warn' | 'info'>;
+}
+
+/**
+ * The worker's checks for an appeal's supporting file: the same as for documents, without
+ * previews. A refused file is moved to quarantine/ and can never be attached or opened.
+ */
+export function createAttachmentProcessing({
+  appeals,
+  storage,
+  scanner,
+  tools,
+  audit,
+  logger,
+}: AttachmentProcessingDeps) {
+  return {
+    /** Idempotent: a file no longer pending is skipped. Errors throw so BullMQ retries. */
+    async processAttachment(attachmentId: string): Promise<ProcessOutcome> {
+      const rec = await appeals.findAttachment(attachmentId);
+      if (!rec || rec.scanStatus !== 'pending') return 'skipped';
+
+      const body = await storage.read(rec.storageKey);
+      const verdict = await inspectUpload(body, rec, { scanner, tools });
+      if (verdict.clean) {
+        await appeals.markAttachmentScanned(rec.id, 'clean');
+        logger.info({ attachmentId }, 'Appeal attachment processed');
+        return 'clean';
+      }
+      const quarantineKey = rec.storageKey.replace(/^uploads\//, 'quarantine/');
+      await storage.move(rec.storageKey, quarantineKey);
+      await appeals.markAttachmentScanned(rec.id, verdict.scanStatus, quarantineKey);
+      await audit.record({
+        action: 'quarantine',
+        actorId: rec.uploadedById,
+        entityType: 'appeal_attachment',
+        entityId: rec.id,
+        organizationId: rec.organizationId,
+        metadata: { scanStatus: verdict.scanStatus, reason: verdict.reason },
+      });
+      logger.warn({ attachmentId, scanStatus: verdict.scanStatus }, 'Appeal attachment refused');
+      return verdict.scanStatus;
+    },
   };
 }

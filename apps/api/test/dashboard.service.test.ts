@@ -28,17 +28,20 @@ function membership(overrides: Partial<MembershipDetail> = {}): MembershipDetail
   };
 }
 
-function doc(id: string, thumbnailKey: string | null = null): DocumentRecord {
+function doc(
+  id: string,
+  thumbnailKey: string | null = null,
+  status: DocumentRecord['status'] = 'available',
+): DocumentRecord {
   return {
     id,
     title: `Doc ${id}`,
     description: null,
     academicYear: '2026-2027',
     semester: null,
-    status: 'rejected',
+    status,
     visibility: 'members',
     tags: [],
-    submittedAt: AT,
     createdAt: AT,
     updatedAt: AT,
     organization: { id: JPICE.id, slug: 'jpice', acronym: 'JPICE', name: JPICE.name, type: 'SBO' },
@@ -56,44 +59,32 @@ function doc(id: string, thumbnailKey: string | null = null): DocumentRecord {
   };
 }
 
-function setup({
-  memberships = [membership()],
-  reviewableOrgIds = [] as string[],
-  isAdmin = false,
-} = {}) {
+function setup({ memberships = [membership()], isAdmin = false } = {}) {
+  const orgIds = memberships.map((m) => m.organization.id);
   const viewer: DocumentViewer = {
     kind: 'user',
     userId: 'u1',
     isAdmin,
-    memberOrgIds: memberships.map((m) => m.organization.id),
-    reviewableOrgIds,
+    memberOrgIds: orgIds,
+    officerOrgIds: orgIds,
   };
   const repo = {
-    countByStatus: vi.fn(() => Promise.resolve(new Map([[JPICE.id, { pending: 2, rejected: 1 }]]))),
-    listRejected: vi.fn(() =>
-      Promise.resolve([
-        {
-          ...doc('r1'),
-          approvals: [
-            { comment: 'Add the minutes.', decidedAt: AT, approver: { name: 'Maria Santos' } },
-          ],
-        },
-        { ...doc('r2'), approvals: [] },
-      ]),
+    countForDashboard: vi.fn(() =>
+      Promise.resolve(new Map([[JPICE.id, { public: 2, private: 1, quarantined: 1 }]])),
     ),
+    listQuarantined: vi.fn(() => Promise.resolve([doc('q1', null, 'quarantined')])),
     listActivity: vi.fn(() =>
       Promise.resolve([
         {
           id: '0195f3c0-0000-7000-8000-0000000000b1',
-          action: 'reject' as const,
+          action: 'visibility_change' as const,
           createdAt: AT,
           actorName: 'Maria Santos',
-          document: { id: 'r1', title: 'Doc r1' },
-          version: 1,
+          document: { id: 'd1', title: 'Doc d1' },
+          version: null,
         },
       ]),
     ),
-    countAwaitingReview: vi.fn(() => Promise.resolve(4)),
   };
   const documents = {
     list: vi.fn(() => Promise.resolve({ items: [doc('d1', 'thumbs/d1.webp')], nextCursor: null })),
@@ -132,30 +123,34 @@ describe('dashboardService.forUser', () => {
       acronym: 'JPICE',
       logoUrl: 'https://cdn.test/logos/jpice-ab12.webp',
     });
-    // Statuses without documents are zero.
-    expect(jpice!.counts).toEqual({ draft: 0, pending: 2, approved: 0, rejected: 1, archived: 0 });
+    // Buckets without documents are zero.
+    expect(jpice!.counts).toEqual({
+      public: 2,
+      members: 0,
+      private: 1,
+      scanning: 0,
+      quarantined: 1,
+      archived: 0,
+    });
     expect(documents.list).toHaveBeenCalledWith(viewer, { organizationId: JPICE.id, limit: 5 });
-    expect(repo.listRejected).toHaveBeenCalledWith(viewer, JPICE.id, 10);
+    expect(repo.listQuarantined).toHaveBeenCalledWith(viewer, JPICE.id, 10);
     expect(repo.listActivity).toHaveBeenCalledWith(viewer, JPICE.id, 10);
   });
 
-  it('signs previews and maps remarks, including a rejection with no recorded decision', async () => {
+  it('signs previews and lists the quarantined uploads and activity', async () => {
     const [jpice] = (await setup().service.forUser('u1')).organizations;
     expect(jpice!.recentDocuments[0]!.currentVersion!.thumbnailUrl).toBe(
       'https://storage.test/thumbs/d1.webp?signed',
     );
-    expect(jpice!.needsRevision.map((r) => [r.remark, r.reviewerName, r.decidedAt])).toEqual([
-      ['Add the minutes.', 'Maria Santos', AT.toISOString()],
-      [null, null, null],
-    ]);
+    expect(jpice!.quarantined.map((d) => [d.id, d.status])).toEqual([['q1', 'quarantined']]);
     expect(jpice!.activity).toEqual([
       {
         id: '0195f3c0-0000-7000-8000-0000000000b1',
-        kind: 'reject',
+        kind: 'visibility_change',
         at: AT.toISOString(),
         actorName: 'Maria Santos',
-        document: { id: 'r1', title: 'Doc r1' },
-        version: 1,
+        document: { id: 'd1', title: 'Doc d1' },
+        version: null,
       },
     ]);
   });
@@ -167,25 +162,12 @@ describe('dashboardService.forUser', () => {
     const body = await service.forUser('u1');
     expect(body.memberships).toHaveLength(2);
     expect(body.organizations).toHaveLength(1);
-    expect(repo.countByStatus).toHaveBeenCalledWith(expect.anything(), [JPICE.id]);
-  });
-
-  it('counts documents awaiting review only for reviewers', async () => {
-    expect((await setup().service.forUser('u1')).reviews).toBeNull();
-    const reviewer = setup({ reviewableOrgIds: ['psme', 'iecep'] });
-    expect((await reviewer.service.forUser('u1')).reviews).toEqual({
-      pending: 4,
-      organizations: 2,
-    });
-    expect(reviewer.repo.countAwaitingReview).toHaveBeenCalledWith(expect.anything(), [
-      'psme',
-      'iecep',
-    ]);
+    expect(repo.countForDashboard).toHaveBeenCalledWith(expect.anything(), [JPICE.id]);
   });
 
   it('passes the admin flag and handles a user with no memberships', async () => {
     expect((await setup({ isAdmin: true }).service.forUser('u1')).isAdmin).toBe(true);
     const body = await setup({ memberships: [] }).service.forUser('u1');
-    expect(body).toMatchObject({ memberships: [], organizations: [], reviews: null });
+    expect(body).toEqual({ memberships: [], organizations: [], isAdmin: false });
   });
 });

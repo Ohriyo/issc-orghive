@@ -8,13 +8,18 @@ import {
   documentStatusSchema,
   documentSummarySchema,
   documentTypeListResponseSchema,
+  documentVisibilitySchema,
+  type DocumentCounts,
   type DocumentMetadata,
   type DocumentStatus,
   type DocumentSummary,
   type DocumentType,
+  type DocumentVisibility,
   type UpdateDocumentRequest,
 } from '@orghive/shared';
 import { STATUS_STYLE } from '@/components/status-style';
+import { VISIBILITY_LABEL } from '@/components/visibility';
+import { useSetVisibility } from '@/features/documents/presenters/use-set-visibility';
 import {
   SEMESTER_LABELS,
   yearOptions,
@@ -27,35 +32,32 @@ import type { OrgRef } from './use-dashboard';
 const PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 300;
 
-/** Content may change only before review (docs/DOMAIN_RULES.md); visibility until archived. */
-const CONTENT_EDITABLE: DocumentStatus[] = ['draft', 'rejected'];
-const ARCHIVABLE: DocumentStatus[] = ['approved', 'rejected'];
-
 export type StatusTab = DocumentStatus | 'all';
-export const STATUS_TABS: StatusTab[] = [
-  'all',
-  'draft',
-  'pending',
-  'approved',
-  'rejected',
-  'archived',
-];
+/** The lifecycle, in order. Nothing is reviewed: a file is scanned, then available. */
+export const STATUS_TABS: StatusTab[] = ['all', 'available', 'scanning', 'quarantined', 'archived'];
 
 export function tabLabel(tab: StatusTab): string {
   if (tab === 'all') return 'All';
-  if (tab === 'draft') return 'Drafts';
-  if (tab === 'rejected') return 'Needs revision';
+  if (tab === 'quarantined') return 'Blocked by scan';
   return STATUS_STYLE[tab].label;
+}
+
+/** How many documents a tab holds, from the dashboard counts. */
+export function tabCount(tab: StatusTab, counts: DocumentCounts): number {
+  const available = counts.public + counts.members + counts.private;
+  if (tab === 'all') return available + counts.scanning + counts.quarantined + counts.archived;
+  if (tab === 'available') return available;
+  return counts[tab];
 }
 
 export interface MyDocumentRow {
   doc: DocumentSummary;
   href: string;
-  /** Title, type, year, semester, description and tags: only while draft or rejected. */
-  contentEditable: boolean;
   canEdit: boolean;
   canArchive: boolean;
   canRestore: boolean;
+  /** Officers of the organization only; admins can see but not change who sees it. */
+  canChangeVisibility: boolean;
 }
 
 export interface DocumentActions {
@@ -63,6 +65,7 @@ export interface DocumentActions {
   restore: (id: string) => Promise<string | undefined>;
   /** Saves only what changed; resolves with an error message, if any. */
   save: (doc: DocumentSummary, values: DocumentMetadata) => Promise<string | undefined>;
+  setVisibility: (id: string, visibility: DocumentVisibility) => Promise<string | undefined>;
   /** Which document an action is running on, to disable its buttons. */
   pendingId: string | null;
 }
@@ -79,6 +82,8 @@ export type MyDocumentsModel =
       canManage: boolean;
       tab: StatusTab;
       tabs: { tab: StatusTab; label: string; count: number; href: string }[];
+      /** Set when a dashboard tile narrowed the list to one visibility. */
+      visibilityFilter: { label: string; clearHref: string } | null;
       searchInput: string;
       setSearchInput: (value: string) => void;
       query: string;
@@ -104,16 +109,14 @@ function errorMessage(error: unknown): string {
   return 'Something went wrong on our side. Try again in a moment.';
 }
 
-/** The fields the edit form changed, as a PATCH body. Null when nothing changed. */
+/**
+ * The details the edit form changed, as a PATCH body. Null when nothing changed. Who can
+ * see the document is saved separately (PATCH /documents/:id/visibility).
+ */
 export function patchFor(
   doc: DocumentSummary,
   values: DocumentMetadata,
 ): UpdateDocumentRequest | null {
-  if (!CONTENT_EDITABLE.includes(doc.status)) {
-    return values.visibility && values.visibility !== doc.visibility
-      ? { visibility: values.visibility }
-      : null;
-  }
   const patch: Record<string, unknown> = {};
   const description = values.description?.trim() || null;
   const tags = values.tags ?? [];
@@ -122,25 +125,27 @@ export function patchFor(
   if (values.academicYear !== doc.academicYear) patch.academicYear = values.academicYear;
   if ((values.semester ?? null) !== doc.semester) patch.semester = values.semester ?? null;
   if (description !== doc.description) patch.description = description;
-  if (values.visibility && values.visibility !== doc.visibility)
-    patch.visibility = values.visibility;
   if (tags.join('\n') !== doc.tags.join('\n')) patch.tags = tags;
   return Object.keys(patch).length ? patch : null;
 }
 
 /**
- * /dashboard/documents: an organization's full list for its members, drafts, pending and
- * rejected included. Organization, tab and search live in the URL so links and the back
- * button work; officers edit details, archive and restore.
+ * /dashboard/documents: every document of an organization the user may see, by lifecycle
+ * state. Organization, tab, visibility filter and search live in the URL so links and the
+ * back button work; officers edit details, change who can see a document, archive and
+ * restore.
  */
 export function useMyDocuments(): MyDocumentsModel {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const statusParam = documentStatusSchema.safeParse(params.get('status'));
   const tab: StatusTab = statusParam.success ? statusParam.data : 'all';
+  const visibilityParam = documentVisibilitySchema.safeParse(params.get('visibility'));
+  const visibility = visibilityParam.success ? visibilityParam.data : undefined;
   const query = params.get('q') ?? '';
   const [searchInput, setSearchInput] = useState(query);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const visibilityChange = useSetVisibility();
 
   const dashboard = useQuery({
     queryKey: queryKeys.dashboard,
@@ -156,7 +161,7 @@ export function useMyDocuments(): MyDocumentsModel {
     staleTime: 10 * 60_000,
   });
 
-  const filters = { status: tab === 'all' ? undefined : tab, q: query || undefined };
+  const filters = { status: tab === 'all' ? undefined : tab, visibility, q: query || undefined };
   const list = useInfiniteQuery({
     queryKey: queryKeys.documents.mine(org?.slug ?? '', filters),
     enabled: !!org,
@@ -164,6 +169,7 @@ export function useMyDocuments(): MyDocumentsModel {
     queryFn: ({ pageParam }) => {
       const search = new URLSearchParams({ limit: String(PAGE_SIZE) });
       if (filters.status) search.set('status', filters.status);
+      if (filters.visibility) search.set('visibility', filters.visibility);
       if (filters.q) search.set('q', filters.q);
       if (pageParam) search.set('cursor', pageParam);
       return api.get(`/organizations/${org!.slug}/documents?${search.toString()}`, {
@@ -231,17 +237,19 @@ export function useMyDocuments(): MyDocumentsModel {
 
   const data = dashboard.data;
   const counts = data.organizations.find((o) => o.organization.id === org.id)!.counts;
-  const canManage =
-    data.isAdmin ||
-    data.memberships.some((m) => m.organizationId === org.id && m.role === 'officer');
+  const isOfficer = data.memberships.some(
+    (m) => m.organizationId === org.id && m.role === 'officer',
+  );
+  // Admins may edit, archive and restore (audited) but never change who sees a document.
+  const canManage = data.isAdmin || isOfficer;
 
-  const hrefFor = (next: StatusTab) => {
+  const hrefFor = (next: StatusTab, keepVisibility = true) => {
     const search = new URLSearchParams({ org: org.slug });
     if (next !== 'all') search.set('status', next);
+    if (keepVisibility && visibility) search.set('visibility', visibility);
     if (query) search.set('q', query);
     return `?${search.toString()}`;
   };
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
   return {
     status: 'ready',
@@ -256,9 +264,12 @@ export function useMyDocuments(): MyDocumentsModel {
     tabs: STATUS_TABS.map((t) => ({
       tab: t,
       label: tabLabel(t),
-      count: t === 'all' ? total : counts[t],
+      count: tabCount(t, counts),
       href: hrefFor(t),
     })),
+    visibilityFilter: visibility
+      ? { label: VISIBILITY_LABEL[visibility], clearHref: hrefFor(tab, false) }
+      : null,
     searchInput,
     setSearchInput,
     query,
@@ -273,10 +284,10 @@ export function useMyDocuments(): MyDocumentsModel {
               .map((doc) => ({
                 doc,
                 href: `/documents/${doc.id}`,
-                contentEditable: CONTENT_EDITABLE.includes(doc.status),
                 canEdit: canManage && doc.status !== 'archived',
-                canArchive: canManage && ARCHIVABLE.includes(doc.status),
+                canArchive: canManage && doc.status === 'available',
                 canRestore: canManage && doc.status === 'archived',
+                canChangeVisibility: isOfficer,
               })),
             hasMore: list.hasNextPage,
             loadMore: () => void list.fetchNextPage(),
@@ -294,18 +305,19 @@ export function useMyDocuments(): MyDocumentsModel {
       label: SEMESTER_LABELS[s],
     })),
     actions: {
-      pendingId,
+      pendingId: pendingId ?? visibilityChange.pendingId,
+      setVisibility: visibilityChange.change,
       archive: (id) =>
         run(
           id,
           () => transition.mutateAsync({ id, to: 'archive' }),
-          'Archived. It is no longer in the public Paperworks; restore it from the Archived tab.',
+          'Archived. Only your officers see it now; restore it from the Archived tab.',
         ),
       restore: (id) =>
         run(
           id,
           () => transition.mutateAsync({ id, to: 'restore' }),
-          'Restored to the status it had before.',
+          'Restored. It is back in the Paperworks for whoever can see it.',
         ),
       save: (doc, values) => {
         const patch = patchFor(doc, values);

@@ -15,6 +15,13 @@ export function createDocumentTypeRepository(db: Db) {
         select: { id: true, slug: true, name: true },
       });
     },
+
+    findBySlug(slug: string): Promise<{ id: string; slug: string; name: string } | null> {
+      return db.documentType.findUnique({
+        where: { slug },
+        select: { id: true, slug: true, name: true },
+      });
+    },
   };
 }
 

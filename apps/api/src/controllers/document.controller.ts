@@ -3,17 +3,17 @@ import { z } from 'zod';
 import {
   addVersionRequestSchema,
   createDocumentRequestSchema,
-  documentDecisionRequestSchema,
   documentIdParamsSchema,
   documentListQuerySchema,
   documentSearchQuerySchema,
   slugParamsSchema,
   updateDocumentRequestSchema,
+  updateVisibilityRequestSchema,
   uploadUrlRequestSchema,
   versionParamsSchema,
 } from '@orghive/shared';
 import { authOf, maybeAuthOf, orgOf } from '#src/middleware/require-auth';
-import type { Actor, DocumentService } from '#src/services/document.service';
+import type { Actor, DocumentService, Reader } from '#src/services/document.service';
 import type { UploadService } from '#src/services/upload.service';
 
 const downloadQuerySchema = z.object({
@@ -23,6 +23,10 @@ const downloadQuerySchema = z.object({
 
 function actorOf(req: Request, res: Response): Actor {
   return { userId: authOf(res).userId, ip: req.ip };
+}
+
+function readerOf(req: Request, res: Response): Reader {
+  return { userId: maybeAuthOf(res)?.userId, ip: req.ip };
 }
 
 export function createDocumentController(documents: DocumentService, uploads: UploadService) {
@@ -42,7 +46,7 @@ export function createDocumentController(documents: DocumentService, uploads: Up
 
   const listVersions: RequestHandler = async (req, res) => {
     const { documentId } = documentIdParamsSchema.parse(req.params);
-    res.json(await documents.listVersions(maybeAuthOf(res)?.userId, documentId));
+    res.json(await documents.listVersions(readerOf(req, res), documentId));
   };
 
   const downloadUrl: RequestHandler = async (req, res) => {
@@ -50,9 +54,7 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     const { disposition } = downloadQuerySchema.parse(req.query);
     // A signed link is a credential for 5 minutes: never cache it anywhere.
     res.set('Cache-Control', 'private, no-store');
-    res.json(
-      await documents.downloadUrl(maybeAuthOf(res)?.userId, documentId, versionId, disposition),
-    );
+    res.json(await documents.downloadUrl(readerOf(req, res), documentId, versionId, disposition));
   };
 
   const list: RequestHandler = async (req, res) => {
@@ -72,7 +74,7 @@ export function createDocumentController(documents: DocumentService, uploads: Up
 
   const get: RequestHandler = async (req, res) => {
     const { documentId } = documentIdParamsSchema.parse(req.params);
-    res.json(await documents.get(maybeAuthOf(res)?.userId, documentId));
+    res.json(await documents.get(readerOf(req, res), documentId));
   };
 
   const create: RequestHandler = async (req, res) => {
@@ -86,9 +88,10 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     res.json(await documents.update(actorOf(req, res), orgOf(res), documentId, patch));
   };
 
-  const submit: RequestHandler = async (req, res) => {
+  const setVisibility: RequestHandler = async (req, res) => {
     const { documentId } = documentIdParamsSchema.parse(req.params);
-    res.json(await documents.submit(actorOf(req, res), orgOf(res), documentId));
+    const { visibility } = updateVisibilityRequestSchema.parse(req.body);
+    res.json(await documents.setVisibility(actorOf(req, res), orgOf(res), documentId, visibility));
   };
 
   const archive: RequestHandler = async (req, res) => {
@@ -100,17 +103,6 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     const { documentId } = documentIdParamsSchema.parse(req.params);
     res.json(await documents.restore(actorOf(req, res), orgOf(res), documentId));
   };
-
-  const decide =
-    (decision: 'approved' | 'rejected'): RequestHandler =>
-    async (req, res) => {
-      const { documentId } = documentIdParamsSchema.parse(req.params);
-      // A body is optional here; express.json() leaves req.body undefined without one.
-      const { comment } = documentDecisionRequestSchema.parse(req.body ?? {});
-      res.json(
-        await documents.decide(actorOf(req, res), orgOf(res), documentId, decision, comment),
-      );
-    };
 
   const remove: RequestHandler = async (req, res) => {
     const { documentId } = documentIdParamsSchema.parse(req.params);
@@ -129,11 +121,9 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     get,
     create,
     update,
-    submit,
+    setVisibility,
     archive,
     restore,
-    approve: decide('approved'),
-    reject: decide('rejected'),
     remove,
   };
 }

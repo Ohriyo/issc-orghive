@@ -1,3 +1,4 @@
+import { PROJECT_TASK_DOCUMENT_TYPES } from '@orghive/shared';
 import { createDb, type Db } from '#src/repositories/prisma';
 
 let db: Db | undefined;
@@ -11,9 +12,19 @@ export function testDb(): Db {
 
 export async function resetDb(client: Db) {
   await client.$executeRawUnsafe(`
-    TRUNCATE upload_intents, approvals, document_versions, documents, document_types, announcements,
-      audit_logs, refresh_tokens, password_reset_tokens, memberships, users, organizations, colleges
+    TRUNCATE semestral_reports, notifications, appeal_attachments, appeals, org_freezes,
+      project_tasks, projects,
+      upload_intents, document_versions, documents, document_types,
+      announcements, audit_logs, refresh_tokens, password_reset_tokens, memberships, users,
+      organizations, colleges
     RESTART IDENTITY CASCADE`);
+}
+
+/** The document types project task files are archived as (the migration seeds them). */
+export async function createTaskDocumentTypes(client: Db) {
+  for (const type of Object.values(PROJECT_TASK_DOCUMENT_TYPES)) {
+    await client.documentType.upsert({ where: { slug: type.slug }, create: type, update: {} });
+  }
 }
 
 export const TERM_START = new Date('2026-08-01');
@@ -23,7 +34,7 @@ export interface TestDocumentInput {
   organizationId: string;
   typeId: string;
   title: string;
-  status: 'draft' | 'pending' | 'approved' | 'rejected' | 'archived';
+  status: 'scanning' | 'available' | 'quarantined' | 'archived';
   createdById: string;
   academicYear?: string;
   deleted?: boolean;
@@ -31,7 +42,15 @@ export interface TestDocumentInput {
   visibility?: 'public' | 'members' | 'private';
 }
 
-/** A document with a clean version 1 as its current version. */
+/** The scan state of version 1 that each document status implies. */
+const SCAN_FOR_STATUS = {
+  scanning: 'pending',
+  available: 'clean',
+  quarantined: 'infected',
+  archived: 'clean',
+} as const;
+
+/** A document with version 1 as its current version, scanned as its status implies. */
 export async function createTestDocument(client: Db, input: TestDocumentInput) {
   const { deleted, visibility = 'public', academicYear = '2026-2027', ...data } = input;
   const created = await client.document.create({
@@ -39,10 +58,10 @@ export async function createTestDocument(client: Db, input: TestDocumentInput) {
       ...data,
       academicYear,
       visibility,
-      submittedAt: input.status === 'draft' ? null : new Date(),
       deletedAt: deleted ? new Date() : null,
     },
   });
+  const scanStatus = SCAN_FOR_STATUS[input.status];
   const version = await client.documentVersion.create({
     data: {
       documentId: created.id,
@@ -51,8 +70,8 @@ export async function createTestDocument(client: Db, input: TestDocumentInput) {
       originalFilename: `${created.id}.pdf`,
       mimeType: 'application/pdf',
       sizeBytes: 100,
-      sha256: 'x'.repeat(64),
-      scanStatus: 'clean',
+      sha256: scanStatus === 'pending' ? null : 'x'.repeat(64),
+      scanStatus,
       uploadedById: input.createdById,
     },
   });
@@ -64,7 +83,8 @@ export async function createTestDocument(client: Db, input: TestDocumentInput) {
 
 /**
  * A small world: the ISSC, CSC-CEA with JPICE and PSME, and CSC-CAT.
- * JPICE has one document in every status plus a deleted one; PSME and CSC-CEA have a few.
+ * JPICE has an available document at each visibility, one in every other state and a
+ * deleted one, all uploaded by its officer; PSME and CSC-CEA have a few.
  */
 export async function buildWorld(client: Db) {
   const cea = await client.college.create({
@@ -175,24 +195,31 @@ export async function buildWorld(client: Db) {
     });
 
   const docs = {
-    jpiceDraft: await doc(jpice.id, 'JPICE draft resolution', 'draft'),
-    jpicePending: await doc(jpice.id, 'JPICE bridge competition proposal', 'pending'),
-    jpiceApproved: await doc(jpice.id, 'JPICE accomplishment report', 'approved', {
+    jpicePublic: await doc(jpice.id, 'JPICE accomplishment report', 'available', {
       typeId: report.id,
       academicYear: '2025-2026',
     }),
-    jpiceRejected: await doc(jpice.id, 'JPICE week narrative report', 'rejected', {
+    jpiceMembers: await doc(jpice.id, 'JPICE bridge competition proposal', 'available', {
+      visibility: 'members',
+    }),
+    jpicePrivate: await doc(jpice.id, 'JPICE draft resolution', 'available', {
+      visibility: 'private',
+    }),
+    jpiceScanning: await doc(jpice.id, 'JPICE week narrative report', 'scanning', {
       typeId: report.id,
     }),
+    jpiceQuarantined: await doc(jpice.id, 'JPICE refused upload', 'quarantined'),
     jpiceArchived: await doc(jpice.id, 'JPICE archived proposal', 'archived'),
-    jpiceDeleted: await doc(jpice.id, 'JPICE deleted bridge proposal', 'approved', {
+    jpiceDeleted: await doc(jpice.id, 'JPICE deleted bridge proposal', 'available', {
       deleted: true,
     }),
-    psmePending: await doc(psme.id, 'PSME plant visit proposal', 'pending'),
-    psmeApproved: await doc(psme.id, 'PSME bridge seminar report', 'approved', {
+    psmePublic: await doc(psme.id, 'PSME bridge seminar report', 'available', {
       typeId: report.id,
     }),
-    cscCeaPending: await doc(cscCea.id, 'CEA Days proposal', 'pending'),
+    psmePrivate: await doc(psme.id, 'PSME plant visit proposal', 'available', {
+      visibility: 'private',
+    }),
+    cscCeaPublic: await doc(cscCea.id, 'CEA Days proposal', 'available'),
   };
 
   return {

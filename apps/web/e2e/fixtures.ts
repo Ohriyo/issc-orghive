@@ -1,5 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import type {
+  Appeal,
+  AppealListResponse,
   AuthResponse,
   CollegeDetail,
   CollegeListResponse,
@@ -8,8 +10,13 @@ import type {
   DocumentListResponse,
   DocumentSummary,
   DocumentTypeListResponse,
+  NotificationListResponse,
+  OrganizationCompliance,
   OrganizationDetail,
   OrganizationSummary,
+  ProjectDetail,
+  ProjectListResponse,
+  SemestralReportListResponse,
 } from '@orghive/shared';
 
 /*
@@ -138,10 +145,9 @@ const documents: DocumentSummary[] = TITLES.map((title, i) => ({
       : null,
   academicYear: '2026-2027',
   semester: 'first',
-  status: 'approved',
+  status: 'available',
   visibility: 'public',
   tags: [],
-  submittedAt: '2026-09-01T00:00:00.000Z',
   createdAt: '2026-08-20T00:00:00.000Z',
   updatedAt: '2026-09-01T00:00:00.000Z',
   organization: { type: 'SBO', slug: 'jpice', acronym: 'JPICE', name: organizations.jpice!.name },
@@ -179,7 +185,11 @@ export const PUBLIC_ROUTES = [
 export const SIGNED_IN_ROUTES = [
   '/dashboard',
   '/dashboard/documents?org=jpice',
-  '/dashboard/reviews',
+  '/dashboard/projects?org=jpice',
+  '/dashboard/projects/new?org=jpice',
+  '/projects/0195f3c0-0000-7000-8000-0000000000c1',
+  '/dashboard/appeals',
+  '/dashboard/appeals/new?org=jpice&project=0195f3c0-0000-7000-8000-0000000000c1',
   '/admin',
 ] as const;
 
@@ -207,7 +217,8 @@ const OFFICER: AuthResponse = {
 
 const jpiceDocs = documents.map((d, i) => ({
   ...d,
-  status: (['draft', 'pending', 'approved', 'rejected', 'approved'] as const)[i]!,
+  status: (['scanning', 'available', 'available', 'quarantined', 'archived'] as const)[i]!,
+  visibility: (['public', 'members', 'private', 'public', 'public'] as const)[i]!,
 }));
 
 const DASHBOARD: DashboardResponse = {
@@ -230,20 +241,13 @@ const DASHBOARD: DashboardResponse = {
   organizations: [
     {
       organization: { ...sbos[3]!, id: organizations.jpice!.id },
-      counts: { draft: 1, pending: 1, approved: 2, rejected: 1, archived: 0 },
+      counts: { public: 1, members: 1, private: 1, scanning: 1, quarantined: 1, archived: 1 },
       recentDocuments: jpiceDocs,
-      needsRevision: [
-        {
-          document: jpiceDocs[3]!,
-          remark: 'Attach the signed page from the general assembly minutes, then send it again.',
-          reviewerName: 'Maria Santos',
-          decidedAt: '2026-10-14T03:00:00.000Z',
-        },
-      ],
+      quarantined: [jpiceDocs[3]!],
       activity: [
         {
           id: '0195f3c0-0000-7000-8000-0000000000a9',
-          kind: 'reject',
+          kind: 'visibility_change',
           at: '2026-10-14T03:00:00.000Z',
           actorName: 'Maria Santos',
           document: { id: jpiceDocs[3]!.id, title: jpiceDocs[3]!.title },
@@ -269,14 +273,249 @@ const DASHBOARD: DashboardResponse = {
         logoSrcSet: null,
         id: organizations.issc!.id,
       },
-      counts: { draft: 0, pending: 0, approved: 0, rejected: 0, archived: 0 },
+      counts: { public: 0, members: 0, private: 0, scanning: 0, quarantined: 0, archived: 0 },
       recentDocuments: [],
-      needsRevision: [],
+      quarantined: [],
       activity: [],
     },
   ],
-  reviews: { pending: 3, organizations: 6 },
   isAdmin: false,
+};
+
+/** `YYYY-MM-DD`, `days` from today (UTC is close enough for a stand-in). */
+function isoDay(days: number): string {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+const endOfDay = (day: string) => new Date(`${day}T23:59:59.999+08:00`).toISOString();
+
+/** A project mid-way: proposal submitted, NOM open, the post-event reports still locked. */
+const PROJECT: ProjectDetail = {
+  id: '0195f3c0-0000-7000-8000-0000000000c1',
+  name: 'Inter-Year Bridge Design Competition 2026',
+  targetDate: isoDay(20),
+  location: 'CEA Building, NwSSU Main Campus, Catbalogan City',
+  beneficiaries: 'First- to fourth-year civil engineering students',
+  description:
+    'A truss bridge design and load-testing competition among civil engineering students.',
+  status: 'active',
+  proposalDueAt: endOfDay(isoDay(9)),
+  postEventDueAt: endOfDay(isoDay(34)),
+  nomRequired: true,
+  momRequired: true,
+  nextDeadline: null,
+  organization: { type: 'SBO', slug: 'jpice', acronym: 'JPICE', name: organizations.jpice!.name },
+  createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+  updatedAt: new Date().toISOString(),
+  tasks: [
+    {
+      type: 'PROPOSAL',
+      status: 'submitted',
+      dueAt: endOfDay(isoDay(9)),
+      submittedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      document: {
+        id: documents[0]!.id,
+        title: 'Project Proposal: Inter-Year Bridge Design Competition 2026',
+        status: 'available',
+        visibility: 'members',
+      },
+    },
+    { type: 'NOM', status: 'open', dueAt: null, submittedAt: null, document: null },
+    { type: 'MOM', status: 'open', dueAt: null, submittedAt: null, document: null },
+    {
+      type: 'ACR',
+      status: 'locked',
+      dueAt: endOfDay(isoDay(34)),
+      submittedAt: null,
+      document: null,
+    },
+    {
+      type: 'FINANCIAL_REPORT',
+      status: 'locked',
+      dueAt: endOfDay(isoDay(34)),
+      submittedAt: null,
+      document: null,
+    },
+  ],
+};
+
+const { tasks: _tasks, ...projectSummary } = PROJECT;
+const PROJECTS: ProjectListResponse = {
+  items: [
+    projectSummary,
+    {
+      ...projectSummary,
+      id: '0195f3c0-0000-7000-8000-0000000000c2',
+      name: 'Engineering Week Seminar Series',
+      targetDate: isoDay(3),
+      nextDeadline: { type: 'PROPOSAL', dueAt: endOfDay(isoDay(1)) },
+    },
+    {
+      ...projectSummary,
+      id: '0195f3c0-0000-7000-8000-0000000000c3',
+      name: 'Coastal Clean-up Drive',
+      status: 'completed',
+      nextDeadline: null,
+    },
+  ],
+};
+
+const CSC_CEA = { type: 'CSC' as const, slug: 'csc-cea', acronym: 'CSC-CEA', name: 'CSC of CEA' };
+const JPICE_BRIEF = {
+  type: 'SBO' as const,
+  slug: 'jpice',
+  acronym: 'JPICE',
+  name: organizations.jpice!.name,
+};
+const FREEZE_ID = '0195f3c0-0000-7000-8000-0000000000f9';
+const REMARKS =
+  'Attach the adviser’s signed leave notice and the rescheduled meeting minutes, then appeal again.';
+
+/** JPICE is frozen by one project and has the checked project blocked, after a rejection. */
+const COMPLIANCE: OrganizationCompliance = {
+  frozen: true,
+  freezes: [
+    {
+      id: FREEZE_ID,
+      project: { id: '0195f3c0-0000-7000-8000-0000000000c3', name: 'Coastal Clean-up Drive' },
+      reports: ['ACR', 'FINANCIAL_REPORT'],
+      frozenAt: new Date().toISOString(),
+      pendingAppeal: null,
+      lastRejection: null,
+    },
+  ],
+  blockedProjects: [
+    {
+      id: PROJECT.id,
+      name: PROJECT.name,
+      proposalDueAt: endOfDay(isoDay(-2)),
+      pendingAppeal: null,
+      lastRejection: { remarks: REMARKS, decidedAt: new Date().toISOString() },
+    },
+  ],
+  decider: CSC_CEA,
+};
+
+const APPEAL: Appeal = {
+  id: '0195f3c0-0000-7000-8000-0000000000b1',
+  type: 'PROJECT_BLOCK',
+  status: 'rejected',
+  reason:
+    'Our adviser was on official leave for the regional engineering congress, so the proposal could not be signed before the deadline.',
+  remarks: REMARKS,
+  newDueAt: null,
+  submittedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+  decidedAt: new Date().toISOString(),
+  submittedBy: { name: 'Juan Dela Cruz' },
+  decidedBy: { name: 'Maria Santos' },
+  organization: JPICE_BRIEF,
+  decider: CSC_CEA,
+  project: { id: PROJECT.id, name: PROJECT.name, targetDate: PROJECT.targetDate },
+  freeze: null,
+  attachments: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000a9',
+      filename: 'adviser-leave-notice-regional-engineering-congress-2026.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 482_113,
+      scanStatus: 'clean',
+    },
+  ],
+  canDecide: false,
+};
+
+const QUEUE: AppealListResponse = {
+  items: [
+    {
+      ...APPEAL,
+      status: 'pending',
+      remarks: null,
+      decidedAt: null,
+      decidedBy: null,
+      canDecide: true,
+    },
+    {
+      ...APPEAL,
+      id: '0195f3c0-0000-7000-8000-0000000000b2',
+      type: 'ORG_FREEZE',
+      status: 'pending',
+      remarks: null,
+      decidedAt: null,
+      decidedBy: null,
+      attachments: [],
+      freeze: { id: FREEZE_ID, reports: ['ACR', 'FINANCIAL_REPORT'] },
+      canDecide: true,
+    },
+  ],
+};
+
+const NOTIFICATIONS: NotificationListResponse = {
+  unreadCount: 2,
+  items: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000e1',
+      kind: 'appeal_decided',
+      title: `Appeal rejected: ${PROJECT.name}`,
+      body: `CSC-CEA rejected your appeal about ${PROJECT.name}. Remarks: ${REMARKS}`,
+      link: `/projects/${PROJECT.id}`,
+      readAt: null,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000e2',
+      kind: 'deadline_soon',
+      title: 'Project Proposal due Oct 20, 2026',
+      body: 'The Project Proposal for Engineering Week Seminar Series is due at 11:59 PM.',
+      link: '/projects/0195f3c0-0000-7000-8000-0000000000c2',
+      readAt: null,
+      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    },
+  ],
+};
+
+/** One report finished, one being made, one failed: every state of the dashboard panel. */
+const REPORTS: SemestralReportListResponse = {
+  items: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000b7',
+      academicYear: '2026-2027',
+      semester: 'first',
+      status: 'generating',
+      progress: 45,
+      error: null,
+      requestedBy: { name: 'Juan Dela Cruz' },
+      createdAt: new Date().toISOString(),
+      finishedAt: null,
+      document: null,
+    },
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000b8',
+      academicYear: '2025-2026',
+      semester: 'second',
+      status: 'ready',
+      progress: 100,
+      error: null,
+      requestedBy: { name: 'Juan Dela Cruz' },
+      createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+      finishedAt: new Date(Date.now() - 86_000_000).toISOString(),
+      document: {
+        id: '0195f3c0-0000-7000-8000-0000000000d9',
+        title: 'Semestral End Report: JPICE, 2nd semester 2025-2026',
+        versionId: '0195f3c0-0000-7000-8000-0000000000e9',
+      },
+    },
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000b9',
+      academicYear: '2025-2026',
+      semester: 'midyear',
+      status: 'failed',
+      progress: 30,
+      error: 'Something went wrong while making the report. Try again.',
+      requestedBy: { name: 'Juan Dela Cruz' },
+      createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      finishedAt: new Date(Date.now() - 2 * 86_000_000).toISOString(),
+      document: null,
+    },
+  ],
 };
 
 function json(route: Route, body: unknown, status = 200) {
@@ -290,6 +529,19 @@ export async function stubApi(page: Page, { signedIn = false }: { signedIn?: boo
     const path = url.pathname.replace(/^\/api\/v1/, '');
     if (signedIn && path === '/auth/refresh') return json(route, OFFICER);
     if (signedIn && path === '/me/dashboard') return json(route, DASHBOARD);
+    if (signedIn && path === '/organizations/jpice/projects') return json(route, PROJECTS);
+    if (signedIn && path === `/projects/${PROJECT.id}`) return json(route, PROJECT);
+    if (signedIn && path === '/organizations/jpice/compliance') return json(route, COMPLIANCE);
+    if (signedIn && path === `/projects/${PROJECT.id}/appeals`) {
+      return json(route, { items: [APPEAL] } satisfies AppealListResponse);
+    }
+    if (signedIn && path === '/appeals/queue') {
+      return json(route, url.searchParams.get('status') === 'decided' ? { items: [] } : QUEUE);
+    }
+    if (signedIn && path === '/me/notifications') return json(route, NOTIFICATIONS);
+    if (signedIn && path === '/organizations/jpice/semestral-reports') {
+      return json(route, REPORTS);
+    }
     if (signedIn && path === '/organizations/jpice/documents') {
       return json(route, { items: jpiceDocs, nextCursor: null } satisfies DocumentListResponse);
     }

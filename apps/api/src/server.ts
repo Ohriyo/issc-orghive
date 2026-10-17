@@ -2,18 +2,29 @@ import { ConfigError, loadConfig, type Config } from '#src/config';
 import { createLogger } from '#src/logger';
 import { createApp } from '#src/app';
 import { createRedis, createRedisCache } from '#src/lib/cache';
-import { createBullQueue, createQueueConnection } from '#src/lib/queue';
+import { createHash } from 'node:crypto';
+import {
+  createBullNotificationQueue,
+  createBullQueue,
+  createBullReportQueue,
+  createQueueConnection,
+} from '#src/lib/queue';
+import { createChromiumRenderer } from '#src/lib/report-pdf';
 import { createS3Storage } from '#src/lib/storage';
 import { createSmtpMailer } from '#src/lib/mailer';
 import { createArgon2Hasher } from '#src/lib/password';
 import { createPublicUrl } from '#src/lib/public-url';
 import { redisRateLimitStore } from '#src/middleware/rate-limit';
+import { createAppealRepository } from '#src/repositories/appeal.repository';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
+import { createNotificationRepository } from '#src/repositories/notification.repository';
+import { createOrgFreezeRepository } from '#src/repositories/org-freeze.repository';
 import { createCollegeRepository } from '#src/repositories/college.repository';
 import { createUploadIntentRepository } from '#src/repositories/upload-intent.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createDashboardRepository } from '#src/repositories/dashboard.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
+import { createProjectRepository } from '#src/repositories/project.repository';
 import { createMembershipRepository } from '#src/repositories/membership.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createPasswordResetTokenRepository } from '#src/repositories/password-reset-token.repository';
@@ -21,10 +32,18 @@ import { createDb } from '#src/repositories/prisma';
 import { createRefreshTokenRepository } from '#src/repositories/refresh-token.repository';
 import { createUserRepository } from '#src/repositories/user.repository';
 import { createAccessService } from '#src/services/access.service';
+import { createAppealService } from '#src/services/appeal.service';
+import { createCompliance } from '#src/services/compliance.service';
+import { createNotificationService } from '#src/services/notification.service';
+import { createRecipients } from '#src/services/recipients.service';
+import { createReportRepository } from '#src/repositories/report.repository';
+import { createReportService } from '#src/services/report.service';
 import { createAuthService } from '#src/services/auth.service';
 import { createCollegeService } from '#src/services/college.service';
 import { createDashboardService } from '#src/services/dashboard.service';
 import { createDocumentService } from '#src/services/document.service';
+import { createProjectService } from '#src/services/project.service';
+import { createProjectSync } from '#src/services/project-sync.service';
 import { createUploadService } from '#src/services/upload.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createOrganizationService } from '#src/services/organization.service';
@@ -53,11 +72,51 @@ const memberships = createMembershipRepository(db);
 const documents = createDocumentRepository(db);
 const dashboardReads = createDashboardRepository(db);
 const audit = createAuditLogRepository(db);
-const viewers = createDocumentViewerService({ memberships, organizations });
+const viewers = createDocumentViewerService({ memberships });
 const storage = createS3Storage(config);
 const queueConnection = createQueueConnection(config.REDIS_URL);
 const jobs = createBullQueue(queueConnection);
 const uploads = createUploadService({ intents: createUploadIntentRepository(db), storage });
+const documentTypes = createDocumentTypeRepository(db);
+const projects = createProjectRepository(db);
+const freezes = createOrgFreezeRepository(db);
+const notificationQueue = createBullNotificationQueue(queueConnection);
+const notifications = createNotificationService({
+  notifications: createNotificationRepository(db),
+  queue: notificationQueue,
+  logger,
+});
+const recipients = createRecipients({ memberships, organizations });
+const projectSync = createProjectSync({
+  projects,
+  compliance: createCompliance({ freezes, recipients, notifications, audit }),
+});
+const documentService = createDocumentService({
+  documents,
+  documentTypes,
+  organizations,
+  viewers,
+  uploads,
+  queue: jobs,
+  storage,
+  audit,
+  cache,
+});
+const reportQueue = createBullReportQueue(queueConnection);
+// The API only queues reports; the worker renders them (src/worker.ts).
+const reports = createReportService({
+  reports: createReportRepository(db),
+  documents,
+  documentTypes,
+  storage,
+  queue: reportQueue,
+  renderer: () => createChromiumRenderer(config.CHROMIUM_EXECUTABLE_PATH),
+  sha256: (bytes) => createHash('sha256').update(bytes).digest('hex'),
+  notifications,
+  audit,
+  cache,
+  logger,
+});
 const tokens = createTokenService({
   privateKeyPem: config.JWT_PRIVATE_KEY,
   publicKeyPem: config.JWT_PUBLIC_KEY,
@@ -88,19 +147,9 @@ const app = createApp({
       publicUrl,
     }),
     organizations: createOrganizationService({ organizations, cache, publicUrl }),
-    documents: createDocumentService({
-      documents,
-      documentTypes: createDocumentTypeRepository(db),
-      organizations,
-      viewers,
-      uploads,
-      queue: jobs,
-      storage,
-      audit,
-      cache,
-    }),
+    documents: documentService,
     uploads,
-    access: createAccessService({ memberships, organizations, documents, viewers, audit }),
+    access: createAccessService({ memberships, organizations, documents, projects, audit }),
     dashboard: createDashboardService({
       memberships,
       dashboard: dashboardReads,
@@ -109,6 +158,32 @@ const app = createApp({
       storage,
       publicUrl,
     }),
+    projects: createProjectService({
+      projects,
+      sync: projectSync,
+      freezes,
+      documents: documentService,
+      documentReads: documents,
+      documentTypes,
+      uploads,
+      viewers,
+      audit,
+    }),
+    appeals: createAppealService({
+      appeals: createAppealRepository(db),
+      projects,
+      freezes,
+      sync: projectSync,
+      memberships,
+      recipients,
+      notifications,
+      uploads,
+      queue: jobs,
+      storage,
+      audit,
+    }),
+    notifications,
+    reports,
   },
 });
 
@@ -126,6 +201,8 @@ function shutdown(signal: string) {
       db.$disconnect(),
       redis.quit(),
       jobs.queue.close(),
+      notificationQueue.queue.close(),
+      reportQueue.queue.close(),
       queueConnection.quit(),
     ]).then(() => process.exit(0));
   });

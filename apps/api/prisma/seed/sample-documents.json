@@ -1,5 +1,5 @@
 {
-  "_comment": "Fictional sample Paperworks for development. Read by generate_sample_pdfs.py (file content) and seed.ts (database rows). Statuses are mixed on purpose to exercise the visibility filter.",
+  "_comment": "Fictional sample Paperworks for development. Read by generate_sample_pdfs.py (file content) and seed.ts (database rows). Visibilities are mixed on purpose to exercise the visibility filter.",
   "documents": [
     {
       "slug": "jpice-bridge-design-competition-2026",
@@ -9,7 +9,6 @@
       "description": "Proposal for a truss bridge design and load-testing competition among civil engineering students.",
       "academicYear": "2026-2027",
       "semester": "first",
-      "status": "approved",
       "createdBy": "jpice-officer"
     },
     {
@@ -20,8 +19,8 @@
       "description": "Proposal for an educational site visit on road construction and pavement quality control.",
       "academicYear": "2026-2027",
       "semester": "first",
-      "status": "pending",
-      "createdBy": "jpice-officer"
+      "createdBy": "jpice-officer",
+      "visibility": "private"
     },
     {
       "slug": "jpice-accomplishment-1st-sem-2025-2026",
@@ -31,7 +30,6 @@
       "description": "Activities, participation and outcomes of JPICE for the first semester.",
       "academicYear": "2025-2026",
       "semester": "first",
-      "status": "approved",
       "createdBy": "jpice-officer"
     },
     {
@@ -42,8 +40,8 @@
       "description": "Narrative report on the Civil Engineering Week seminars, quiz bee and community clean-up.",
       "academicYear": "2025-2026",
       "semester": "second",
-      "status": "rejected",
-      "createdBy": "jpice-officer"
+      "createdBy": "jpice-officer",
+      "visibility": "private"
     },
     {
       "slug": "jpice-resolution-2026-03",
@@ -53,8 +51,8 @@
       "description": "Draft resolution adopting a code of conduct for JPICE officers.",
       "academicYear": "2026-2027",
       "semester": "first",
-      "status": "draft",
-      "createdBy": "jpice-officer"
+      "createdBy": "jpice-officer",
+      "visibility": "private"
     },
     {
       "slug": "csc-cea-cea-days-2026",
@@ -64,8 +62,8 @@
       "description": "Proposal for the college week of the College of Engineering and Architecture.",
       "academicYear": "2026-2027",
       "semester": "first",
-      "status": "pending",
-      "createdBy": "cea-governor"
+      "createdBy": "cea-governor",
+      "visibility": "private"
     },
     {
       "slug": "csc-cea-accomplishment-2nd-sem-2025-2026",
@@ -75,7 +73,6 @@
       "description": "Programs, projects and representation work of the CSC-CEA for the second semester.",
       "academicYear": "2025-2026",
       "semester": "second",
-      "status": "approved",
       "createdBy": "cea-governor"
     },
     {
@@ -86,7 +83,6 @@
       "description": "Resolution endorsing the consolidated activity calendar of the CEA student body organizations.",
       "academicYear": "2026-2027",
       "semester": "first",
-      "status": "approved",
       "createdBy": "cea-governor"
     },
     {
@@ -97,7 +93,6 @@
       "description": "Proposal for a two-day leadership summit for officers of all CSCs and SBOs.",
       "academicYear": "2026-2027",
       "semester": "first",
-      "status": "approved",
       "createdBy": "admin"
     },
     {
@@ -108,8 +103,8 @@
       "description": "University-wide programs and student representation by the ISSC for the second semester.",
       "academicYear": "2025-2026",
       "semester": "second",
-      "status": "pending",
-      "createdBy": "admin"
+      "createdBy": "admin",
+      "visibility": "private"
     }
   ]
 }

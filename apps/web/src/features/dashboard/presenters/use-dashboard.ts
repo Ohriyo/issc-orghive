@@ -9,6 +9,7 @@ import {
   type DashboardResponse,
   type DocumentStatus,
   type DocumentSummary,
+  type DocumentVisibility,
   type MembershipRole,
 } from '@orghive/shared';
 import { useAuth } from '@/features/auth/presenters/use-auth';
@@ -31,23 +32,28 @@ export const ROLE_LABELS: Record<MembershipRole, string> = {
   admin: 'Admin',
 };
 
-/** The four tiles, in the order an officer works through them. */
-export const TILE_STATUSES = ['draft', 'pending', 'approved', 'rejected'] as const;
-export type TileStatus = (typeof TILE_STATUSES)[number];
-export const TILE_LABELS: Record<TileStatus, string> = {
-  draft: 'Drafts',
-  pending: 'Pending review',
-  approved: 'Approved',
-  rejected: 'Needs revision',
+/**
+ * The four tiles: who can see the organization's available documents, then uploads the
+ * virus scan blocked. Nothing waits for a review.
+ */
+export const TILE_KEYS = ['public', 'members', 'private', 'quarantined'] as const;
+export type TileKey = (typeof TILE_KEYS)[number];
+export const TILE_LABELS: Record<TileKey, string> = {
+  public: 'Public',
+  members: 'Members only',
+  private: 'Private',
+  quarantined: 'Blocked by scan',
 };
 
 export type OrgRef = DashboardOrganization['organization'];
 
 export interface StatTile {
-  status: TileStatus;
+  key: TileKey;
   label: string;
   count: number;
   href: string;
+  /** Something needs the user: a blocked upload to replace. */
+  alert: boolean;
 }
 
 export type ReviseState =
@@ -57,14 +63,12 @@ export type ReviseState =
   | { status: 'done' }
   | { status: 'error'; message: string };
 
-export interface RevisionItem {
+/** One of the user's own uploads the virus scan blocked: they can upload a clean copy. */
+export interface AttentionItem {
   id: string;
   title: string;
   typeLabel: string;
   href: string;
-  remark: string | null;
-  /** "Maria Santos, Oct 14, 2026"; null when no decision was recorded. */
-  decidedBy: string | null;
   revise: ReviseState;
 }
 
@@ -89,9 +93,7 @@ export interface RecentDocument {
 }
 
 /** An extension point: each role that has extra work adds a panel here. */
-export type RolePanel =
-  | { kind: 'reviews'; pending: number; organizations: number; href: string }
-  | { kind: 'admin'; href: string };
+export type RolePanel = { kind: 'admin' | 'appeals'; href: string };
 
 export interface TermInfo {
   label: string;
@@ -110,7 +112,8 @@ export interface SelectedOrganization {
   paperworksHref: string;
   documentsHref: string;
   canRevise: boolean;
-  needsRevision: RevisionItem[];
+  /** The user's own uploads the virus scan blocked. */
+  quarantined: AttentionItem[];
   activity: ActivityItem[];
   /** Shown when there is no recorded activity yet. */
   recentDocuments: RecentDocument[];
@@ -184,23 +187,32 @@ export function activityLead(entry: DashboardActivity): string {
   switch (entry.kind) {
     case 'upload':
       return `${who} uploaded${ofVersion}`;
-    case 'approve':
-      return `${who} approved`;
-    case 'reject':
-      return `${who} rejected`;
     case 'quarantine':
       return `The virus scan blocked${ofVersion || ' the file of'}`;
     case 'archive':
       return `${who} archived`;
     case 'restore':
       return `${who} restored`;
+    case 'visibility_change':
+      return `${who} changed who can see`;
   }
 }
 
-export function documentsHref(slug: string, status?: DocumentStatus): string {
+export function documentsHref(
+  slug: string,
+  status?: DocumentStatus,
+  visibility?: DocumentVisibility,
+): string {
   const params = new URLSearchParams({ org: slug });
   if (status) params.set('status', status);
+  if (visibility) params.set('visibility', visibility);
   return `/dashboard/documents?${params.toString()}`;
+}
+
+function tileHref(slug: string, key: TileKey): string {
+  return key === 'quarantined'
+    ? documentsHref(slug, 'quarantined')
+    : documentsHref(slug, 'available', key);
 }
 
 function storageKey(userId: string) {
@@ -236,11 +248,24 @@ function toRecent(doc: DocumentSummary): RecentDocument {
   };
 }
 
+/**
+ * Whether the user may decide appeals (the server's appeal-rules.ts has the exact rule):
+ * the head of a CSC or of the ISSC, the ISSC adviser, or an ISSC admin (vacant seats).
+ */
+export function decidesAppeals(data: DashboardResponse): boolean {
+  if (data.isAdmin) return true;
+  const typeOf = new Map(data.organizations.map((o) => [o.organization.id, o.organization.type]));
+  return data.memberships.some((m) => {
+    const type = typeOf.get(m.organizationId);
+    return (
+      (m.isHead && (type === 'CSC' || type === 'ISSC')) || (m.role === 'adviser' && type === 'ISSC')
+    );
+  });
+}
+
 export function rolePanels(data: DashboardResponse): RolePanel[] {
   const panels: RolePanel[] = [];
-  if (data.reviews) {
-    panels.push({ kind: 'reviews', ...data.reviews, href: '/dashboard/reviews' });
-  }
+  if (decidesAppeals(data)) panels.push({ kind: 'appeals', href: '/dashboard/appeals' });
   if (data.isAdmin) panels.push({ kind: 'admin', href: '/admin' });
   return panels;
 }
@@ -263,28 +288,24 @@ export function selectOrganization(
     org,
     roles: mine.map((m) => ({ label: ROLE_LABELS[m.role], title: m.title })),
     term: termOf(mine, now),
-    tiles: TILE_STATUSES.map((status) => ({
-      status,
-      label: TILE_LABELS[status],
-      count: counts[status],
-      href: documentsHref(org.slug, status),
+    tiles: TILE_KEYS.map((key) => ({
+      key,
+      label: TILE_LABELS[key],
+      count: counts[key],
+      href: tileHref(org.slug, key),
+      alert: key === 'quarantined' && counts[key] > 0,
     })),
     isEmpty: total === 0,
     uploadHref: isOfficer ? `/orgs/${org.slug}/paperworks/upload` : null,
     paperworksHref: `/orgs/${org.slug}/paperworks`,
     documentsHref: documentsHref(org.slug),
     canRevise: isOfficer,
-    needsRevision: found.needsRevision.map((r) => ({
-      id: r.document.id,
-      title: r.document.title,
-      typeLabel: r.document.type.name,
-      href: `/documents/${r.document.id}`,
-      remark: r.remark,
-      decidedBy:
-        r.decidedAt === null
-          ? null
-          : `${r.reviewerName ?? 'Reviewer'}, ${dateFormat.format(new Date(r.decidedAt))}`,
-      revise: revisions[r.document.id] ?? { status: 'idle' },
+    quarantined: found.quarantined.map((doc) => ({
+      id: doc.id,
+      title: doc.title,
+      typeLabel: doc.type.name,
+      href: `/documents/${doc.id}`,
+      revise: revisions[doc.id] ?? { status: 'idle' },
     })),
     activity: found.activity.map((entry) => ({
       id: entry.id,
@@ -321,9 +342,8 @@ export function useDashboard(now: () => Date = () => new Date()): DashboardModel
   const at = now();
 
   async function revise(documentId: string, file: File) {
-    const slug = data.organizations.find((o) =>
-      o.needsRevision.some((r) => r.document.id === documentId),
-    )?.organization.slug;
+    const slug = data.organizations.find((o) => o.quarantined.some((doc) => doc.id === documentId))
+      ?.organization.slug;
     if (!slug) return;
     const set = (state: ReviseState) => setRevisions((all) => ({ ...all, [documentId]: state }));
     try {

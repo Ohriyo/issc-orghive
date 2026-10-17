@@ -9,7 +9,7 @@ import argon2 from 'argon2';
 import { Redis } from 'ioredis';
 import sharp from 'sharp';
 import { z } from 'zod';
-import { documentStatusSchema, documentVisibilitySchema, semesterSchema } from '@orghive/shared';
+import { documentVisibilitySchema, semesterSchema } from '@orghive/shared';
 import { loadConfig } from '#src/config';
 import { logoVariantKey } from '#src/lib/public-url';
 import { createDb, type Db } from '#src/repositories/prisma';
@@ -48,7 +48,6 @@ const manifestSchema = z.object({
       description: z.string(),
       academicYear: z.string(),
       semester: semesterSchema,
-      status: documentStatusSchema,
       // Sample Paperworks stand for the public archive unless a row says otherwise.
       visibility: documentVisibilitySchema.default('public'),
       createdBy: z.enum(['admin', 'jpice-officer', 'jpice-adviser', 'cea-governor']),
@@ -275,7 +274,7 @@ async function seedDocuments(
     }
 
     const createdById = userIds.get(doc.createdBy)!;
-    const submitted = doc.status !== 'draft';
+    // Seed files are known to be clean, so the documents are available straight away.
     const document = await db.document.create({
       data: {
         organizationId: orgIds.get(doc.org)!,
@@ -284,10 +283,9 @@ async function seedDocuments(
         description: doc.description,
         academicYear: doc.academicYear,
         semester: doc.semester,
-        status: doc.status,
+        status: 'available',
         visibility: doc.visibility,
         createdById,
-        submittedAt: submitted ? new Date() : null,
       },
     });
     const version = await db.documentVersion.create({
@@ -309,22 +307,6 @@ async function seedDocuments(
       data: { currentVersionId: version.id },
     });
 
-    // JPICE decisions come from its seeded approver, the CEA Governor. Approved CSC and ISSC
-    // samples stand for older paperwork imported into the archive, so they have no approval row.
-    if (doc.org === 'jpice' && (doc.status === 'approved' || doc.status === 'rejected')) {
-      await db.approval.create({
-        data: {
-          documentId: document.id,
-          versionId: version.id,
-          approverId: userIds.get('cea-governor')!,
-          decision: doc.status,
-          comment:
-            doc.status === 'rejected'
-              ? 'Liquidation receipts are incomplete. Attach them and resubmit.'
-              : null,
-        },
-      });
-    }
     created++;
   }
   return { created, total: manifest.documents.length };

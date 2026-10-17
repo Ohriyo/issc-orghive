@@ -16,7 +16,7 @@ function rec(overrides: Partial<ProcessingRecord> = {}): ProcessingRecord {
     scanStatus: 'pending',
     document: {
       id: 'd1',
-      status: 'pending',
+      status: 'scanning',
       currentVersionId: 'v1',
       organization: { id: 'org-1', slug: 'jpice' },
     },
@@ -43,7 +43,7 @@ function setup(options: SetupOptions = {}) {
   const documents = {
     findForProcessing: vi.fn(() => Promise.resolve(record)),
     markClean: vi.fn(() => Promise.resolve({ becameCurrent: false })),
-    markRefused: vi.fn(() => Promise.resolve({ rejectedDocument: true })),
+    markRefused: vi.fn(() => Promise.resolve({ quarantinedDocument: true })),
   };
   const intents = {
     listAbandoned: vi.fn(() => Promise.resolve(['uploads/org-1/old1', 'uploads/org-1/old2'])),
@@ -70,6 +70,7 @@ function setup(options: SetupOptions = {}) {
   const audit = { record: vi.fn(() => Promise.resolve()) };
   const cache = { deleteMatching: vi.fn(() => Promise.resolve()) };
   const logger = { warn: vi.fn(), info: vi.fn() };
+  const onDocumentScanned = vi.fn(() => Promise.resolve());
   const service = createProcessingService({
     documents,
     intents,
@@ -79,10 +80,25 @@ function setup(options: SetupOptions = {}) {
     audit,
     cache,
     logger,
+    onDocumentScanned,
     now: () => NOW,
   });
-  return { service, documents, intents, storage, scanner, tools, audit, cache };
+  return { service, documents, intents, storage, scanner, tools, audit, cache, onDocumentScanned };
 }
+
+describe('processingService: project tasks', () => {
+  it('tells the project side once a file is clean, so its task can be submitted', async () => {
+    const { service, onDocumentScanned } = setup();
+    await service.processVersion('v1');
+    expect(onDocumentScanned).toHaveBeenCalledWith('d1');
+  });
+
+  it('does not when the file is refused', async () => {
+    const { service, onDocumentScanned } = setup({ scan: { clean: false, signature: 'Eicar' } });
+    await service.processVersion('v1');
+    expect(onDocumentScanned).not.toHaveBeenCalled();
+  });
+});
 
 describe('processingService.processVersion', () => {
   it('scans, checks the type, previews, extracts text and marks a clean PDF', async () => {
@@ -106,7 +122,7 @@ describe('processingService.processVersion', () => {
     expect(cache.deleteMatching).toHaveBeenCalledWith('org:jpice:docs:*');
   });
 
-  it('quarantines an infected file, rejects the document and audits it', async () => {
+  it('quarantines an infected file and its document, and audits it', async () => {
     const { service, documents, storage, audit, tools } = setup({
       scan: { clean: false, signature: 'Eicar-Test-Signature' },
     });
@@ -122,7 +138,12 @@ describe('processingService.processVersion', () => {
       NOW,
     );
     expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'quarantine', entityId: 'v1', organizationId: 'org-1' }),
+      expect.objectContaining({
+        action: 'quarantine',
+        entityId: 'v1',
+        organizationId: 'org-1',
+        metadata: expect.objectContaining({ quarantinedDocument: true }) as unknown,
+      }),
     );
     expect(documents.markClean).not.toHaveBeenCalled();
     // A virus is reported as a virus, before the type check runs.

@@ -103,9 +103,9 @@ export function yearOptions(now: Date, count = YEARS_BACK): FilterOption[] {
   });
 }
 
-/** Shapes a document for DocumentCard. Status shows only when it is not plainly approved. */
+/** Shapes a document for DocumentCard. Status shows only when it is not plainly available. */
 export function toDocumentCard(doc: DocumentSummary, now = Date.now()): PaperworksCard {
-  const shown = doc.submittedAt ?? doc.createdAt;
+  const shown = doc.createdAt;
   return {
     id: doc.id,
     title: doc.title,
@@ -114,7 +114,7 @@ export function toDocumentCard(doc: DocumentSummary, now = Date.now()): Paperwor
     href: `/documents/${doc.id}`,
     fileType: doc.currentVersion ? MIME_TO_FILE_TYPE[doc.currentVersion.mimeType] : undefined,
     isNew: now - new Date(shown).getTime() < NEW_FOR_MS,
-    status: doc.status === 'approved' ? undefined : doc.status,
+    status: doc.status === 'available' ? undefined : doc.status,
   };
 }
 

@@ -152,6 +152,23 @@ describe('logical parents (Back without an origin)', () => {
     ]);
   });
 
+  it('projects hang off the Dashboard; a project and New project go to the project list', () => {
+    const list = { path: '/dashboard/projects?org=jpice', label: 'JPICE projects' };
+    expect(chrome.projects(jpice).parent).toEqual(DASHBOARD);
+    expect(chrome.newProject(jpice).parent).toEqual(list);
+    expect(chrome.project(jpice, 'Bridge competition').parent).toEqual(list);
+    expect(chrome.project(jpice, 'Bridge competition').trail.map((c) => c.label)).toEqual([
+      'Dashboard',
+      'JPICE projects',
+      'Bridge competition',
+    ]);
+    // Before the project has loaded: still a sensible way back.
+    expect(chrome.project(null, null).parent).toEqual({
+      path: '/dashboard/projects',
+      label: 'Projects',
+    });
+  });
+
   it('a document goes to its Paperworks; Paperworks to the organization', () => {
     expect(chrome.document(jpice, 'Report').parent).toEqual({
       path: '/orgs/jpice/paperworks',
@@ -200,7 +217,9 @@ const ROUTES = [
   '/documents/0195f3c0-0000-7000-8000-0000000000d1',
   '/dashboard',
   '/dashboard/documents',
-  '/dashboard/reviews',
+  '/dashboard/projects',
+  '/dashboard/projects/new',
+  '/projects/0195f3c0-0000-7000-8000-0000000000c1',
   '/admin',
   '/login',
   '/forgot-password',

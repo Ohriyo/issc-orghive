@@ -1,30 +1,25 @@
-import type { AuditAction, DocumentStatus, Prisma } from '#src/generated/prisma/client';
-import { documentSelect } from './document.repository';
+import type {
+  AuditAction,
+  DocumentStatus,
+  DocumentVisibility,
+  Prisma,
+} from '#src/generated/prisma/client';
+import { documentSelect, type DocumentRecord } from './document.repository';
 import { visibleDocumentsWhere, type DocumentViewer } from './document-visibility';
 import type { Db } from './prisma';
 
 /** Audit actions the dashboard shows as an organization's activity. */
 export const ACTIVITY_ACTIONS = [
   'upload',
-  'approve',
-  'reject',
   'quarantine',
   'archive',
   'restore',
+  'visibility_change',
 ] as const satisfies AuditAction[];
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
 
-const rejectedSelect = {
-  ...documentSelect,
-  approvals: {
-    where: { decision: 'rejected' },
-    orderBy: { decidedAt: 'desc' },
-    take: 1,
-    select: { comment: true, decidedAt: true, approver: { select: { name: true } } },
-  },
-} satisfies Prisma.DocumentSelect;
-
-export type RejectedRecord = Prisma.DocumentGetPayload<{ select: typeof rejectedSelect }>;
+/** Available documents count by visibility; every other state by itself. */
+export type CountBucket = DocumentVisibility | Exclude<DocumentStatus, 'available'>;
 
 export interface ActivityRecord {
   id: string;
@@ -62,44 +57,46 @@ export function createDashboardRepository(db: Db) {
   }
 
   return {
-    /** Visible, non-deleted documents per organization and status. */
-    async countByStatus(
+    /** Visible, non-deleted documents per organization, by visibility and lifecycle state. */
+    async countForDashboard(
       viewer: DocumentViewer,
       organizationIds: string[],
-    ): Promise<Map<string, Partial<Record<DocumentStatus, number>>>> {
-      const counts = new Map<string, Partial<Record<DocumentStatus, number>>>();
+    ): Promise<Map<string, Partial<Record<CountBucket, number>>>> {
+      const counts = new Map<string, Partial<Record<CountBucket, number>>>();
       if (organizationIds.length === 0) return counts;
       const rows = await db.document.groupBy({
-        by: ['organizationId', 'status'],
+        by: ['organizationId', 'status', 'visibility'],
         where: visible(viewer, { organizationId: { in: organizationIds } }),
         _count: { _all: true },
       });
       for (const row of rows) {
         const forOrg = counts.get(row.organizationId) ?? {};
-        forOrg[row.status] = row._count._all;
+        const bucket: CountBucket = row.status === 'available' ? row.visibility : row.status;
+        forOrg[bucket] = (forOrg[bucket] ?? 0) + row._count._all;
         counts.set(row.organizationId, forOrg);
       }
       return counts;
     },
 
-    /** Rejected documents with their latest rejection, most recently decided first. */
-    async listRejected(
+    /**
+     * Quarantined documents of the organization the viewer may see: by the visibility rule,
+     * only their own uploads. Most recently changed first.
+     */
+    listQuarantined(
       viewer: DocumentViewer,
       organizationId: string,
       limit = 10,
-    ): Promise<RejectedRecord[]> {
-      const rows = await db.document.findMany({
-        where: visible(viewer, { organizationId, status: 'rejected' }),
+    ): Promise<DocumentRecord[]> {
+      return db.document.findMany({
+        where: visible(viewer, { organizationId, status: 'quarantined' }),
         orderBy: { updatedAt: 'desc' },
         take: limit,
-        select: rejectedSelect,
+        select: documentSelect,
       });
-      const decided = (r: RejectedRecord) => r.approvals[0]?.decidedAt.getTime() ?? 0;
-      return rows.sort((a, b) => decided(b) - decided(a));
     },
 
     /**
-     * The organization's latest uploads and decisions, newest first. Documents are loaded
+     * The organization's latest activity, newest first. Documents are loaded
      * through the visibility filter, and entries about deleted ones are left out: they
      * only add noise. A few extra entries are read so deletions don't empty the list.
      */
@@ -147,18 +144,6 @@ export function createDashboardRepository(db: Db) {
         if (records.length === limit) break;
       }
       return records;
-    },
-
-    /** Pending documents in these organizations whose current file can be decided on. */
-    countAwaitingReview(viewer: DocumentViewer, organizationIds: string[]): Promise<number> {
-      if (organizationIds.length === 0) return Promise.resolve(0);
-      return db.document.count({
-        where: visible(viewer, {
-          organizationId: { in: organizationIds },
-          status: 'pending',
-          currentVersion: { is: { scanStatus: 'clean' } },
-        }),
-      });
     },
   };
 }

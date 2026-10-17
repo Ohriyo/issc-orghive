@@ -58,10 +58,9 @@ const created: DocumentSummary = {
   description: null,
   academicYear: '2026-2027',
   semester: null,
-  status: 'pending',
+  status: 'scanning',
   visibility: 'members',
   tags: [],
-  submittedAt: null,
   createdAt: '2026-10-16T00:00:00.000Z',
   updatedAt: '2026-10-16T00:00:00.000Z',
   organization: { type: 'SBO', slug: 'jpice', acronym: 'JPICE', name: JPICE.name },
@@ -255,7 +254,9 @@ describe('/orgs/:slug/paperworks/upload', () => {
         timeout: 5000,
       });
       expect(router.state.historyAction).toBe('REPLACE');
-      expect(await screen.findByText(/Uploaded and sent for review/)).toBeInTheDocument();
+      expect(
+        await screen.findByText(/Only you see it until the virus scan passes/),
+      ).toBeInTheDocument();
       expect(puts).toEqual(['https://storage.test/put']);
       const uploadUrl = calls.find((c) => c.url.endsWith('/upload-url'))!;
       expect(uploadUrl.body).toEqual({

@@ -50,9 +50,15 @@ const envSchema = z.object({
   /** Public base URL for keys under `logos/` (anonymous read on that prefix only, CDN-able). */
   PUBLIC_ASSET_BASE_URL: z.url(),
 
-  /** clamd, which the worker streams every upload to before it can be approved. */
+  /** clamd, which the worker streams every upload to before anyone else can see it. */
   CLAMAV_HOST: z.string().min(1).default('localhost'),
   CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+
+  /**
+   * Chromium for the Semestral End Report's pages (worker only). Unset: the browser
+   * `pnpm exec playwright install chromium` downloaded. Set it in images that ship their own.
+   */
+  CHROMIUM_EXECUTABLE_PATH: z.string().min(1).optional(),
 
   SMTP_HOST: z.string().min(1),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535),

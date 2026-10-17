@@ -7,12 +7,24 @@ import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
 import { WaveDivider } from '@/components/wave-divider';
+import type { ComplianceModel } from '@/features/appeals/presenters/use-compliance';
+import { ComplianceBanner } from '@/features/appeals/views/compliance-banner';
+import type { ProjectsOverviewModel } from '@/features/projects/presenters/use-projects';
+import type { SemestralReportsModel } from '@/features/reports/presenters/use-semestral-reports';
+import { SemestralReportsPanel } from '@/features/reports/views/semestral-reports-panel';
+import { ProjectsOverview } from '@/features/projects/views/projects-overview';
 import type { DashboardModel, SelectedOrganization } from '../presenters/use-dashboard';
 import { NeedsAttention, RecentActivity, RolePanels, StatTiles } from './dashboard-sections';
 import { OrgSwitcher } from './org-switcher';
 
 export interface DashboardViewProps {
   model: DashboardModel;
+  /** The selected organization's projects in progress (null until one is selected). */
+  projects?: ProjectsOverviewModel | null;
+  /** The selected organization's blocks and freezes (spec section 3). */
+  compliance?: ComplianceModel | null;
+  /** The Semestral End Report panel, for the selected organization's officers only. */
+  reports?: SemestralReportsModel | null;
 }
 
 /**
@@ -20,7 +32,12 @@ export interface DashboardViewProps {
  * by status, what needs attention and what happened lately. On phones the two main
  * actions stay in a bar at the bottom of the screen.
  */
-export function DashboardView({ model }: DashboardViewProps) {
+export function DashboardView({
+  model,
+  projects = null,
+  compliance = null,
+  reports = null,
+}: DashboardViewProps) {
   const selected = model.status === 'ready' ? model.selected : null;
   return (
     <div className="bg-surface-sweep min-h-page">
@@ -58,6 +75,11 @@ export function DashboardView({ model }: DashboardViewProps) {
                 org={selected}
                 onRevise={(id, file) => void model.revise(id, file)}
                 panels={<RolePanels panels={model.panels} />}
+                projects={projects ? <ProjectsOverview model={projects} /> : null}
+                compliance={
+                  <ComplianceBanner model={compliance} showProjectLink className="mt-6" />
+                }
+                reports={reports ? <SemestralReportsPanel model={reports} /> : null}
               />
             ) : (
               <NoOrganization panels={<RolePanels panels={model.panels} />} />
@@ -74,10 +96,16 @@ function OrganizationDashboard({
   org,
   onRevise,
   panels,
+  projects,
+  compliance,
+  reports,
 }: {
   org: SelectedOrganization;
   onRevise: (documentId: string, file: File) => void;
   panels: React.ReactNode;
+  projects: React.ReactNode;
+  compliance: React.ReactNode;
+  reports: React.ReactNode;
 }) {
   const { org: summary, term } = org;
   return (
@@ -131,6 +159,7 @@ function OrganizationDashboard({
           </span>
         </p>
       ) : null}
+      {compliance}
 
       <WaveDivider stretch className="mt-8 -mb-2 h-10 md:h-14" />
 
@@ -145,7 +174,7 @@ function OrganizationDashboard({
           <p className="max-w-prose text-body-lg text-ink">
             Nothing has been filed yet.{' '}
             {org.uploadHref
-              ? 'Upload the first document: once it passes the virus scan it goes to review, and after approval it appears in the Paperworks.'
+              ? 'Upload the first document: once it passes the virus scan it is shared with whoever you choose, and you can change that at any time.'
               : `${org.org.acronym}'s officers upload documents here; they show up on this page as they are filed.`}
           </p>
           {org.uploadHref ? (
@@ -160,13 +189,11 @@ function OrganizationDashboard({
       ) : (
         <div className="mt-8 flex flex-col gap-12">
           <StatTiles tiles={org.tiles} />
+          {projects}
+          {reports}
           {panels}
           <div className="grid gap-12 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-10">
-            <NeedsAttention
-              items={org.needsRevision}
-              canRevise={org.canRevise}
-              onRevise={onRevise}
-            />
+            <NeedsAttention items={org.quarantined} canRevise={org.canRevise} onRevise={onRevise} />
             <RecentActivity
               activity={org.activity}
               recentDocuments={org.recentDocuments}
@@ -175,7 +202,13 @@ function OrganizationDashboard({
           </div>
         </div>
       )}
-      {org.isEmpty ? <div className="mt-8">{panels}</div> : null}
+      {org.isEmpty ? (
+        <div className="mt-8 flex flex-col gap-12">
+          {projects}
+          {reports}
+          {panels}
+        </div>
+      ) : null}
     </>
   );
 }

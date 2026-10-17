@@ -19,6 +19,7 @@ import { testKeys } from './auth-fixtures';
 
 const USER = '0195f3c0-0000-7000-8000-000000000001';
 const DOC = '0195f3c0-0000-7000-8000-0000000000d1';
+const PROJECT = '0195f3c0-0000-7000-8000-0000000000c1';
 const JPICE = { id: '0195f3c0-0000-7000-8000-0000000000aa', slug: 'jpice' };
 const tokens = createTokenService(testKeys());
 
@@ -29,15 +30,15 @@ function fakeAccess(allow: boolean) {
   return {
     resolveBySlug: vi.fn((slug: string) => Promise.resolve(slug === 'jpice' ? JPICE : null)),
     resolveByDocument: vi.fn((id: string) => Promise.resolve(id === DOC ? JPICE : null)),
+    resolveByProject: vi.fn((id: string) => Promise.resolve(id === PROJECT ? JPICE : null)),
     requireRole: vi.fn(decide),
-    requireApprover: vi.fn(decide),
   } satisfies AccessService;
 }
 
 /** Mutating routes guarded the way CLAUDE.md requires. */
 function guardedApp(access: AccessService) {
   const app = express();
-  const { requireOrgRole, requireApprover } = createOrgGuards(access);
+  const { requireOrgRole, requireOwnOrgRole } = createOrgGuards(access);
   const ok: express.RequestHandler = (_req, res) => {
     res.json({ userId: authOf(res).userId, org: orgOf(res).slug });
   };
@@ -48,7 +49,13 @@ function guardedApp(access: AccessService) {
     requireOrgRole('officer', 'adviser'),
     ok,
   );
-  app.post('/documents/:documentId/approve', requireAuth(tokens), requireApprover(), ok);
+  app.patch('/projects/:projectId', requireAuth(tokens), requireOrgRole('officer'), ok);
+  app.patch(
+    '/documents/:documentId/visibility',
+    requireAuth(tokens),
+    requireOwnOrgRole('officer'),
+    ok,
+  );
   app.get('/maybe', optionalAuth(tokens), (_req, res) => {
     res.json({ userId: maybeAuthOf(res)?.userId ?? null });
   });
@@ -122,6 +129,7 @@ describe('org guards', () => {
       JPICE,
       ['officer'],
       expect.objectContaining({ method: 'POST', route: '/orgs/:slug/documents' }),
+      { adminOverride: true },
     );
   });
 
@@ -137,7 +145,26 @@ describe('org guards', () => {
       JPICE,
       ['officer', 'adviser'],
       expect.objectContaining({ route: '/documents/:documentId' }),
+      { adminOverride: true },
     );
+  });
+
+  it("resolves the organization from the project's organization", async () => {
+    const access = fakeAccess(true);
+    const app = guardedApp(access);
+    await request(app)
+      .patch(`/projects/${PROJECT}`)
+      .set('Authorization', await auth())
+      .expect(200);
+    expect(access.resolveByProject).toHaveBeenCalledWith(PROJECT);
+    await request(app)
+      .patch(`/projects/${crypto.randomUUID()}`)
+      .set('Authorization', await auth())
+      .expect(404);
+    await request(app)
+      .patch('/projects/not-a-uuid')
+      .set('Authorization', await auth())
+      .expect(400);
   });
 
   it('404s an unknown organization or document before checking roles', async () => {
@@ -173,18 +200,23 @@ describe('org guards', () => {
       .set('Authorization', await auth())
       .expect(403);
     await request(app)
-      .post(`/documents/${DOC}/approve`)
+      .patch(`/documents/${DOC}/visibility`)
       .set('Authorization', await auth())
       .expect(403);
   });
 
-  it('checks approval rights, not roles, on approve', async () => {
+  it('turns the admin override off for requireOwnOrgRole', async () => {
     const access = fakeAccess(true);
     await request(guardedApp(access))
-      .post(`/documents/${DOC}/approve`)
+      .patch(`/documents/${DOC}/visibility`)
       .set('Authorization', await auth())
       .expect(200);
-    expect(access.requireApprover).toHaveBeenCalledWith(USER, JPICE, expect.any(Object));
-    expect(access.requireRole).not.toHaveBeenCalled();
+    expect(access.requireRole).toHaveBeenCalledWith(
+      USER,
+      JPICE,
+      ['officer'],
+      expect.objectContaining({ route: '/documents/:documentId/visibility' }),
+      { adminOverride: false },
+    );
   });
 });

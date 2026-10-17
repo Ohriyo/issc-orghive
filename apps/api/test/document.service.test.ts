@@ -8,12 +8,14 @@ const JPICE = { id: 'jpice', slug: 'jpice' };
 const IECEP = { id: 'iecep', slug: 'iecep' };
 const TYPE = { id: '0195f3c0-0000-7000-8000-0000000000e1', slug: 'proposal', name: 'Proposal' };
 const ACTOR = { userId: 'u1', ip: '10.0.0.1' };
+const READER = { userId: 'u1', ip: '10.0.0.1' };
+const SIGNED_OUT = {};
 const VIEWER: DocumentViewer = {
   kind: 'user',
   userId: 'u1',
   isAdmin: false,
   memberOrgIds: ['jpice'],
-  reviewableOrgIds: [],
+  officerOrgIds: ['jpice'],
 };
 
 function record(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
@@ -24,10 +26,9 @@ function record(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
     description: null,
     academicYear: '2026-2027',
     semester: null,
-    status: 'draft',
+    status: 'available',
     visibility: 'members',
     tags: [],
-    submittedAt: null,
     createdAt: at,
     updatedAt: at,
     organization: { id: 'jpice', slug: 'jpice', acronym: 'JPICE', name: 'JPICE', type: 'SBO' },
@@ -56,18 +57,19 @@ function version(id: string, n: number, scanStatus: 'pending' | 'clean' | 'infec
     scanStatus,
     storageKey: `uploads/${id}`,
     createdAt: new Date('2026-10-01T00:00:00Z'),
+    document: { organizationId: 'jpice', visibility: 'private' as const },
   };
 }
 
-function setup(doc: DocumentRecord | null = record()) {
+function setup(doc: DocumentRecord | null = record(), viewer: DocumentViewer = VIEWER) {
   const cache = memoryCache();
   const documents = {
     findById: vi.fn((_viewer: DocumentViewer, _id: string) => Promise.resolve(doc)),
+    visibleOnlyAsAdmin: vi.fn(() => Promise.resolve(false)),
     list: vi.fn(() => Promise.resolve({ items: doc ? [doc] : [], nextCursor: null })),
-    create: vi.fn(() => Promise.resolve(record())),
+    create: vi.fn(() => Promise.resolve(record({ status: 'scanning' }))),
     update: vi.fn(() => Promise.resolve(doc)),
-    setStatus: vi.fn(() => Promise.resolve(true)),
-    decide: vi.fn(() => Promise.resolve(true)),
+    setVisibility: vi.fn(() => Promise.resolve(doc && { ...doc, visibility: 'public' as const })),
     softDelete: vi.fn(() => Promise.resolve(true)),
     archive: vi.fn(() => Promise.resolve(true)),
     restore: vi.fn(() => Promise.resolve(true)),
@@ -77,6 +79,7 @@ function setup(doc: DocumentRecord | null = record()) {
     listVersions: vi.fn(() =>
       Promise.resolve<Awaited<ReturnType<DocumentServiceDeps['documents']['listVersions']>>>({
         organizationId: 'jpice',
+        visibility: 'private',
         currentVersionId: 'v1',
         versions: [version('v2', 2, 'pending'), version('v1', 1, 'clean')],
       }),
@@ -109,7 +112,7 @@ function setup(doc: DocumentRecord | null = record()) {
     organizations: {
       findBySlug: (slug: string) => Promise.resolve(slug === 'jpice' ? (JPICE as never) : null),
     },
-    viewers: { forUser: () => Promise.resolve(VIEWER) },
+    viewers: { forUser: () => Promise.resolve(viewer) },
     uploads,
     queue,
     storage,
@@ -123,6 +126,14 @@ function setup(doc: DocumentRecord | null = record()) {
   const jpiceListCached = () => cache.store.has(cacheKeys.organizationDocuments('jpice', 'abc'));
   return { service, documents, audit, cache, jpiceListCached, uploads, queue, storage };
 }
+
+const ADMIN: DocumentViewer = {
+  kind: 'user',
+  userId: 'admin1',
+  isAdmin: true,
+  memberOrgIds: ['issc'],
+  officerOrgIds: [],
+};
 
 describe('documentService.list', () => {
   it('caches signed-out lists and reuses them', async () => {
@@ -138,10 +149,13 @@ describe('documentService.list', () => {
 
   it('never caches signed-in lists and filters them for the user', async () => {
     const { service, documents } = setup();
-    await service.list('u1', 'jpice', {});
+    await service.list('u1', 'jpice', { visibility: 'private', status: 'available' });
     await service.list('u1', 'jpice', {});
     expect(documents.list).toHaveBeenCalledTimes(2);
-    expect(documents.list).toHaveBeenCalledWith(VIEWER, expect.anything());
+    expect(documents.list).toHaveBeenCalledWith(
+      VIEWER,
+      expect.objectContaining({ visibility: 'private', status: 'available' }),
+    );
   });
 
   it('404s an unknown organization', async () => {
@@ -176,11 +190,37 @@ describe('documentService.search', () => {
 
 describe('documentService.get', () => {
   it('returns the summary, or 404 when the viewer may not see it', async () => {
-    expect(await setup().service.get('u1', 'd1')).toMatchObject({
+    expect(await setup().service.get(READER, 'd1')).toMatchObject({
       id: 'd1',
       visibility: 'members',
     });
-    await expect(setup(null).service.get(undefined, 'd1')).rejects.toMatchObject({ status: 404 });
+    await expect(setup(null).service.get(SIGNED_OUT, 'd1')).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('does not audit a member reading their own organization’s document', async () => {
+    const { service, documents, audit } = setup();
+    await service.get(READER, 'd1');
+    expect(documents.visibleOnlyAsAdmin).toHaveBeenCalledWith(VIEWER, 'd1');
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('audits every view an admin gets only because they are an admin', async () => {
+    const { service, documents, audit } = setup(record({ visibility: 'private' }), ADMIN);
+    documents.visibleOnlyAsAdmin.mockResolvedValue(true);
+    await service.get({ userId: 'admin1', ip: '10.0.0.9' }, 'd1');
+    await service.get({ userId: 'admin1', ip: '10.0.0.9' }, 'd1');
+    expect(audit.record).toHaveBeenCalledTimes(2);
+    expect(audit.record).toHaveBeenCalledWith({
+      action: 'admin_override',
+      actorId: 'admin1',
+      entityType: 'document',
+      entityId: 'd1',
+      organizationId: 'jpice',
+      metadata: { access: 'view', visibility: 'private' },
+      ip: '10.0.0.9',
+    });
   });
 });
 
@@ -194,14 +234,15 @@ describe('documentService.create', () => {
     uploadKey: 'uploads/jpice/k1',
   };
 
-  it('creates the document with its uploaded file as version 1, pending, and queues it', async () => {
+  it('creates a scanning document with its file as version 1, and queues the scan', async () => {
     const { service, documents, jpiceListCached, cache, uploads, queue, audit } = setup();
-    await service.create(ACTOR, JPICE, input);
+    const created = await service.create(ACTOR, JPICE, input);
     expect(uploads.claim).toHaveBeenCalledWith('u1', JPICE, 'uploads/jpice/k1');
     expect(documents.create).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: 'jpice',
-        status: 'pending',
+        status: 'scanning',
+        visibility: 'members',
         tags: ['bridge'],
         createdById: 'u1',
         firstVersion: expect.objectContaining({
@@ -210,6 +251,7 @@ describe('documentService.create', () => {
         }) as unknown,
       }),
     );
+    expect(created.status).toBe('scanning');
     expect(queue.enqueueProcessing).toHaveBeenCalledWith('v1');
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'upload' }));
     expect(jpiceListCached()).toBe(false);
@@ -228,7 +270,7 @@ describe('documentService.create', () => {
 
 describe('documentService.addVersion', () => {
   it('claims the upload, adds the next version and queues it', async () => {
-    const { service, documents, queue, audit } = setup(record({ status: 'approved' }));
+    const { service, documents, queue, audit } = setup();
     const added = await service.addVersion(ACTOR, JPICE, 'd1', 'uploads/jpice/k2');
     expect(documents.addVersion).toHaveBeenCalledWith(
       VIEWER,
@@ -255,32 +297,40 @@ describe('documentService.addVersion', () => {
 });
 
 describe('documentService.listVersions', () => {
-  it('shows members every version, marking the current one', async () => {
-    const { service } = setup();
-    const { versions } = await service.listVersions('u1', 'd1');
+  it('returns the versions the repository allows, marking the current one', async () => {
+    const { service, documents } = setup();
+    const { versions } = await service.listVersions(READER, 'd1');
+    expect(documents.listVersions).toHaveBeenCalledWith(VIEWER, 'd1');
     expect(versions.map((v) => [v.version, v.scanStatus, v.isCurrent])).toEqual([
       [2, 'pending', false],
       [1, 'clean', true],
     ]);
   });
 
-  it('shows everyone else only clean versions', async () => {
-    const { service } = setup();
-    const { versions } = await service.listVersions(undefined, 'd1');
-    expect(versions.map((v) => v.version)).toEqual([1]);
-  });
-
   it('404s a document the viewer may not see', async () => {
     const { service, documents } = setup();
     documents.listVersions.mockResolvedValueOnce(null);
-    await expect(service.listVersions(undefined, 'd1')).rejects.toMatchObject({ status: 404 });
+    await expect(service.listVersions(SIGNED_OUT, 'd1')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('audits an admin listing the files of a document only admins could see', async () => {
+    const { service, documents, audit } = setup(record(), ADMIN);
+    documents.visibleOnlyAsAdmin.mockResolvedValue(true);
+    await service.listVersions({ userId: 'admin1' }, 'd1');
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'admin_override',
+        entityId: 'd1',
+        metadata: { access: 'versions', visibility: 'private' },
+      }),
+    );
   });
 });
 
 describe('documentService.downloadUrl', () => {
   it('signs a 5-minute link to a clean version, as an attachment by default', async () => {
     const { service, storage } = setup();
-    const link = await service.downloadUrl(undefined, 'd1', 'v1');
+    const link = await service.downloadUrl(SIGNED_OUT, 'd1', 'v1');
     expect(storage.presignGet).toHaveBeenCalledWith(
       'uploads/v1',
       { filename: 'v1.pdf', contentType: 'application/pdf', disposition: 'attachment' },
@@ -295,18 +345,33 @@ describe('documentService.downloadUrl', () => {
   it('409s a file that has not passed the scan, 404s an invisible one', async () => {
     const { service, documents } = setup();
     documents.findVersion.mockResolvedValueOnce(version('v2', 2, 'infected'));
-    await expect(service.downloadUrl('u1', 'd1', 'v2')).rejects.toMatchObject({ status: 409 });
+    await expect(service.downloadUrl(READER, 'd1', 'v2')).rejects.toMatchObject({ status: 409 });
     documents.findVersion.mockResolvedValueOnce(null);
-    await expect(service.downloadUrl(undefined, 'd1', 'v1')).rejects.toMatchObject({ status: 404 });
+    await expect(service.downloadUrl(SIGNED_OUT, 'd1', 'v1')).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('audits an admin download of a file only admins could see', async () => {
+    const { service, documents, audit } = setup(record(), ADMIN);
+    documents.visibleOnlyAsAdmin.mockResolvedValue(true);
+    await service.downloadUrl({ userId: 'admin1' }, 'd1', 'v1');
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'admin_override',
+        organizationId: 'jpice',
+        metadata: { access: 'download', visibility: 'private' },
+      }),
+    );
   });
 });
 
 describe('documentService previews', () => {
   it('signs the current version preview when serving, never caching a signed link', async () => {
-    const doc = record();
+    const doc = record({ visibility: 'public' });
     doc.currentVersion!.thumbnailKey = 'thumbnails/d1/v1.webp';
     const { service, cache } = setup(doc);
-    const summary = await service.get(undefined, 'd1');
+    const summary = await service.get(SIGNED_OUT, 'd1');
     expect(summary.currentVersion?.thumbnailUrl).toBe(
       'https://storage.test/thumbnails/d1/v1.webp?signed',
     );
@@ -318,24 +383,19 @@ describe('documentService previews', () => {
 });
 
 describe('documentService.update', () => {
-  it('edits a draft and clears the cache', async () => {
+  it('edits an available document (nothing to re-approve) and clears the cache', async () => {
     const { service, documents, jpiceListCached } = setup();
     await service.update(ACTOR, JPICE, 'd1', { title: 'Renamed' });
-    expect(documents.update).toHaveBeenCalledWith(VIEWER, 'd1', { title: 'Renamed' }, [
-      'draft',
-      'rejected',
-    ]);
+    expect(documents.update).toHaveBeenCalledWith(VIEWER, 'd1', { title: 'Renamed' });
     expect(jpiceListCached()).toBe(false);
   });
 
-  it('409s content edits once submitted, but allows changing visibility', async () => {
-    const { service } = setup(record({ status: 'approved' }));
-    await expect(service.update(ACTOR, JPICE, 'd1', { title: 'Sneaky' })).rejects.toMatchObject({
+  it('409s an archived document', async () => {
+    const { service, documents } = setup(record({ status: 'archived' }));
+    await expect(service.update(ACTOR, JPICE, 'd1', { title: 'Late' })).rejects.toMatchObject({
       status: 409,
     });
-    await expect(
-      service.update(ACTOR, JPICE, 'd1', { visibility: 'public' }),
-    ).resolves.toBeDefined();
+    expect(documents.update).not.toHaveBeenCalled();
   });
 
   it('404s a document that belongs to another organization than the guarded one', async () => {
@@ -346,7 +406,7 @@ describe('documentService.update', () => {
     expect(documents.update).not.toHaveBeenCalled();
   });
 
-  it('409s when the status changed between the check and the write', async () => {
+  it('409s when the document was archived between the check and the write', async () => {
     const { service, documents } = setup();
     documents.update.mockResolvedValueOnce(null);
     await expect(service.update(ACTOR, JPICE, 'd1', { title: 'X' })).rejects.toMatchObject({
@@ -355,58 +415,45 @@ describe('documentService.update', () => {
   });
 });
 
-describe('documentService.submit', () => {
-  it('moves a draft with a clean file to pending', async () => {
-    const { service, documents, jpiceListCached } = setup();
-    await service.submit(ACTOR, JPICE, 'd1');
-    expect(documents.setStatus).toHaveBeenCalledWith(VIEWER, 'd1', 'pending', {
-      from: ['draft', 'rejected'],
-    });
-    expect(jpiceListCached()).toBe(false);
-  });
-
-  it('409s without a file, before the scan passes, or when not a draft', async () => {
-    await expect(
-      setup(record({ currentVersion: null })).service.submit(ACTOR, JPICE, 'd1'),
-    ).rejects.toMatchObject({ status: 409 });
-    const unscanned = record();
-    unscanned.currentVersion!.scanStatus = 'pending';
-    await expect(setup(unscanned).service.submit(ACTOR, JPICE, 'd1')).rejects.toMatchObject({
-      status: 409,
-    });
-    await expect(
-      setup(record({ status: 'approved' })).service.submit(ACTOR, JPICE, 'd1'),
-    ).rejects.toMatchObject({ status: 409 });
-  });
-});
-
-describe('documentService.decide', () => {
-  it('records the decision, audits it and clears the cache', async () => {
-    const { service, documents, audit, jpiceListCached } = setup(record({ status: 'pending' }));
-    await service.decide(ACTOR, JPICE, 'd1', 'rejected', 'Missing receipts');
-    expect(documents.decide).toHaveBeenCalledWith(VIEWER, 'd1', {
-      decision: 'rejected',
-      approverId: 'u1',
-      comment: 'Missing receipts',
-    });
+describe('documentService.setVisibility', () => {
+  it('changes who can see it, audits from and to, and clears the cache', async () => {
+    const { service, documents, audit, jpiceListCached } = setup();
+    const updated = await service.setVisibility(ACTOR, JPICE, 'd1', 'public');
+    expect(documents.setVisibility).toHaveBeenCalledWith(VIEWER, 'd1', 'public');
+    expect(updated.visibility).toBe('public');
     expect(audit.record).toHaveBeenCalledWith({
-      action: 'reject',
+      action: 'visibility_change',
       actorId: 'u1',
       entityType: 'document',
       entityId: 'd1',
       organizationId: 'jpice',
-      metadata: { version: 1 },
+      metadata: { from: 'members', to: 'public' },
       ip: '10.0.0.1',
     });
     expect(jpiceListCached()).toBe(false);
   });
 
-  it('409s a document that is not pending, without auditing', async () => {
-    const { service, audit } = setup(record({ status: 'draft' }));
-    await expect(service.decide(ACTOR, JPICE, 'd1', 'approved')).rejects.toMatchObject({
-      status: 409,
-    });
+  it('works in any state, archived included', async () => {
+    const { service, documents } = setup(record({ status: 'archived' }));
+    await service.setVisibility(ACTOR, JPICE, 'd1', 'public');
+    expect(documents.setVisibility).toHaveBeenCalled();
+  });
+
+  it('writes and audits nothing when the visibility is unchanged', async () => {
+    const { service, documents, audit, jpiceListCached } = setup();
+    expect((await service.setVisibility(ACTOR, JPICE, 'd1', 'members')).visibility).toBe('members');
+    expect(documents.setVisibility).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
+    expect(jpiceListCached()).toBe(true);
+  });
+
+  it('404s a document of another organization, or one the officer cannot see', async () => {
+    await expect(setup().service.setVisibility(ACTOR, IECEP, 'd1', 'public')).rejects.toMatchObject(
+      { status: 404 },
+    );
+    await expect(
+      setup(null).service.setVisibility(ACTOR, JPICE, 'd1', 'public'),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });
 
@@ -429,20 +476,18 @@ describe('documentService.remove', () => {
 });
 
 describe('documentService.archive', () => {
-  it('archives an approved or rejected document, audits it and clears the cache', async () => {
-    for (const status of ['approved', 'rejected'] as const) {
-      const { service, documents, audit, jpiceListCached } = setup(record({ status }));
-      await service.archive(ACTOR, JPICE, 'd1');
-      expect(documents.archive).toHaveBeenCalledWith(VIEWER, 'd1');
-      expect(audit.record).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'archive', entityId: 'd1', metadata: { from: status } }),
-      );
-      expect(jpiceListCached()).toBe(false);
-    }
+  it('archives an available document, audits it and clears the cache', async () => {
+    const { service, documents, audit, jpiceListCached } = setup();
+    await service.archive(ACTOR, JPICE, 'd1');
+    expect(documents.archive).toHaveBeenCalledWith(VIEWER, 'd1');
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'archive', entityId: 'd1' }),
+    );
+    expect(jpiceListCached()).toBe(false);
   });
 
-  it('409s a draft, pending or archived document without writing', async () => {
-    for (const status of ['draft', 'pending', 'archived'] as const) {
+  it('409s a scanning, quarantined or archived document without writing', async () => {
+    for (const status of ['scanning', 'quarantined', 'archived'] as const) {
       const { service, documents, audit } = setup(record({ status }));
       await expect(service.archive(ACTOR, JPICE, 'd1')).rejects.toMatchObject({ status: 409 });
       expect(documents.archive).not.toHaveBeenCalled();
@@ -451,35 +496,34 @@ describe('documentService.archive', () => {
   });
 
   it('404s a document of another organization', async () => {
-    const { service } = setup(record({ status: 'approved' }));
+    const { service } = setup();
     await expect(service.archive(ACTOR, IECEP, 'd1')).rejects.toMatchObject({ status: 404 });
   });
 });
 
 describe('documentService.restore', () => {
-  it('restores an archived document and audits the status it returned to', async () => {
+  it('restores an archived document to available and audits it', async () => {
     const doc = record({ status: 'archived' });
     const { service, documents, audit, jpiceListCached } = setup(doc);
-    documents.findById
-      .mockResolvedValueOnce(doc)
-      .mockResolvedValueOnce(record({ status: 'approved' }));
+    documents.findById.mockResolvedValueOnce(doc).mockResolvedValueOnce(record());
     const restored = await service.restore(ACTOR, JPICE, 'd1');
-    expect(restored.status).toBe('approved');
+    expect(documents.restore).toHaveBeenCalledWith(VIEWER, 'd1');
+    expect(restored.status).toBe('available');
     expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'restore', metadata: { to: 'approved' } }),
+      expect.objectContaining({ action: 'restore', entityId: 'd1' }),
     );
     expect(jpiceListCached()).toBe(false);
   });
 
-  it('409s a document that is not archived, or has no recorded status to return to', async () => {
-    await expect(
-      setup(record({ status: 'approved' })).service.restore(ACTOR, JPICE, 'd1'),
-    ).rejects.toMatchObject({ status: 409 });
-    const legacy = setup(record({ status: 'archived' }));
-    legacy.documents.restore.mockResolvedValue(false);
-    await expect(legacy.service.restore(ACTOR, JPICE, 'd1')).rejects.toMatchObject({
+  it('409s a document that is not archived, or changed before the write', async () => {
+    await expect(setup().service.restore(ACTOR, JPICE, 'd1')).rejects.toMatchObject({
       status: 409,
     });
-    expect(legacy.audit.record).not.toHaveBeenCalled();
+    const raced = setup(record({ status: 'archived' }));
+    raced.documents.restore.mockResolvedValue(false);
+    await expect(raced.service.restore(ACTOR, JPICE, 'd1')).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(raced.audit.record).not.toHaveBeenCalled();
   });
 });

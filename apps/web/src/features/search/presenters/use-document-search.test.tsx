@@ -13,10 +13,9 @@ const DOC: DocumentSummary = {
   description: null,
   academicYear: '2026-2027',
   semester: 'first',
-  status: 'approved',
+  status: 'available',
   visibility: 'public',
   tags: [],
-  submittedAt: null,
   createdAt: '2026-10-01T00:00:00.000Z',
   updatedAt: '2026-10-01T00:00:00.000Z',
   organization: {

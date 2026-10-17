@@ -20,18 +20,6 @@ function ComingSoon({ title, body }: { title: string; body: string }) {
   );
 }
 
-/** F11 will put the review queue here. */
-export function ReviewQueuePage() {
-  return (
-    <RequireAuth>
-      <ComingSoon
-        title="Review queue"
-        body="The review queue is being built. Until then, open a pending document from its organization's Paperworks to approve or reject it."
-      />
-    </RequireAuth>
-  );
-}
-
 export function AdminPage() {
   return (
     <RequireAuth>

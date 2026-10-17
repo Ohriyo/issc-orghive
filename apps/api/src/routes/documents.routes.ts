@@ -16,7 +16,8 @@ export interface DocumentsRouterDeps {
 
 /**
  * Paperworks. Reads are public and filtered by the repository for whoever is asking.
- * Every write needs requireAuth plus an org guard on the document's organization.
+ * Every write needs requireAuth plus an org guard on the document's organization. Nothing
+ * here reviews or approves documents: their visibility alone decides who sees them.
  */
 export function documentsRouter({
   documents,
@@ -26,7 +27,7 @@ export function documentsRouter({
 }: DocumentsRouterDeps): Router {
   const router = Router();
   const controller = createDocumentController(documents, uploads);
-  const { requireOrgRole, requireApprover } = createOrgGuards(access);
+  const { requireOrgRole, requireOwnOrgRole } = createOrgGuards(access);
   const auth = requireAuth(tokens);
 
   router.get('/organizations/:slug/documents', optionalAuth(tokens), viewerCache, controller.list);
@@ -43,8 +44,14 @@ export function documentsRouter({
   router.get('/documents', optionalAuth(tokens), viewerCache, controller.search);
   router.get('/documents/:documentId', optionalAuth(tokens), viewerCache, controller.get);
   router.patch('/documents/:documentId', auth, requireOrgRole('officer'), controller.update);
+  // Who can see a document is the organization's own decision: admins cannot change it.
+  router.patch(
+    '/documents/:documentId/visibility',
+    auth,
+    requireOwnOrgRole('officer'),
+    controller.setVisibility,
+  );
   router.delete('/documents/:documentId', auth, requireOrgRole('officer'), controller.remove);
-  router.post('/documents/:documentId/submit', auth, requireOrgRole('officer'), controller.submit);
   router.post(
     '/documents/:documentId/archive',
     auth,
@@ -57,8 +64,6 @@ export function documentsRouter({
     requireOrgRole('officer'),
     controller.restore,
   );
-  router.post('/documents/:documentId/approve', auth, requireApprover(), controller.approve);
-  router.post('/documents/:documentId/reject', auth, requireApprover(), controller.reject);
 
   router.get('/documents/:documentId/versions', optionalAuth(tokens), controller.listVersions);
   router.post(

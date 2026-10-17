@@ -6,6 +6,8 @@ import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
 import { StatusBadge } from '@/components/status-badge';
+import { VISIBILITY_LABEL } from '@/components/visibility';
+import { VisibilitySelect } from '@/components/visibility-select';
 import { cn } from '@/lib/utils';
 import type { MyDocumentRow, MyDocumentsModel } from '../presenters/use-my-documents';
 import { EditDocumentDialog } from './edit-document-dialog';
@@ -19,7 +21,7 @@ type Ready = Extract<MyDocumentsModel, { status: 'ready' }>;
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
 
-/** /dashboard/documents: every document of one organization, by status, for its members. */
+/** /dashboard/documents: every document of one organization the user may see, by state. */
 export function MyDocumentsView({ model }: MyDocumentsViewProps) {
   return (
     <div className="bg-surface-sweep min-h-page">
@@ -74,7 +76,7 @@ function ReadyView({ model }: { model: Ready }) {
         <div className="min-w-0">
           <h1 className="text-h1 font-bold text-ink">{model.org.acronym} documents</h1>
           <p className="mt-1 max-w-prose text-lead text-ink">
-            Every document of {model.org.name}, including drafts and ones in review.
+            Every document of {model.org.name} you can see, including files still being scanned.
           </p>
         </div>
         {model.canManage ? (
@@ -120,6 +122,19 @@ function ReadyView({ model }: { model: Ready }) {
           })}
         </ul>
       </nav>
+
+      {model.visibilityFilter ? (
+        <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-body text-ink">
+          Showing only: {model.visibilityFilter.label}
+          <OriginLink
+            to={model.visibilityFilter.clearHref}
+            replace
+            className="tap-area font-semibold underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf"
+          >
+            Show every visibility
+          </OriginLink>
+        </p>
+      ) : null}
 
       <div role="search" className="mt-6 max-w-xl">
         <label htmlFor="my-documents-search" className="text-body font-medium text-ink">
@@ -210,6 +225,9 @@ function DocumentRow({ row, model }: { row: MyDocumentRow; model: Ready }) {
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={doc.status} />
           <span className="text-small text-ink-muted">{doc.type.name}</span>
+          {row.canChangeVisibility ? null : (
+            <span className="text-small text-ink-muted">· {VISIBILITY_LABEL[doc.visibility]}</span>
+          )}
         </div>
         <h2 className="mt-2 text-body-lg leading-snug font-semibold break-words text-ink">
           <OriginLink to={row.href} className="tap-area hover:underline focus-visible:underline">
@@ -226,12 +244,22 @@ function DocumentRow({ row, model }: { row: MyDocumentRow; model: Ready }) {
           </p>
         ) : null}
       </div>
+      {row.canChangeVisibility ? (
+        <VisibilitySelect
+          className="md:w-56"
+          value={doc.visibility}
+          documentTitle={doc.title}
+          disabled={busy}
+          onChange={(visibility) =>
+            void model.actions.setVisibility(doc.id, visibility).then(setError)
+          }
+        />
+      ) : null}
       {row.canEdit || row.canArchive || row.canRestore ? (
         <div className="flex flex-wrap gap-2 md:justify-end">
           {row.canEdit ? (
             <EditDocumentDialog
               doc={doc}
-              contentEditable={row.contentEditable}
               types={model.types}
               years={model.yearsFor(doc)}
               semesters={model.semesters}

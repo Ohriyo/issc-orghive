@@ -8,18 +8,25 @@ import type { Logger } from '#src/logger';
 import { createErrorHandler, notFoundHandler } from '#src/middleware/error-handler';
 import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
 import { createOpenApiDocument } from '#src/openapi';
+import { appealsRouter } from '#src/routes/appeals.routes';
 import { authRouter } from '#src/routes/auth.routes';
 import { collegesRouter } from '#src/routes/colleges.routes';
 import { documentsRouter } from '#src/routes/documents.routes';
 import { healthRouter } from '#src/routes/health.routes';
 import { meRouter } from '#src/routes/me.routes';
 import { organizationsRouter } from '#src/routes/organizations.routes';
+import { projectsRouter } from '#src/routes/projects.routes';
+import { reportsRouter } from '#src/routes/reports.routes';
 import type { AccessService } from '#src/services/access.service';
+import type { AppealService } from '#src/services/appeal.service';
 import type { AuthService } from '#src/services/auth.service';
 import type { CollegeService } from '#src/services/college.service';
 import type { DashboardService } from '#src/services/dashboard.service';
 import type { DocumentService } from '#src/services/document.service';
+import type { NotificationService } from '#src/services/notification.service';
 import type { OrganizationService } from '#src/services/organization.service';
+import type { ProjectService } from '#src/services/project.service';
+import type { ReportService } from '#src/services/report.service';
 import type { TokenService } from '#src/services/token.service';
 import type { UploadService } from '#src/services/upload.service';
 
@@ -32,6 +39,10 @@ export interface AppServices {
   uploads: UploadService;
   access: AccessService;
   dashboard: DashboardService;
+  projects: ProjectService;
+  appeals: AppealService;
+  notifications: NotificationService;
+  reports: ReportService;
 }
 
 export interface AppDeps {
@@ -75,7 +86,14 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   );
   v1.use('/colleges', collegesRouter(services.colleges));
   v1.use('/organizations', organizationsRouter(services.organizations));
-  v1.use('/me', meRouter({ dashboard: services.dashboard, tokens: services.tokens }));
+  v1.use(
+    '/me',
+    meRouter({
+      dashboard: services.dashboard,
+      notifications: services.notifications,
+      tokens: services.tokens,
+    }),
+  );
   v1.use(
     documentsRouter({
       documents: services.documents,
@@ -83,6 +101,19 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       access: services.access,
       tokens: services.tokens,
     }),
+  );
+  v1.use(
+    projectsRouter({
+      projects: services.projects,
+      access: services.access,
+      tokens: services.tokens,
+    }),
+  );
+  v1.use(
+    appealsRouter({ appeals: services.appeals, access: services.access, tokens: services.tokens }),
+  );
+  v1.use(
+    reportsRouter({ reports: services.reports, access: services.access, tokens: services.tokens }),
   );
   app.use('/api/v1', v1);
 

@@ -21,6 +21,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1151.0",
     "@aws-sdk/s3-request-presigner": "3.1151.0",
+    "@fontsource/poppins": "^5.3.0",
     "@napi-rs/canvas": "^1.0.11",
     "@orghive/shared": "workspace:*",
     "@prisma/adapter-pg": "7.10.0",
@@ -36,8 +37,10 @@
     "ioredis": "^6.0.0",
     "jose": "^6.2.12",
     "nodemailer": "^10.1.1",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
+    "playwright-core": "1.64.0",
     "rate-limit-redis": "^6.0.1",
     "sharp": "^0.35.5",
     "swagger-ui-express": "^5.0.1",

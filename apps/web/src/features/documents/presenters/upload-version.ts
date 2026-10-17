@@ -24,7 +24,7 @@ export function uploadErrorMessage(error: unknown): string {
 /**
  * Uploads `file` as the next version of a document: an upload URL from the API, the bytes
  * straight to storage (never through Node), then the version record. The new version
- * becomes current once the virus scan passes; the document then goes back to review.
+ * becomes current once the virus scan passes; nothing needs approving again.
  */
 export async function uploadNewVersion(
   orgSlug: string,

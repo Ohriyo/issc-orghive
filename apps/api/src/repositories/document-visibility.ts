@@ -13,21 +13,22 @@ export type DocumentViewer =
       isAdmin: boolean;
       /** Organizations the user is an active member of (any role). */
       memberOrgIds: string[];
-      /** Organizations whose documents this user approves (docs/DOMAIN_RULES.md). */
-      reviewableOrgIds: string[];
+      /** Organizations the user is an active officer of. */
+      officerOrgIds: string[];
     };
 
 export const PUBLIC_VIEWER: DocumentViewer = { kind: 'public' };
 
 /**
- * The visibility rule every document query goes through. PROVISIONAL until the school
- * answers "who can see pending and rejected documents?" (docs/DOMAIN_RULES.md):
+ * The visibility rule every document query goes through, and the only place it is decided
+ * (docs/DOMAIN_RULES.md). Nobody reviews documents; their visibility alone decides:
  * - Deleted documents: nobody.
- * - Public: approved documents with `public` visibility.
- * - Other signed-in users: approved documents with `public` or `members` visibility.
- * - Active members of the owning organization: every status and visibility.
- * - Its approvers: pending documents they must review, and approved ones (any visibility).
- * - Admins: everything not deleted.
+ * - Before a document is available (scanning or quarantined): only its uploader.
+ * - Available documents: `public` to anyone; `members` to active members of the owning
+ *   organization; `private` to its officers.
+ * - Archived documents: the owning organization's officers.
+ * - Admins: every available or archived document, for support. Services audit each view
+ *   an admin gets only through that (`visibleOnlyAsAdmin`).
  */
 export function visibleDocumentsWhere(viewer: DocumentViewer): Prisma.DocumentWhereInput {
   const notDeleted: Prisma.DocumentWhereInput = {
@@ -36,16 +37,45 @@ export function visibleDocumentsWhere(viewer: DocumentViewer): Prisma.DocumentWh
   };
 
   if (viewer.kind === 'public') {
-    return { ...notDeleted, status: 'approved', visibility: 'public' };
+    return { ...notDeleted, status: 'available', visibility: 'public' };
   }
-  if (viewer.isAdmin) return notDeleted;
+
+  const ownUnavailable: Prisma.DocumentWhereInput = {
+    status: { in: ['scanning', 'quarantined'] },
+    createdById: viewer.userId,
+  };
+  if (viewer.isAdmin) {
+    return {
+      ...notDeleted,
+      OR: [{ status: { in: ['available', 'archived'] } }, ownUnavailable],
+    };
+  }
 
   return {
     ...notDeleted,
     OR: [
-      { status: 'approved', visibility: { in: ['public', 'members'] } },
-      { organizationId: { in: viewer.memberOrgIds } },
-      { status: { in: ['pending', 'approved'] }, organizationId: { in: viewer.reviewableOrgIds } },
+      { status: 'available', visibility: 'public' },
+      {
+        status: 'available',
+        visibility: 'members',
+        organizationId: { in: viewer.memberOrgIds },
+      },
+      { status: { in: ['available', 'archived'] }, organizationId: { in: viewer.officerOrgIds } },
+      ownUnavailable,
     ],
   };
+}
+
+/**
+ * Which versions of a visible document the viewer may list: clean files, plus the ones they
+ * uploaded themselves while those are still being scanned or after they were refused.
+ */
+export function visibleVersionsWhere(viewer: DocumentViewer): Prisma.DocumentVersionWhereInput {
+  if (viewer.kind === 'public') return { scanStatus: 'clean' };
+  return { OR: [{ scanStatus: 'clean' }, { uploadedById: viewer.userId }] };
+}
+
+/** The same viewer without admin rights: what they would see as a plain member. */
+export function withoutAdmin(viewer: DocumentViewer): DocumentViewer {
+  return viewer.kind === 'user' ? { ...viewer, isAdmin: false } : viewer;
 }

@@ -1,5 +1,6 @@
 // Orghive data model. Enum values match the Zod schemas in packages/shared.
-// Domain rules (who approves, who sees what) live in docs/DOMAIN_RULES.md.
+// Domain rules (who sees what) live in docs/DOMAIN_RULES.md. Documents are never reviewed or
+// approved before others can see them (docs/PROJECT_WORKFLOW_SPEC.md, section 0).
 
 generator client {
   provider = "prisma-client"
@@ -22,17 +23,18 @@ enum MembershipRole {
   admin
 }
 
+/// uploading (in the browser, not stored) -> scanning -> available | quarantined -> archived.
+/// Only the uploader sees a document before it is available. No review, no approval.
 enum DocumentStatus {
-  draft
-  pending
-  approved
-  rejected
+  scanning
+  available
+  quarantined
   archived
 }
 
-/// Who may see an approved document. PROVISIONAL, see docs/DOMAIN_RULES.md:
-/// public = anyone, members = any signed-in account, private = the owning organization,
-/// its approvers and admins.
+/// Who may see an available document, chosen by the owning organization's officers:
+/// public = anyone, members = the organization's active members, private = its officers.
+/// Admins see every available or archived document (audited) but cannot change this.
 enum DocumentVisibility {
   public
   members
@@ -47,17 +49,12 @@ enum Semester {
 }
 
 /// Uploads stay pending until the worker has checked them. `invalid`: the bytes are not
-/// the declared type (magic-byte check). Only clean files can be downloaded or approved.
+/// the declared type (magic-byte check). Only clean files can be downloaded.
 enum ScanStatus {
   pending
   clean
   infected
   invalid
-}
-
-enum ApprovalDecision {
-  approved
-  rejected
 }
 
 /// The actions CLAUDE.md requires an audit entry for.
@@ -66,6 +63,8 @@ enum AuditAction {
   login_failed
   logout
   upload
+  /// Historical: document approvals before they were removed (2026-10-17). Kept because the
+  /// audit log is append-only; F11 reuses approve/reject for appeal decisions.
   approve
   reject
   delete
@@ -79,10 +78,84 @@ enum AuditAction {
   admin_override
   /// The worker refused an upload (virus or wrong file type) and moved it to quarantine/.
   quarantine
-  /// An officer archived a document (approved or rejected -> archived).
+  /// An officer archived a document (available -> archived).
   archive
-  /// An officer restored an archived document to the status it had before.
+  /// An officer restored an archived document (archived -> available).
   restore
+  /// An officer changed who can see a document; metadata has `from` and `to`.
+  visibility_change
+  /// An officer created a project (docs/PROJECT_WORKFLOW_SPEC.md, section 2A).
+  project_create
+  /// An officer changed a project's details or which optional tasks it needs.
+  project_update
+  /// The compliance rules blocked a project: its proposal deadline passed (spec 3A).
+  project_block
+  /// A blocked project was unblocked: an approved appeal moved its proposal deadline.
+  project_unblock
+  /// The compliance rules froze an organization: a project's ACR or Financial Report is
+  /// overdue (spec 3B). entityId is the OrgFreeze.
+  org_freeze
+  /// An approved appeal lifted a freeze.
+  org_unfreeze
+  /// An officer appealed a block or a freeze. Decisions are `approve` / `reject`.
+  appeal_submit
+  /// Someone opened an appeal's supporting file.
+  appeal_attachment_view
+  /// An officer asked for a Semestral End Report (spec section 4).
+  report_generate
+}
+
+/// docs/PROJECT_WORKFLOW_SPEC.md, sections 2A and 2B. `blocked` is set by the compliance
+/// rules (section 3); `completed` once every task the project needs is submitted.
+enum ProjectStatus {
+  active
+  blocked
+  completed
+}
+
+/// The milestone checklist, in order. NOM and MOM exist only when the project needs them.
+enum ProjectTaskType {
+  PROPOSAL
+  NOM
+  MOM
+  ACR
+  FINANCIAL_REPORT
+}
+
+/// `submitted`: the task's file is uploaded and passed the virus scan. Nothing is reviewed.
+enum ProjectTaskStatus {
+  locked
+  open
+  submitted
+}
+
+/// docs/PROJECT_WORKFLOW_SPEC.md, section 3.
+enum AppealType {
+  PROJECT_BLOCK
+  ORG_FREEZE
+}
+
+enum AppealStatus {
+  pending
+  approved
+  rejected
+}
+
+/// What a notification is about. F16 adds more.
+enum NotificationKind {
+  deadline_soon
+  deadline_missed
+  appeal_submitted
+  appeal_decided
+  report_ready
+}
+
+/// A Semestral End Report job: queued -> generating -> ready | failed (spec section 4).
+enum ReportStatus {
+  queued
+  generating
+  ready
+  failed
 }
 
 model College {
@@ -120,14 +193,19 @@ model Organization {
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
 
-  parent        Organization?  @relation("OrganizationHierarchy", fields: [parentId], references: [id])
-  children      Organization[] @relation("OrganizationHierarchy")
-  college       College?       @relation(fields: [collegeId], references: [id])
+  parent        Organization?      @relation("OrganizationHierarchy", fields: [parentId], references: [id])
+  children      Organization[]     @relation("OrganizationHierarchy")
+  college       College?           @relation(fields: [collegeId], references: [id])
   memberships   Membership[]
   uploadIntents UploadIntent[]
   documents     Document[]
   announcements Announcement[]
   auditLogs     AuditLog[]
+  projects      Project[]
+  freezes       OrgFreeze[]
+  appeals       Appeal[]
+  appealFiles   AppealAttachment[]
+  reports       SemestralReport[]
 
   @@index([parentId])
   @@index([collegeId])
@@ -152,11 +230,16 @@ model User {
   uploadIntents       UploadIntent[]
   documentsCreated    Document[]           @relation("DocumentCreatedBy")
   versionsUploaded    DocumentVersion[]
-  approvals           Approval[]
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   auditLogs           AuditLog[]
   announcements       Announcement[]
+  projectsCreated     Project[]
+  appealsSubmitted    Appeal[]             @relation("AppealSubmittedBy")
+  appealsDecided      Appeal[]             @relation("AppealDecidedBy")
+  appealFiles         AppealAttachment[]
+  notifications       Notification[]
+  reportsRequested    SemestralReport[]
 
   @@map("users")
 }
@@ -168,7 +251,6 @@ model Membership {
   organizationId String         @map("organization_id") @db.Uuid
   role           MembershipRole
   /// Head of the organization: Governor of a CSC, President of an SBO or the ISSC.
-  /// The head of the parent organization approves documents (docs/DOMAIN_RULES.md).
   isHead         Boolean        @default(false) @map("is_head")
   /// Display title, e.g. "Governor", "President", "Adviser".
   title          String?
@@ -198,7 +280,7 @@ model DocumentType {
   @@map("document_types")
 }
 
-/// "Paperworks" in the UI. Lifecycle: draft -> pending -> approved | rejected -> archived.
+/// "Paperworks" in the UI. Lifecycle: scanning -> available | quarantined -> archived.
 /// Deletes are soft (deleted_at). Every upload is a new DocumentVersion.
 model Document {
   id               String                   @id @default(uuid(7)) @db.Uuid
@@ -209,17 +291,15 @@ model Document {
   /// "2026-2027"
   academicYear     String                   @map("academic_year")
   semester         Semester?
-  status           DocumentStatus           @default(draft)
-  /// The status before archiving (approved or rejected); restoring returns to it.
-  archivedFromStatus DocumentStatus?        @map("archived_from_status")
-  visibility       DocumentVisibility       @default(members)
+  status           DocumentStatus           @default(scanning)
+  visibility       DocumentVisibility       @default(public)
   /// Free-form, lowercased labels (at most 10, see documentTagsSchema).
   tags             String[]                 @default([])
   /// Text extracted from the current PDF by the worker; feeds search_vector.
   contentText      String?                  @map("content_text")
   currentVersionId String?                  @unique @map("current_version_id") @db.Uuid
+  /// The uploader: the only one who sees the document before it is available.
   createdById      String                   @map("created_by_id") @db.Uuid
-  submittedAt      DateTime?                @map("submitted_at")
   deletedAt        DateTime?                @map("deleted_at")
   createdAt        DateTime                 @default(now()) @map("created_at")
   updatedAt        DateTime                 @updatedAt @map("updated_at")
@@ -231,7 +311,10 @@ model Document {
   createdBy      User              @relation("DocumentCreatedBy", fields: [createdById], references: [id])
   currentVersion DocumentVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
   versions       DocumentVersion[] @relation("DocumentVersions")
-  approvals      Approval[]
+  /// Set when this document is a project task's file.
+  projectTask    ProjectTask?
+  /// Set when this document is a generated Semestral End Report.
+  report         SemestralReport?
 
   @@index([organizationId, academicYear, typeId])
   @@index([status])
@@ -259,32 +342,12 @@ model DocumentVersion {
   uploadedById     String     @map("uploaded_by_id") @db.Uuid
   createdAt        DateTime   @default(now()) @map("created_at")
 
-  document   Document   @relation("DocumentVersions", fields: [documentId], references: [id])
-  currentOf  Document?  @relation("CurrentVersion")
-  uploadedBy User       @relation(fields: [uploadedById], references: [id])
-  approvals  Approval[]
+  document   Document  @relation("DocumentVersions", fields: [documentId], references: [id])
+  currentOf  Document? @relation("CurrentVersion")
+  uploadedBy User      @relation(fields: [uploadedById], references: [id])
 
   @@unique([documentId, version])
   @@map("document_versions")
-}
-
-/// One decision on one version. A new upload needs a new approval.
-model Approval {
-  id         String           @id @default(uuid(7)) @db.Uuid
-  documentId String           @map("document_id") @db.Uuid
-  versionId  String           @map("version_id") @db.Uuid
-  approverId String           @map("approver_id") @db.Uuid
-  decision   ApprovalDecision
-  comment    String?
-  decidedAt  DateTime         @default(now()) @map("decided_at")
-
-  document Document        @relation(fields: [documentId], references: [id])
-  version  DocumentVersion @relation(fields: [versionId], references: [id])
-  approver User            @relation(fields: [approverId], references: [id])
-
-  @@index([documentId])
-  @@index([approverId])
-  @@map("approvals")
 }
 
 /// Stored hashed and rotated on every use. Reusing a revoked token revokes its whole family.
@@ -370,19 +433,210 @@ model Announcement {
 /// else's object or reuse a key.
 model UploadIntent {
   /// uploads/<organization id>/<random uuid>; also the object's storage key.
-  key              String       @id
-  organizationId   String       @map("organization_id") @db.Uuid
-  userId           String       @map("user_id") @db.Uuid
-  originalFilename String       @map("original_filename")
-  contentType      String       @map("content_type")
-  sizeBytes        Int          @map("size_bytes")
-  expiresAt        DateTime     @map("expires_at")
-  usedAt           DateTime?    @map("used_at")
-  createdAt        DateTime     @default(now()) @map("created_at")
+  key              String    @id
+  organizationId   String    @map("organization_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  originalFilename String    @map("original_filename")
+  contentType      String    @map("content_type")
+  sizeBytes        Int       @map("size_bytes")
+  expiresAt        DateTime  @map("expires_at")
+  usedAt           DateTime? @map("used_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("upload_intents")
+}
+
+/// An event an organization plans (spec 2A). Every field is required; the milestone
+/// checklist (ProjectTask) is created with it.
+model Project {
+  id                   String        @id @default(uuid(7)) @db.Uuid
+  organizationId       String        @map("organization_id") @db.Uuid
+  name                 String
+  /// The event date, a calendar date in Asia/Manila.
+  targetDate           DateTime      @map("target_date") @db.Date
+  location             String
+  beneficiaries        String
+  description          String
+  status               ProjectStatus @default(active)
+  /// 23:59:59 Manila time, 14 days after the project was created.
+  proposalDueAt        DateTime      @map("proposal_due_at")
+  /// 23:59:59 Manila time, 14 days after the target date (ACR and Financial Report).
+  postEventDueAt       DateTime      @map("post_event_due_at")
+  /// A new proposal deadline set by an approved PROJECT_BLOCK appeal; replaces the 14 days.
+  proposalDueOverride  DateTime?     @map("proposal_due_override")
+  /// A new post-event deadline set by an approved appeal; replaces the 14 days.
+  postEventDueOverride DateTime?     @map("post_event_due_override")
+  nomRequired          Boolean       @default(false) @map("nom_required")
+  momRequired          Boolean       @default(false) @map("mom_required")
+  createdById          String        @map("created_by_id") @db.Uuid
+  deletedAt            DateTime?     @map("deleted_at")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  createdBy    User          @relation(fields: [createdById], references: [id])
+  tasks        ProjectTask[]
+  freezes      OrgFreeze[]
+  appeals      Appeal[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, targetDate])
+  @@map("projects")
+}
+
+/// One step of a project's checklist. Its status follows the unlock rules in
+/// apps/api/src/services/project-rules.ts; its file is an ordinary Paperworks document.
+model ProjectTask {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  projectId   String            @map("project_id") @db.Uuid
+  type        ProjectTaskType
+  status      ProjectTaskStatus @default(locked)
+  /// Null for tasks without a deadline (NOM and MOM).
+  dueAt       DateTime?         @map("due_at")
+  /// The task's file. Re-uploads are new versions of this document.
+  documentId  String?           @unique @map("document_id") @db.Uuid
+  submittedAt DateTime?         @map("submitted_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  project  Project   @relation(fields: [projectId], references: [id])
+  document Document? @relation(fields: [documentId], references: [id])
+
+  @@unique([projectId, type])
+  @@index([status, dueAt])
+  @@map("project_tasks")
+}
+
+/// An organization frozen because one project's ACR or Financial Report is overdue (spec
+/// 3B). While any freeze is open (liftedAt null) the organization cannot create projects.
+/// At most one open freeze per project (partial unique index, see the migration). Only an
+/// approved appeal lifts it; a late upload does not.
+model OrgFreeze {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  projectId      String            @map("project_id") @db.Uuid
+  /// The reports that were missing when it froze.
+  reports        ProjectTaskType[]
+  frozenAt       DateTime          @default(now()) @map("frozen_at")
+  liftedAt       DateTime?         @map("lifted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  project      Project      @relation(fields: [projectId], references: [id])
+  appeals      Appeal[]
+
+  @@index([organizationId, liftedAt])
+  @@map("org_freezes")
+}
+
+/// An appeal to unblock a project or lift a freeze (spec 3). Decided by the head of the
+/// body above the organization (apps/api/src/services/appeal-rules.ts). At most one pending
+/// appeal per blocked project or per freeze (partial unique indexes, see the migration).
+model Appeal {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  type           AppealType
+  organizationId String       @map("organization_id") @db.Uuid
+  projectId      String       @map("project_id") @db.Uuid
+  /// ORG_FREEZE only (a CHECK constraint enforces it).
+  freezeId       String?      @map("freeze_id") @db.Uuid
+  reason         String
+  status         AppealStatus @default(pending)
+  submittedById  String       @map("submitted_by_id") @db.Uuid
+  decidedById    String?      @map("decided_by_id") @db.Uuid
+  remarks        String?
+  /// The deadline an approval set (23:59:59 Manila on the chosen day).
+  newDueAt       DateTime?    @map("new_due_at")
+  decidedAt      DateTime?    @map("decided_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  project      Project            @relation(fields: [projectId], references: [id])
+  freeze       OrgFreeze?         @relation(fields: [freezeId], references: [id])
+  submittedBy  User               @relation("AppealSubmittedBy", fields: [submittedById], references: [id])
+  decidedBy    User?              @relation("AppealDecidedBy", fields: [decidedById], references: [id])
+  attachments  AppealAttachment[]
+
+  @@index([organizationId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([status])
+  @@map("appeals")
+}
+
+/// A supporting file for an appeal. Not a Paperworks document: only the appealing
+/// organization's officers and the deciders may open it. Uploaded straight to storage,
+/// then checked by the worker; only clean files can be attached or downloaded.
+model AppealAttachment {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  organizationId   String     @map("organization_id") @db.Uuid
+  uploadedById     String     @map("uploaded_by_id") @db.Uuid
+  /// Null until an appeal is submitted with it.
+  appealId         String?    @map("appeal_id") @db.Uuid
+  storageKey       String     @unique @map("storage_key")
+  originalFilename String     @map("original_filename")
+  mimeType         String     @map("mime_type")
+  sizeBytes        Int        @map("size_bytes")
+  scanStatus       ScanStatus @default(pending) @map("scan_status")
+  createdAt        DateTime   @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+  appeal       Appeal?      @relation(fields: [appealId], references: [id])
+
+  @@index([appealId])
+  @@map("appeal_attachments")
+}
+
+/// One in-app notification for one user; the worker also emails it once (emailedAt).
+/// dedupeKey makes repeated checks (the hourly job, reads) notify only once.
+model Notification {
+  id        String           @id @default(uuid(7)) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  kind      NotificationKind
+  title     String
+  body      String
+  /// An app path, e.g. "/projects/<id>".
+  link      String?
+  dedupeKey String?          @unique @map("dedupe_key")
+  readAt    DateTime?        @map("read_at")
+  emailedAt DateTime?        @map("emailed_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+/// One request for a Semestral End Report (docs/PROJECT_WORKFLOW_SPEC.md, section 4): the
+/// worker compiles the organization's task files for that semester into one PDF and files it
+/// as a private document. At most one report per organization and semester runs at a time
+/// (partial unique index, see the migration).
+model SemestralReport {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  /// "2026-2027"
+  academicYear   String       @map("academic_year")
+  semester       Semester
+  status         ReportStatus @default(queued)
+  /// 0-100 while generating.
+  progress       Int          @default(0)
+  /// Why it failed, in words for the officer (never a stack trace).
+  error          String?
+  requestedById  String       @map("requested_by_id") @db.Uuid
+  /// The generated PDF, once ready.
+  documentId     String?      @unique @map("document_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
+  startedAt      DateTime?    @map("started_at")
+  finishedAt     DateTime?    @map("finished_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  requestedBy  User         @relation(fields: [requestedById], references: [id])
+  document     Document?    @relation(fields: [documentId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@map("semestral_reports")
 }

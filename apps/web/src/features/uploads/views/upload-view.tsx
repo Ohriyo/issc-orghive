@@ -10,6 +10,7 @@ import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
 import { TextField } from '@/components/text-field';
+import { VISIBILITY_OPTIONS } from '@/components/visibility';
 import { cn } from '@/lib/utils';
 import {
   ACCEPTED_TYPES_LABEL,
@@ -21,12 +22,6 @@ import {
 } from '../presenters/use-upload-documents';
 
 export type UploadViewProps = Exclude<UploadPageState, { status: 'not-found' }>;
-
-const VISIBILITY = [
-  { value: 'public', label: 'Public', hint: 'Anyone, without signing in' },
-  { value: 'members', label: 'Signed-in users', hint: 'Anyone with an NwSSU account' },
-  { value: 'private', label: 'Private', hint: 'Your organization, its approvers and admins' },
-] as const;
 
 const sizeFormat = new Intl.NumberFormat('en-PH', { maximumFractionDigits: 1 });
 function formatSize(bytes: number): string {
@@ -88,8 +83,8 @@ function UploadForm(model: UploadModel) {
         <h1 className="text-h1 font-bold text-ink">Upload Paperworks</h1>
         <p className="mt-2 text-lead text-ink">{org.name}</p>
         <p className="mt-4 max-w-prose text-body text-ink-muted">
-          Each file becomes its own document and goes to review. It can be approved once its virus
-          scan has passed.
+          Each file becomes its own document. Only you see it while its virus scan runs; then it is
+          shared with whoever you choose below. You can change that at any time.
         </p>
       </header>
 
@@ -148,7 +143,7 @@ function UploadForm(model: UploadModel) {
           {isUploading
             ? `Uploading ${done + 1} of ${items.length}…`
             : allDone
-              ? `${done === 1 ? 'The document was' : `All ${done} documents were`} uploaded and sent for review.`
+              ? `${done === 1 ? 'The document was' : `All ${done} documents were`} uploaded. Each one is shared once its virus scan passes.`
               : failed > 0
                 ? `${failed} ${failed === 1 ? 'file' : 'files'} could not be uploaded. Fix them and try again.`
                 : ''}
@@ -253,9 +248,9 @@ function FileCard({ model, item, index }: { model: UploadModel; item: UploadItem
             {...form.register(field('description') as 'documents.0.description')}
           />
           <fieldset className="md:col-span-2">
-            <legend className="text-body font-medium text-ink">Who can see it once approved</legend>
+            <legend className="text-body font-medium text-ink">Who can see it</legend>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              {VISIBILITY.map((choice) => (
+              {VISIBILITY_OPTIONS.map((choice) => (
                 <label
                   key={choice.value}
                   className="flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl border border-input bg-white p-3 transition-colors duration-300 hover:border-forest-500 has-checked:border-forest-500 has-checked:bg-accent has-focus-visible:outline-3 has-focus-visible:outline-ink"
@@ -294,7 +289,7 @@ function UploadProgress({ item }: { item: UploadItem }) {
     return (
       <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-body text-ink">
         <CheckCircle2 aria-hidden="true" className="size-5 text-forest-500" />
-        Uploaded and sent for review.
+        Uploaded. It is shared once the virus scan passes.
         {item.documentHref ? (
           <OriginLink
             to={item.documentHref}

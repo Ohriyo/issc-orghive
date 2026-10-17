@@ -2,6 +2,7 @@ import type { Request, RequestHandler, Response } from 'express';
 import {
   documentIdParamsSchema,
   ErrorCode,
+  projectIdParamsSchema,
   slugParamsSchema,
   type MembershipRole,
 } from '@orghive/shared';
@@ -84,8 +85,8 @@ export function orgOf(res: Response): OrgRef {
 }
 
 /**
- * The target organization: from `:slug`, or from the owning organization of
- * `:documentId`. 404 when it does not exist (or the document is deleted).
+ * The target organization: from `:slug`, or from the owning organization of `:documentId`
+ * or `:projectId`. 404 when it does not exist (or the document or project is deleted).
  */
 async function resolveOrg(access: AccessService, req: Request): Promise<OrgRef> {
   if (req.params.slug !== undefined) {
@@ -100,7 +101,13 @@ async function resolveOrg(access: AccessService, req: Request): Promise<OrgRef> 
     if (!org) throw AppError.notFound('Document not found');
     return org;
   }
-  throw new Error('Org guards need a :slug or :documentId route param');
+  if (req.params.projectId !== undefined) {
+    const { projectId } = projectIdParamsSchema.parse({ projectId: req.params.projectId });
+    const org = await access.resolveByProject(projectId);
+    if (!org) throw AppError.notFound('Project not found');
+    return org;
+  }
+  throw new Error('Org guards need a :slug, :documentId or :projectId route param');
 }
 
 function contextOf(req: Request): AccessContext {
@@ -112,29 +119,30 @@ function contextOf(req: Request): AccessContext {
 /**
  * Guards for org-scoped routes. Use after `requireAuth` on every mutating route
  * (CLAUDE.md). Memberships are checked against the database with an active term, not
- * taken from the token. ISSC admins pass every guard; that override is audited.
+ * taken from the token. ISSC admins pass `requireOrgRole`; that override is audited.
  */
 export function createOrgGuards(access: AccessService) {
-  return {
-    /** The user holds one of `roles` in the target organization. */
-    requireOrgRole:
-      (...roles: [MembershipRole, ...MembershipRole[]]): RequestHandler =>
-      async (req, res, next) => {
-        const claims = authOf(res);
-        const org = await resolveOrg(access, req);
-        await access.requireRole(claims.userId, org, roles, contextOf(req));
-        (res.locals as Record<string, unknown>)[ORG_KEY] = org;
-        next();
-      },
-
-    /** The user approves the target organization's documents (docs/DOMAIN_RULES.md). */
-    requireApprover: (): RequestHandler => async (req, res, next) => {
+  const guard =
+    (roles: MembershipRole[], adminOverride: boolean): RequestHandler =>
+    async (req, res, next) => {
       const claims = authOf(res);
       const org = await resolveOrg(access, req);
-      await access.requireApprover(claims.userId, org, contextOf(req));
+      await access.requireRole(claims.userId, org, roles, contextOf(req), { adminOverride });
       (res.locals as Record<string, unknown>)[ORG_KEY] = org;
       next();
-    },
+    };
+
+  return {
+    /** The user holds one of `roles` in the target organization, or is an ISSC admin. */
+    requireOrgRole: (...roles: [MembershipRole, ...MembershipRole[]]): RequestHandler =>
+      guard(roles, true),
+
+    /**
+     * The user holds one of `roles` in the target organization; admins do not pass. For
+     * decisions that belong to the organization alone, such as who can see its documents.
+     */
+    requireOwnOrgRole: (...roles: [MembershipRole, ...MembershipRole[]]): RequestHandler =>
+      guard(roles, false),
   };
 }
 

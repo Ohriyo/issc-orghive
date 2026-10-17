@@ -113,8 +113,8 @@ function Reupload({ files }: { files: DocumentFilesModel }) {
     <div className="mt-8">
       <h3 className="text-body-lg font-semibold text-ink">Upload a new version</h3>
       <p className="mt-1 max-w-prose text-body text-ink-muted">
-        The current version stays until the new one passes the virus scan; then the document goes
-        back to review. Older versions stay available.
+        The current version stays until the new one passes the virus scan, then the new one replaces
+        it for everyone who can see this document. Older versions stay available.
       </p>
       <FileDropzone
         className="mt-4"

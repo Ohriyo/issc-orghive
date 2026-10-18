@@ -636,6 +636,20 @@ describe('uploads', () => {
     });
   });
 
+  it('refuses uploads while an admin has deactivated the organization', async () => {
+    const url = '/organizations/iecep/documents/upload-url';
+    await db.organization.update({ where: { id: iecep.id }, data: { deactivatedAt: new Date() } });
+    try {
+      const res = await call('post', url, tokenOf.iecepOfficer, pdf).expect(403);
+      expect((res.body as { error: { code: string } }).error.code).toBe('ORGANIZATION_INACTIVE');
+      // Admins acting for it are refused too.
+      await call('post', url, tokenOf.admin, pdf).expect(403);
+    } finally {
+      await db.organization.update({ where: { id: iecep.id }, data: { deactivatedAt: null } });
+    }
+    await call('post', url, tokenOf.iecepOfficer, pdf).expect(201);
+  });
+
   it('refuses types outside the allow-list, mismatched extensions and files over 25 MB', async () => {
     const t = tokenOf.iecepOfficer;
     const url = '/organizations/iecep/documents/upload-url';

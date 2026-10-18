@@ -19,25 +19,28 @@ export interface ProjectsRouterDeps {
 export function projectsRouter({ projects, access, tokens }: ProjectsRouterDeps): Router {
   const router = Router();
   const controller = createProjectController(projects);
-  const { requireOrgRole } = createOrgGuards(access);
+  const { requireOrgRole, requireActiveOrg } = createOrgGuards(access);
   const auth = requireAuth(tokens);
   const member = requireOrgRole('officer', 'adviser');
   const officer = requireOrgRole('officer');
 
   router.get('/organizations/:slug/projects', auth, member, controller.list);
-  router.post('/organizations/:slug/projects', auth, officer, controller.create);
+  // A deactivated organization cannot start projects or file their documents.
+  router.post('/organizations/:slug/projects', auth, officer, requireActiveOrg, controller.create);
   router.get('/projects/:projectId', auth, member, controller.get);
   router.patch('/projects/:projectId', auth, officer, controller.update);
   router.post(
     '/projects/:projectId/tasks/:type/upload-url',
     auth,
     officer,
+    requireActiveOrg,
     controller.taskUploadUrl,
   );
   router.post(
     '/projects/:projectId/tasks/:type/documents',
     auth,
     officer,
+    requireActiveOrg,
     controller.submitTaskFile,
   );
 

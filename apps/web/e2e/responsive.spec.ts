@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { PUBLIC_ROUTES, SIGNED_IN_ROUTES, stubApi } from './fixtures';
+import { ADMIN_ROUTES, PUBLIC_ROUTES, SIGNED_IN_ROUTES, stubApi } from './fixtures';
 
 /**
  * The responsive rules from CLAUDE.md, enforced on every public route at every width:
@@ -18,8 +18,8 @@ const VIEWPORTS = [
 const MIN_TARGET = 44;
 
 /** Loads a route, waits for content, and scrolls once so every scroll reveal has run. */
-async function open(page: Page, path: string, signedIn = false) {
-  await stubApi(page, { signedIn });
+async function open(page: Page, path: string, signedIn = false, admin = false) {
+  await stubApi(page, { signedIn, admin });
   await page.goto(path);
   // Generous: the first visit to each lazy route compiles it on the dev server.
   await expect(page.locator('h1').first()).toBeAttached({ timeout: 15_000 });
@@ -119,10 +119,11 @@ for (const viewport of VIEWPORTS) {
     const cases = [
       ...PUBLIC_ROUTES.map((path) => ({ path, signedIn: false })),
       ...SIGNED_IN_ROUTES.map((path) => ({ path, signedIn: true })),
-    ];
-    for (const { path, signedIn } of cases) {
-      test(`${path}${signedIn ? ' (signed in)' : ''}`, async ({ page }) => {
-        await open(page, path, signedIn);
+      ...ADMIN_ROUTES.map((path) => ({ path, signedIn: true, admin: true })),
+    ] as { path: string; signedIn: boolean; admin?: boolean }[];
+    for (const { path, signedIn, admin } of cases) {
+      test(`${path}${admin ? ' (admin)' : signedIn ? ' (signed in)' : ''}`, async ({ page }) => {
+        await open(page, path, signedIn, admin);
 
         // Every page renders inside AppShell: one header, with the way home.
         await expect(page.getByRole('banner')).toHaveCount(1);

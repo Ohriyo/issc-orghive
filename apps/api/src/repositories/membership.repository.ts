@@ -14,7 +14,7 @@ export type ActiveMembership = Prisma.MembershipGetPayload<{
 }>;
 
 /** Start of the given day in UTC, to compare against DATE columns. */
-function dayOf(at: Date): Date {
+export function dayOf(at: Date): Date {
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
 }
 

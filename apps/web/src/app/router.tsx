@@ -111,8 +111,6 @@ function authRoutes(): RouteObject[] {
   ];
 }
 
-const comingSoon = () => import('@/features/dashboard/coming-soon-page');
-
 function dashboardRoutes(): RouteObject[] {
   return [
     {
@@ -157,7 +155,18 @@ function dashboardRoutes(): RouteObject[] {
         Component: (await import('@/features/projects/project-page')).ProjectPage,
       }),
     },
-    { path: 'admin', lazy: async () => ({ Component: (await comingSoon()).AdminPage }) },
+    {
+      path: 'admin',
+      lazy: async () => ({
+        Component: (await import('@/features/admin/admin-pages')).AdminIndexPage,
+      }),
+    },
+    {
+      path: 'admin/organizations',
+      lazy: async () => ({
+        Component: (await import('@/features/admin/admin-pages')).AdminOrganizationsPage,
+      }),
+    },
   ];
 }
 

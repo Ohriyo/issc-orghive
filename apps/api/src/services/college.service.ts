@@ -40,8 +40,12 @@ export function createCollegeService({
   cache,
   publicUrl,
 }: CollegeServiceDeps) {
+  /** A deactivated CSC is hidden from browsing; its SBOs still show (they are active). */
+  const activeCsc = (college: CollegeRecord) =>
+    college.organizations.find((org) => org.deactivatedAt === null);
+
   function summary(college: CollegeRecord): CollegeSummary {
-    const csc = college.organizations[0];
+    const csc = activeCsc(college);
     return {
       code: college.code,
       slug: college.slug,
@@ -69,8 +73,9 @@ export function createCollegeService({
         async () => {
           const college = await colleges.findBySlug(slug);
           if (!college) return null;
-          const csc = college.organizations[0];
-          const sbos = csc ? await organizations.listChildren(csc.id) : [];
+          const csc = activeCsc(college);
+          const parent = college.organizations[0];
+          const sbos = parent ? await organizations.listChildren(parent.id) : [];
           return {
             ...summary(college),
             description: college.description,

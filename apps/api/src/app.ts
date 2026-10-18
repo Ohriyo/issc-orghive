@@ -8,6 +8,7 @@ import type { Logger } from '#src/logger';
 import { createErrorHandler, notFoundHandler } from '#src/middleware/error-handler';
 import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
 import { createOpenApiDocument } from '#src/openapi';
+import { adminRouter } from '#src/routes/admin.routes';
 import { appealsRouter } from '#src/routes/appeals.routes';
 import { authRouter } from '#src/routes/auth.routes';
 import { collegesRouter } from '#src/routes/colleges.routes';
@@ -19,6 +20,7 @@ import { projectsRouter } from '#src/routes/projects.routes';
 import { reportsRouter } from '#src/routes/reports.routes';
 import { searchRouter } from '#src/routes/search.routes';
 import type { AccessService } from '#src/services/access.service';
+import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { AppealService } from '#src/services/appeal.service';
 import type { AuthService } from '#src/services/auth.service';
 import type { CollegeService } from '#src/services/college.service';
@@ -46,6 +48,7 @@ export interface AppServices {
   notifications: NotificationService;
   reports: ReportService;
   search: SearchService;
+  adminOrganizations: AdminOrganizationService;
 }
 
 export interface AppDeps {
@@ -98,6 +101,14 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     }),
   );
   v1.use('/search', searchRouter({ search: services.search, tokens: services.tokens }));
+  v1.use(
+    '/admin',
+    adminRouter({
+      organizations: services.adminOrganizations,
+      access: services.access,
+      tokens: services.tokens,
+    }),
+  );
   v1.use(
     documentsRouter({
       documents: services.documents,

@@ -143,6 +143,21 @@ export function createOrgGuards(access: AccessService) {
      */
     requireOwnOrgRole: (...roles: [MembershipRole, ...MembershipRole[]]): RequestHandler =>
       guard(roles, false),
+
+    /**
+     * After an org guard: refuses writes for a deactivated organization (uploads and new
+     * projects), whoever asks.
+     */
+    requireActiveOrg: (async (_req, res, next) => {
+      await access.requireActive(orgOf(res));
+      next();
+    }) as RequestHandler,
+
+    /** Active ISSC admins only. Use after `requireAuth`. */
+    requireAdmin: (async (_req, res, next) => {
+      await access.requireAdmin(authOf(res).userId);
+      next();
+    }) as RequestHandler,
   };
 }
 

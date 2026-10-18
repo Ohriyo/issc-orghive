@@ -16,6 +16,7 @@ const CSC_CEA_PARENT = {
 
 const JPICE: OrganizationRecord = {
   id: 'jpice-id',
+  deactivatedAt: null,
   type: 'SBO',
   slug: 'jpice',
   acronym: 'JPICE',

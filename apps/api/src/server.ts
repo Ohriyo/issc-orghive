@@ -43,6 +43,8 @@ import { createCollegeService } from '#src/services/college.service';
 import { createDashboardService } from '#src/services/dashboard.service';
 import { createDocumentService } from '#src/services/document.service';
 import { createSearchService } from '#src/services/search.service';
+import { createAdminOrganizationService } from '#src/services/admin-organization.service';
+import { createAdminOrganizationRepository } from '#src/repositories/admin-organization.repository';
 import { createProjectService } from '#src/services/project.service';
 import { createProjectSync } from '#src/services/project-sync.service';
 import { createUploadService } from '#src/services/upload.service';
@@ -104,6 +106,13 @@ const documentService = createDocumentService({
   cache,
 });
 const search = createSearchService({ documents, viewers, storage, cache });
+const adminOrganizations = createAdminOrganizationService({
+  admin: createAdminOrganizationRepository(db),
+  audit,
+  cache,
+  storage,
+  publicUrl,
+});
 const reportQueue = createBullReportQueue(queueConnection);
 // The API only queues reports; the worker renders them (src/worker.ts).
 const reports = createReportService({
@@ -187,6 +196,7 @@ const app = createApp({
     notifications,
     reports,
     search,
+    adminOrganizations,
   },
 });
 

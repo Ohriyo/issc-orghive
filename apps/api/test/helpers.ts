@@ -41,6 +41,9 @@ const unwiredServices: AppServices = {
     get: (_t, key) => () => unwired(`reports.${String(key)}`),
   }),
   search: { search: () => unwired('search') },
+  adminOrganizations: new Proxy({} as AppServices['adminOrganizations'], {
+    get: (_t, key) => () => unwired(`adminOrganizations.${String(key)}`),
+  }),
 };
 
 export function buildTestApp(

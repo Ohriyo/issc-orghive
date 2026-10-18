@@ -1,4 +1,4 @@
-import type { MembershipRole } from '@orghive/shared';
+import { ErrorCode, type MembershipRole } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import type { DocumentRepository } from '#src/repositories/document.repository';
@@ -73,6 +73,28 @@ export function createAccessService({
   }
 
   return {
+    /** Active ISSC admins only (the /admin screens). Read from the database, not the token. */
+    async requireAdmin(userId: string): Promise<void> {
+      if (!isSystemAdmin(await memberships.findActiveForUser(userId, now()))) {
+        throw AppError.forbidden();
+      }
+    },
+
+    /**
+     * A deactivated organization cannot upload or create projects (docs/DOMAIN_RULES.md,
+     * "Administration"); admins acting for it are refused too.
+     */
+    async requireActive(org: OrgRef): Promise<void> {
+      const found = await organizations.findBySlug(org.slug);
+      if (found?.deactivatedAt) {
+        throw new AppError(
+          403,
+          ErrorCode.ORGANIZATION_INACTIVE,
+          'This organization is inactive. An ISSC admin can reactivate it.',
+        );
+      }
+    },
+
     async resolveBySlug(slug: string): Promise<OrgRef | null> {
       const org = await organizations.findBySlug(slug);
       return org && { id: org.id, slug: org.slug };

@@ -15,7 +15,10 @@ function membership(
   return { id: crypto.randomUUID(), role, isHead: false, title: null, organization };
 }
 
-function serviceWith({ active = [] as ActiveMembership[] } = {}) {
+function serviceWith({
+  active = [] as ActiveMembership[],
+  deactivatedAt = null as Date | null,
+} = {}) {
   const record = vi.fn(() => Promise.resolve());
   const findActiveForUser = vi.fn(() => Promise.resolve(active));
   const now = new Date('2026-10-16T00:00:00Z');
@@ -23,7 +26,9 @@ function serviceWith({ active = [] as ActiveMembership[] } = {}) {
     memberships: { findActiveForUser },
     organizations: {
       findBySlug: (slug: string) =>
-        Promise.resolve(slug === 'jpice' ? ({ id: 'jpice', slug: 'jpice' } as never) : null),
+        Promise.resolve(
+          slug === 'jpice' ? ({ id: 'jpice', slug: 'jpice', deactivatedAt } as never) : null,
+        ),
     },
     documents: { organizationOf: (id: string) => Promise.resolve(id === 'd1' ? JPICE_REF : null) },
     projects: { organizationOf: (id: string) => Promise.resolve(id === 'p1' ? JPICE_REF : null) },
@@ -124,5 +129,35 @@ describe('accessService resolution', () => {
     expect(await service.resolveByDocument('d2')).toBeNull();
     expect(await service.resolveByProject('p1')).toEqual(JPICE_REF);
     expect(await service.resolveByProject('p2')).toBeNull();
+  });
+});
+
+describe('accessService.requireAdmin', () => {
+  it('passes an active ISSC admin', async () => {
+    const { service } = serviceWith({ active: [membership(ISSC, 'admin')] });
+    await expect(service.requireAdmin('u1')).resolves.toBeUndefined();
+  });
+
+  it('refuses officers, and admins of any other organization', async () => {
+    await expect(
+      serviceWith({ active: [membership(JPICE)] }).service.requireAdmin('u1'),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      serviceWith({ active: [membership(JPICE, 'admin')] }).service.requireAdmin('u1'),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe('accessService.requireActive', () => {
+  it('lets an active organization through', async () => {
+    await expect(serviceWith().service.requireActive(JPICE_REF)).resolves.toBeUndefined();
+  });
+
+  it('refuses a deactivated organization with ORGANIZATION_INACTIVE', async () => {
+    const { service } = serviceWith({ deactivatedAt: new Date('2026-10-01') });
+    await expect(service.requireActive(JPICE_REF)).rejects.toMatchObject({
+      status: 403,
+      code: 'ORGANIZATION_INACTIVE',
+    });
   });
 });

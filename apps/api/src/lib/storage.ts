@@ -37,7 +37,7 @@ export interface Storage {
   /** Size and type of an object, or null if it does not exist. */
   head(key: string): Promise<StoredObject | null>;
   read(key: string): Promise<Buffer>;
-  put(key: string, body: Buffer, contentType: string): Promise<void>;
+  put(key: string, body: Buffer, contentType: string, cacheControl?: string): Promise<void>;
   /** Copies then deletes (S3 has no rename). */
   move(from: string, to: string): Promise<void>;
   delete(key: string): Promise<void>;
@@ -118,9 +118,15 @@ export function createS3Storage(config: StorageConfig): Storage {
       return Buffer.concat(chunks);
     },
 
-    async put(key, body, contentType) {
+    async put(key, body, contentType, cacheControl) {
       await s3.send(
-        new PutObjectCommand({ Bucket, Key: key, Body: body, ContentType: contentType }),
+        new PutObjectCommand({
+          Bucket,
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+          CacheControl: cacheControl,
+        }),
       );
     },
 

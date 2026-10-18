@@ -125,6 +125,15 @@ export const chrome = {
     return { section: 'dashboard', trail: [here('Dashboard')], parent: null };
   },
 
+  /** /admin/…: Dashboard › Admin › section, parent the Dashboard. */
+  admin(label: string): PageChrome {
+    return {
+      section: 'dashboard',
+      trail: [DASHBOARD, { label: 'Admin', href: '/admin' }, here(label)],
+      parent: toDestination(DASHBOARD),
+    };
+  },
+
   /** Workspace screens: Dashboard › [organization ›] screen, parent the Dashboard. */
   workspace(label: string, org?: { slug: string; acronym: string } | null): PageChrome {
     const orgCrumb = org

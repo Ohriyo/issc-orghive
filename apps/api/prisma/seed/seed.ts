@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { documentVisibilitySchema, semesterSchema } from '@orghive/shared';
 import { loadConfig } from '#src/config';
 import { pdfText } from '#src/lib/file-processing';
+import { LOGO_CACHE_CONTROL, logoWidthsFor } from '#src/lib/logo';
 import { logoVariantKey } from '#src/lib/public-url';
 import { createDb, type Db } from '#src/repositories/prisma';
 import { ceaSbos, colleges, cscSlug, documentTypes, issc, users, type SeedUserKey } from './data';
@@ -118,14 +119,6 @@ async function seedOrganizations(db: Db) {
   return orgIds;
 }
 
-/** Widths for srcset. Never larger than the source: upscaling adds bytes, not detail. */
-const LOGO_WIDTHS = [128, 256, 512, 1024];
-
-function logoWidthsFor(sourceWidth: number): number[] {
-  const widths = LOGO_WIDTHS.filter((w) => w < sourceWidth);
-  return [...widths, Math.min(sourceWidth, LOGO_WIDTHS.at(-1)!)];
-}
-
 async function putPublicLogo(key: string, body: Buffer) {
   if (await objectExists(key)) return;
   await s3.send(
@@ -134,7 +127,7 @@ async function putPublicLogo(key: string, body: Buffer) {
       Key: key,
       Body: body,
       ContentType: 'image/webp',
-      CacheControl: 'public, max-age=31536000, immutable',
+      CacheControl: LOGO_CACHE_CONTROL,
     }),
   );
 }

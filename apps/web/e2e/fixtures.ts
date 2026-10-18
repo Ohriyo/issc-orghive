@@ -1,5 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import type {
+  AdminOrganization,
+  AdminOrganizationTree,
   Appeal,
   AppealListResponse,
   AuthResponse,
@@ -216,6 +218,55 @@ const OFFICER: AuthResponse = {
       },
     ],
   },
+};
+
+/** An ISSC admin (also JPICE's officer, so the officer screens still work). */
+const ADMIN: AuthResponse = {
+  ...OFFICER,
+  user: {
+    ...OFFICER.user,
+    roles: [...OFFICER.user.roles, { orgId: organizations.issc!.id, role: 'admin', isHead: false }],
+    memberships: [
+      ...OFFICER.user.memberships,
+      {
+        orgId: organizations.issc!.id,
+        orgSlug: 'issc',
+        orgAcronym: 'ISSC',
+        role: 'admin',
+        isHead: false,
+        title: 'Admin',
+      },
+    ],
+  },
+};
+
+/** Admin-only screens, checked with the admin session. */
+export const ADMIN_ROUTES = ['/admin/organizations'] as const;
+
+const adminOrg = (o: OrganizationSummary, n: number, active = true): AdminOrganization => ({
+  type: o.type,
+  slug: o.slug,
+  acronym: o.acronym,
+  name: o.name,
+  description: null,
+  logoUrl: null,
+  active,
+  documentCount: n * 3,
+  memberCount: n + 2,
+});
+
+const ADMIN_TREE: AdminOrganizationTree = {
+  issc: adminOrg({ ...organizations.issc!, type: 'ISSC' }, 4),
+  colleges: collegeSummaries.map((college, i) => ({
+    code: college.code,
+    slug: college.slug,
+    name: college.name,
+    motto: college.motto,
+    description: null,
+    csc: adminOrg(college.csc!, i),
+    // CEA has the real SBOs, one of them inactive; the rest have none yet.
+    sbos: college.slug === 'cea' ? sbos.map((s, j) => adminOrg(s, j, s.slug !== 'jiiee')) : [],
+  })),
 };
 
 const jpiceDocs = documents.map((d, i) => ({
@@ -526,10 +577,15 @@ function json(route: Route, body: unknown, status = 200) {
 }
 
 /** Answers every /api/v1 request in the browser, as a signed-out visitor or an officer. */
-export async function stubApi(page: Page, { signedIn = false }: { signedIn?: boolean } = {}) {
+export async function stubApi(
+  page: Page,
+  { signedIn = false, admin = false }: { signedIn?: boolean; admin?: boolean } = {},
+) {
   await page.route('**/api/v1/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^\/api\/v1/, '');
+    if (admin && path === '/auth/refresh') return json(route, ADMIN);
+    if (admin && path === '/admin/organizations') return json(route, ADMIN_TREE);
     if (signedIn && path === '/auth/refresh') return json(route, OFFICER);
     if (signedIn && path === '/me/dashboard') return json(route, DASHBOARD);
     if (signedIn && path === '/organizations/jpice/projects') return json(route, PROJECTS);

@@ -27,7 +27,7 @@ export function documentsRouter({
 }: DocumentsRouterDeps): Router {
   const router = Router();
   const controller = createDocumentController(documents, uploads);
-  const { requireOrgRole, requireOwnOrgRole } = createOrgGuards(access);
+  const { requireOrgRole, requireOwnOrgRole, requireActiveOrg } = createOrgGuards(access);
   const auth = requireAuth(tokens);
 
   router.get('/organizations/:slug/documents', optionalAuth(tokens), viewerCache, controller.list);
@@ -36,9 +36,17 @@ export function documentsRouter({
     '/organizations/:slug/documents/upload-url',
     auth,
     requireOrgRole('officer'),
+    requireActiveOrg,
     controller.uploadUrl,
   );
-  router.post('/organizations/:slug/documents', auth, requireOrgRole('officer'), controller.create);
+  // A deactivated organization cannot upload (docs/DOMAIN_RULES.md, "Administration").
+  router.post(
+    '/organizations/:slug/documents',
+    auth,
+    requireOrgRole('officer'),
+    requireActiveOrg,
+    controller.create,
+  );
 
   router.get('/document-types', publicCache, controller.listTypes);
   router.get('/documents/:documentId', optionalAuth(tokens), viewerCache, controller.get);
@@ -69,6 +77,7 @@ export function documentsRouter({
     '/documents/:documentId/versions',
     auth,
     requireOrgRole('officer'),
+    requireActiveOrg,
     controller.addVersion,
   );
   router.get(

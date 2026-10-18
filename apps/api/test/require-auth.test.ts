@@ -32,6 +32,8 @@ function fakeAccess(allow: boolean) {
     resolveByDocument: vi.fn((id: string) => Promise.resolve(id === DOC ? JPICE : null)),
     resolveByProject: vi.fn((id: string) => Promise.resolve(id === PROJECT ? JPICE : null)),
     requireRole: vi.fn(decide),
+    requireAdmin: vi.fn(() => (allow ? Promise.resolve() : Promise.reject(AppError.forbidden()))),
+    requireActive: vi.fn(() => Promise.resolve()),
   } satisfies AccessService;
 }
 

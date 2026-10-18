@@ -40,6 +40,11 @@ export const queryKeys = {
   reports: {
     list: (slug: string) => ['reports', 'list', slug] as const,
   },
+  /** /admin screens. Never shared with the public reads they manage. */
+  admin: {
+    all: ['admin'] as const,
+    organizations: ['admin', 'organizations'] as const,
+  },
   /** GET /me/notifications: the header bell. */
   notifications: ['me', 'notifications'] as const,
 };

@@ -15,6 +15,8 @@ export const ErrorCode = {
   FORBIDDEN: 'FORBIDDEN',
   /** 403: the organization is frozen (a report is overdue) and cannot create projects. */
   ORGANIZATION_FROZEN: 'ORGANIZATION_FROZEN',
+  /** 403: an admin deactivated the organization; it cannot upload or create projects. */
+  ORGANIZATION_INACTIVE: 'ORGANIZATION_INACTIVE',
   NOT_FOUND: 'NOT_FOUND',
   CONFLICT: 'CONFLICT',
   RATE_LIMITED: 'RATE_LIMITED',

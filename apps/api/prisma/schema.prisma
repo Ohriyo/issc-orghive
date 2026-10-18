@@ -103,6 +103,11 @@ enum AuditAction {
   appeal_attachment_view
   /// An officer asked for a Semestral End Report (spec section 4).
   report_generate
+  /// An admin created, edited, reordered, deactivated or reactivated an organization, or
+  /// changed its logo; metadata has `change`.
+  organization_change
+  /// An admin created, edited or reordered a college; metadata has `change`.
+  college_change
 }
 
 /// docs/PROJECT_WORKFLOW_SPEC.md, sections 2A and 2B. `blocked` is set by the compliance
@@ -166,6 +171,8 @@ model College {
   name          String
   motto         String?
   description   String?
+  /// Carousel order. Set by admins.
+  position      Int            @default(0)
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   organizations Organization[]
@@ -176,22 +183,27 @@ model College {
 /// ISSC, CSCs and SBOs in one table. ISSC: no parent, no college. CSC: parent ISSC.
 /// SBO: parent CSC. The database enforces this with a CHECK constraint (see migrations).
 model Organization {
-  id          String           @id @default(uuid(7)) @db.Uuid
-  type        OrganizationType
-  slug        String           @unique
-  acronym     String
-  name        String
-  description String?
+  id            String           @id @default(uuid(7)) @db.Uuid
+  type          OrganizationType
+  slug          String           @unique
+  acronym       String
+  name          String
+  description   String?
   /// Object-storage key under `logos/`; that prefix is public-read and served via PUBLIC_ASSET_BASE_URL.
-  logoKey     String?          @map("logo_key")
+  logoKey       String?          @map("logo_key")
   /// Widths of the resized variants stored next to logoKey as `<key without .webp>-<w>.webp`,
   /// for srcset. Empty when only the original exists.
-  logoWidths  Int[]            @default([]) @map("logo_widths")
-  parentId    String?          @map("parent_id") @db.Uuid
-  collegeId   String?          @map("college_id") @db.Uuid
-  deletedAt   DateTime?        @map("deleted_at")
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt @map("updated_at")
+  logoWidths    Int[]            @default([]) @map("logo_widths")
+  parentId      String?          @map("parent_id") @db.Uuid
+  collegeId     String?          @map("college_id") @db.Uuid
+  /// Carousel order among its siblings (an SBO within its college). Set by admins.
+  position      Int              @default(0)
+  /// Set while an admin has deactivated it: hidden from browsing, no uploads or new
+  /// projects. Unlike deletedAt, its documents stay visible (docs/DOMAIN_RULES.md).
+  deactivatedAt DateTime?        @map("deactivated_at")
+  deletedAt     DateTime?        @map("deleted_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
 
   parent        Organization?      @relation("OrganizationHierarchy", fields: [parentId], references: [id])
   children      Organization[]     @relation("OrganizationHierarchy")

@@ -106,6 +106,14 @@ Answers to `docs/PROJECT_WORKFLOW_SPEC.md` section 5 and F11's open points. Revi
 - **"Accomplishment report"** stays a separate document type from the ACR until the school says they are the same.
 - **Uploads** (from 2026-10-16): tags are free-form (at most 10, lowercased).
 
+## Administration (chosen by the project owner on 2026-10-18)
+
+- **Who:** `/admin` and every `/admin` API route are for active ISSC admins only.
+- **Deactivating an organization** hides it from browsing: carousels, college pages and the search filters. Its officers cannot upload or create projects while it is inactive. Its existing documents keep their visibility and stay reachable by link and search. Reactivating restores everything. This is separate from deleting (`deletedAt`), which hides the organization and its documents from everyone.
+- **Carousel order:** admins set the position of each college, and of each SBO within its college. Lists follow that order instead of names.
+- **New academic year:** the wizard ends the terms of every current **officer** (heads included); advisers and ISSC admins are untouched. The admin picks the incoming term's start and end (default August 1 to July 31); outgoing officer terms end the day before the new start. Incoming officers and advisers come from a CSV import, previewed before anything is saved and committed in one transaction, each membership audited as `role_change`.
+- **Unknown emails in the CSV** get an account with a temporary password and an emailed sign-in link; they must choose their own password on first sign-in.
+
 ## Open questions
 
 ### Documents

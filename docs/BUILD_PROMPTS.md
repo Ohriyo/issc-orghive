@@ -271,7 +271,7 @@ Implement section 4 of docs/PROJECT_WORKFLOW_SPEC.md: a "Generate Semestral End 
 ```
 **Done when:** a seeded semester produces one PDF in the fixed order, missing documents show the placeholder, and it appears in the organization's documents as private.
 
-## F12 — Search
+## F12 — Search (built 2026-10-18)
 
 **Skills:** vercel-react-best-practices, pdf
 ```

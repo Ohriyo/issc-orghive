@@ -41,7 +41,6 @@ export function documentsRouter({
   router.post('/organizations/:slug/documents', auth, requireOrgRole('officer'), controller.create);
 
   router.get('/document-types', publicCache, controller.listTypes);
-  router.get('/documents', optionalAuth(tokens), viewerCache, controller.search);
   router.get('/documents/:documentId', optionalAuth(tokens), viewerCache, controller.get);
   router.patch('/documents/:documentId', auth, requireOrgRole('officer'), controller.update);
   // Who can see a document is the organization's own decision: admins cannot change it.

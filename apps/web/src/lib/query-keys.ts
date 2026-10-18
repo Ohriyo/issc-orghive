@@ -10,7 +10,10 @@ export const queryKeys = {
     detail: (slug: string) => ['organizations', 'detail', slug] as const,
   },
   documents: {
-    search: (q: string) => ['documents', 'search', q] as const,
+    /** GET /search. Under 'documents', so every document mutation also refreshes searches. */
+    search: (q: string) => ['documents', 'search', 'instant', q] as const,
+    searchResults: (filters: Record<string, string | undefined>) =>
+      ['documents', 'search', 'results', filters] as const,
     list: (slug: string, filters: Record<string, string | undefined>) =>
       ['documents', 'list', slug, filters] as const,
     detail: (id: string) => ['documents', 'detail', id] as const,

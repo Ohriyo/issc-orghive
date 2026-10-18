@@ -67,7 +67,6 @@ export function AppHeader({
   overlay,
   solid,
 }: AppHeaderProps) {
-  const [searchOpen, setSearchOpen] = useState(false);
   const signedIn = account.status === 'authenticated';
   const items = navItems(signedIn);
   // Full links from xl; over the hero from 2xl. Static class names for Tailwind.
@@ -111,15 +110,21 @@ export function AppHeader({
             overlay ? 'ml-auto lg:ml-6 2xl:ml-6' : 'ml-auto',
           )}
         >
-          <PillButton size="md" className={fullInline} onClick={() => setSearchOpen(true)}>
+          <PillButton
+            size="md"
+            className={fullInline}
+            aria-keyshortcuts="Control+K Meta+K"
+            onClick={() => search.setOpen(true)}
+          >
             <Search aria-hidden="true" />
             Search
           </PillButton>
           <button
             type="button"
             aria-label="Search"
+            aria-keyshortcuts="Control+K Meta+K"
             className={cn(ICON_BUTTON, compact)}
-            onClick={() => setSearchOpen(true)}
+            onClick={() => search.setOpen(true)}
           >
             <Search aria-hidden="true" className="size-5" />
           </button>
@@ -138,7 +143,7 @@ export function AppHeader({
         </div>
       </Container>
 
-      <SearchOverlay open={searchOpen} onOpenChange={setSearchOpen} search={search} />
+      <SearchOverlay search={search} />
     </header>
   );
 }

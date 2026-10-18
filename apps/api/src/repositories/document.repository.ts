@@ -1,9 +1,10 @@
-import type {
-  DocumentStatus,
-  DocumentVisibility,
+import { SNIPPET_MATCH_END, SNIPPET_MATCH_START } from '@orghive/shared';
+import {
   Prisma,
-  ScanStatus,
-  Semester,
+  type DocumentStatus,
+  type DocumentVisibility,
+  type ScanStatus,
+  type Semester,
 } from '#src/generated/prisma/client';
 import {
   visibleDocumentsWhere,
@@ -109,6 +110,20 @@ export interface DocumentListFilters {
   limit?: number;
 }
 
+/** Full-text search across organizations. Filters are slugs, as the search URL carries them. */
+export interface DocumentSearchFilters {
+  query: string;
+  collegeSlug?: string;
+  organizationSlug?: string;
+  typeSlug?: string;
+  academicYear?: string;
+  offset: number;
+  limit: number;
+}
+
+/** A ranked match with `ts_headline` text, matches marked with the shared snippet markers. */
+export type DocumentSearchMatch = DocumentRecord & { headline: string | null };
+
 export interface NewVersion {
   storageKey: string;
   originalFilename: string;
@@ -151,7 +166,63 @@ export interface DocumentPatch {
 const NOT_ARCHIVED: DocumentStatus[] = ['scanning', 'available', 'quarantined'];
 
 /** How many full-text candidates to rank before the visibility filter narrows them. */
-const SEARCH_CANDIDATES = 200;
+const SEARCH_CANDIDATES = 1000;
+
+/** File text beyond this many characters is indexed but not scanned for a snippet. */
+const HEADLINE_SOURCE_CHARS = 50_000;
+const HEADLINE_OPTIONS = [
+  `StartSel=${SNIPPET_MATCH_START}`,
+  `StopSel=${SNIPPET_MATCH_END}`,
+  'MaxWords=32',
+  'MinWords=14',
+  'MaxFragments=2',
+  'FragmentDelimiter=" … "',
+].join(', ');
+
+/** Plain filters a search narrows candidates by. Visibility is never decided here. */
+interface CandidateFilters {
+  organizationId?: string;
+  typeId?: string;
+  academicYear?: string;
+  semester?: Semester;
+  status?: DocumentStatus;
+  visibility?: DocumentVisibility;
+  collegeSlug?: string;
+  organizationSlug?: string;
+  typeSlug?: string;
+}
+
+function candidateConditions(filters: CandidateFilters): Prisma.Sql[] {
+  const conditions: Prisma.Sql[] = [];
+  if (filters.organizationId) {
+    conditions.push(Prisma.sql`d.organization_id = ${filters.organizationId}::uuid`);
+  }
+  if (filters.typeId) conditions.push(Prisma.sql`d.type_id = ${filters.typeId}::uuid`);
+  if (filters.academicYear) {
+    conditions.push(Prisma.sql`d.academic_year = ${filters.academicYear}`);
+  }
+  if (filters.semester) conditions.push(Prisma.sql`d.semester::text = ${filters.semester}`);
+  if (filters.status) conditions.push(Prisma.sql`d.status::text = ${filters.status}`);
+  if (filters.visibility) {
+    conditions.push(Prisma.sql`d.visibility::text = ${filters.visibility}`);
+  }
+  if (filters.organizationSlug) {
+    conditions.push(
+      Prisma.sql`d.organization_id IN (SELECT id FROM organizations WHERE slug = ${filters.organizationSlug})`,
+    );
+  }
+  if (filters.collegeSlug) {
+    conditions.push(
+      Prisma.sql`d.organization_id IN (SELECT o.id FROM organizations o JOIN colleges c ON c.id = o.college_id WHERE c.slug = ${filters.collegeSlug})`,
+    );
+  }
+  if (filters.typeSlug) {
+    conditions.push(
+      Prisma.sql`d.type_id IN (SELECT id FROM document_types WHERE slug = ${filters.typeSlug})`,
+    );
+  }
+  return conditions;
+}
 
 /**
  * Every read or update of an existing document takes a viewer and goes through
@@ -164,16 +235,38 @@ export function createDocumentRepository(db: Db) {
   }
 
   /**
-   * Ranked ids matching a search. The raw query only produces candidate ids; documents
-   * are always loaded through the visibility filter afterwards.
+   * Ranked ids matching a search, narrowed by plain filters. The raw query only produces
+   * candidate ids; documents are always loaded through the visibility filter afterwards.
    */
-  async function searchCandidateIds(search: string): Promise<string[]> {
+  async function searchCandidateIds(
+    search: string,
+    filters: CandidateFilters = {},
+  ): Promise<string[]> {
+    const conditions = [
+      Prisma.sql`d.search_vector @@ websearch_to_tsquery('simple', ${search})`,
+      Prisma.sql`d.deleted_at IS NULL`,
+      ...candidateConditions(filters),
+    ];
     const rows = await db.$queryRaw<{ id: string }[]>`
-      SELECT id FROM documents
-      WHERE search_vector @@ websearch_to_tsquery('simple', ${search})
-      ORDER BY ts_rank(search_vector, websearch_to_tsquery('simple', ${search})) DESC, id DESC
+      SELECT d.id FROM documents d
+      WHERE ${Prisma.join(conditions, ' AND ')}
+      ORDER BY ts_rank(d.search_vector, websearch_to_tsquery('simple', ${search})) DESC, d.id DESC
       LIMIT ${SEARCH_CANDIDATES}`;
     return rows.map((row) => row.id);
+  }
+
+  /** `ts_headline` over the description and file text of documents already checked visible. */
+  async function headlines(search: string, ids: string[]): Promise<Map<string, string | null>> {
+    if (ids.length === 0) return new Map();
+    const rows = await db.$queryRaw<{ id: string; headline: string | null }[]>`
+      SELECT id, nullif(ts_headline(
+        'simple',
+        concat_ws(' … ', nullif(description, ''), left(content_text, ${HEADLINE_SOURCE_CHARS}::int)),
+        websearch_to_tsquery('simple', ${search}),
+        ${HEADLINE_OPTIONS}
+      ), '') AS headline
+      FROM documents WHERE id = ANY(${ids}::uuid[])`;
+    return new Map(rows.map((row) => [row.id, row.headline]));
   }
 
   return {
@@ -228,7 +321,8 @@ export function createDocumentRepository(db: Db) {
       };
 
       if (filters.search?.trim()) {
-        const ids = await searchCandidateIds(filters.search.trim());
+        const { search, cursor: _cursor, limit: _limit, ...plain } = filters;
+        const ids = await searchCandidateIds(search.trim(), plain);
         if (ids.length === 0) return { items: [], nextCursor: null };
         const found = await db.document.findMany({
           where: visible(viewer, exact, { id: { in: ids } }),
@@ -248,6 +342,42 @@ export function createDocumentRepository(db: Db) {
       const hasMore = items.length > limit;
       const page = hasMore ? items.slice(0, limit) : items;
       return { items: page, nextCursor: hasMore ? page[page.length - 1]!.id : null };
+    },
+
+    /**
+     * Full-text search across organizations: available documents only, best matches first,
+     * through the visibility filter. Snippets are built only for the visible page.
+     */
+    async search(
+      viewer: DocumentViewer,
+      filters: DocumentSearchFilters,
+    ): Promise<{ items: DocumentSearchMatch[]; hasMore: boolean }> {
+      const { query, offset, limit, ...plain } = filters;
+      const ids = await searchCandidateIds(query, { ...plain, status: 'available' });
+      if (ids.length === 0) return { items: [], hasMore: false };
+
+      const visibleRows = await db.document.findMany({
+        where: visible(viewer, { id: { in: ids } }),
+        select: { id: true },
+      });
+      const rank = new Map(ids.map((id, i) => [id, i]));
+      const ranked = visibleRows.map((row) => row.id).sort((a, b) => rank.get(a)! - rank.get(b)!);
+      const pageIds = ranked.slice(offset, offset + limit);
+      if (pageIds.length === 0) return { items: [], hasMore: false };
+
+      const [records, marked] = await Promise.all([
+        db.document.findMany({
+          where: visible(viewer, { id: { in: pageIds } }),
+          select: documentSelect,
+        }),
+        headlines(query, pageIds),
+      ]);
+      const byId = new Map(records.map((record) => [record.id, record]));
+      const items = pageIds.flatMap((id) => {
+        const record = byId.get(id);
+        return record ? [{ ...record, headline: marked.get(id) ?? null }] : [];
+      });
+      return { items, hasMore: ranked.length > offset + limit };
     },
 
     /**

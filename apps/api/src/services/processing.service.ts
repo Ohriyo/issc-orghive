@@ -1,5 +1,5 @@
 import { MAX_UPLOAD_BYTES } from '@orghive/shared';
-import { type Cache, cacheKeys } from '#src/lib/cache';
+import { type Cache, invalidateDocuments } from '#src/lib/cache';
 import type { VirusScanner } from '#src/lib/clamav';
 import type { JobQueue } from '#src/lib/queue';
 import type { Storage } from '#src/lib/storage';
@@ -25,7 +25,7 @@ export interface ProcessingServiceDeps {
   scanner: VirusScanner;
   tools: FileTools;
   audit: Pick<AuditLogRepository, 'record'>;
-  cache: Pick<Cache, 'deleteMatching'>;
+  cache: Pick<Cache, 'deleteMatching' | 'bump'>;
   logger: Pick<Logger, 'warn' | 'info'>;
   /** Called once a document's file is found clean (project tasks listen; see worker.ts). */
   onDocumentScanned?: (documentId: string) => Promise<void>;
@@ -114,9 +114,7 @@ export function createProcessingService({
         quarantinedDocument,
       },
     });
-    await cache.deleteMatching(
-      cacheKeys.organizationDocumentsPattern(rec.document.organization.slug),
-    );
+    await invalidateDocuments(cache, rec.document.organization.slug);
     logger.warn({ versionId: rec.id, scanStatus, reason }, 'Upload refused and quarantined');
     return scanStatus;
   }
@@ -163,9 +161,7 @@ export function createProcessingService({
       await documents.markClean(versionId, { sha256: tools.sha256Hex(body), ...extras }, now());
       // A project task's file: its project may move on (the task is submitted).
       await onDocumentScanned(rec.document.id);
-      await cache.deleteMatching(
-        cacheKeys.organizationDocumentsPattern(rec.document.organization.slug),
-      );
+      await invalidateDocuments(cache, rec.document.organization.slug);
       logger.info({ versionId }, 'Upload processed');
       return 'clean';
     },

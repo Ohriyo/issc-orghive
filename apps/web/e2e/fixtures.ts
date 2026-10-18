@@ -16,6 +16,7 @@ import type {
   OrganizationSummary,
   ProjectDetail,
   ProjectListResponse,
+  SearchResponse,
   SemestralReportListResponse,
 } from '@orghive/shared';
 
@@ -172,6 +173,8 @@ export const PUBLIC_ROUTES = [
   '/orgs/jpice',
   '/orgs/issc',
   '/orgs/jpice/paperworks',
+  '/search',
+  '/search?q=bridge&college=cea',
   // Signed out, this redirects to sign-in: the check covers that path.
   '/orgs/jpice/paperworks/upload',
   `/documents/${DOCUMENT_ID}`,
@@ -556,8 +559,23 @@ export async function stubApi(page: Page, { signedIn = false }: { signedIn?: boo
       return json(route, { colleges: collegeSummaries } satisfies CollegeListResponse);
     if (path === '/colleges/cea') return json(route, cea);
     if (path === '/document-types') return json(route, TYPES);
-    if (path === '/organizations/jpice/documents' || path === '/documents') {
+    if (path === '/organizations/jpice/documents') {
       return json(route, { items: documents, nextCursor: null } satisfies DocumentListResponse);
+    }
+    if (path === '/search') {
+      return json(route, {
+        query: url.searchParams.get('q') ?? '',
+        items: documents.map((document) => ({
+          document,
+          snippet: [
+            { text: 'Teams build and load-test a truss ', match: false },
+            { text: 'bridge', match: true },
+            { text: ' made of balsa wood, scored on strength per gram.', match: false },
+          ],
+        })),
+        page: 1,
+        nextPage: null,
+      } satisfies SearchResponse);
     }
     const org = /^\/organizations\/([a-z0-9-]+)$/.exec(path);
     if (org && organizations[org[1]!]) return json(route, organizations[org[1]!]);

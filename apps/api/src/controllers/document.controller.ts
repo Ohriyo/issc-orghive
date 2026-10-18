@@ -5,7 +5,6 @@ import {
   createDocumentRequestSchema,
   documentIdParamsSchema,
   documentListQuerySchema,
-  documentSearchQuerySchema,
   slugParamsSchema,
   updateDocumentRequestSchema,
   updateVisibilityRequestSchema,
@@ -63,11 +62,6 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     res.json(await documents.list(maybeAuthOf(res)?.userId, slug, query));
   };
 
-  const search: RequestHandler = async (req, res) => {
-    const query = documentSearchQuerySchema.parse(req.query);
-    res.json(await documents.search(maybeAuthOf(res)?.userId, query));
-  };
-
   const listTypes: RequestHandler = async (_req, res) => {
     res.json(await documents.listTypes());
   };
@@ -117,7 +111,6 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     downloadUrl,
     list,
     listTypes,
-    search,
     get,
     create,
     update,

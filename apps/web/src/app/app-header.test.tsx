@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { useState } from 'react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountMenuModel } from '@/features/auth/presenters/use-account-menu';
@@ -6,9 +7,14 @@ import type { DocumentSearchModel } from '@/features/search/presenters/use-docum
 import { AppHeader, type AppHeaderProps } from './app-header';
 
 const idleSearch: DocumentSearchModel = {
+  open: false,
+  setOpen: vi.fn(),
   query: '',
   setQuery: vi.fn(),
   results: { status: 'idle' },
+  allResultsHref: '/search',
+  submit: vi.fn(),
+  shortcut: 'Ctrl K',
 };
 
 const signedIn: AccountMenuModel = {
@@ -36,6 +42,22 @@ function renderView(
         {...overrides}
       />
     </MemoryRouter>,
+  );
+}
+
+/** The header with a working open state, as AppShell's presenter gives it. */
+function StatefulHeader() {
+  const [open, setOpen] = useState(false);
+  return (
+    <MemoryRouter>
+      <AppHeader
+        search={{ ...idleSearch, open, setOpen }}
+        account={{ status: 'anonymous' }}
+        section="home"
+        overlay={false}
+        solid
+      />
+    </MemoryRouter>
   );
 }
 
@@ -86,22 +108,60 @@ describe('AppHeader', () => {
     expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
   });
 
-  it('opens the search overlay with focus in the search field', () => {
-    renderView();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Search' })[0]!);
+  it('asks the presenter to open search from either Search button', () => {
+    const setOpen = vi.fn();
+    renderView({ ...idleSearch, setOpen });
+    for (const button of screen.getAllByRole('button', { name: 'Search' })) {
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'Control+K Meta+K');
+      fireEvent.click(button);
+    }
+    expect(setOpen).toHaveBeenCalledWith(true);
+  });
+
+  it('shows the open search overlay with focus in the search field', () => {
+    renderView({ ...idleSearch, open: true });
     const dialog = screen.getByRole('dialog', { name: 'Search Paperworks' });
     expect(within(dialog).getByRole('searchbox', { name: 'Search Paperworks' })).toHaveFocus();
     expect(within(dialog).getByText(/Type at least two characters/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Ctrl K')).toBeInTheDocument();
+  });
+
+  it('returns focus to the button that opened search when it closes', async () => {
+    render(<StatefulHeader />);
+    const button = screen.getAllByRole('button', { name: 'Search' })[0]!;
+    button.focus();
+    fireEvent.click(button);
+    const dialog = screen.getByRole('dialog', { name: 'Search Paperworks' });
+    expect(within(dialog).getByRole('searchbox')).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Search Paperworks' })).not.toBeInTheDocument();
+    // Radix restores focus just after the dialog unmounts.
+    await waitFor(() => expect(button).toHaveFocus());
+  });
+
+  it('asks the presenter to close on Escape and to open all results on Enter', () => {
+    const setOpen = vi.fn();
+    const submit = vi.fn();
+    renderView({ ...idleSearch, open: true, query: 'ram pump', setOpen, submit });
+    const dialog = screen.getByRole('dialog', { name: 'Search Paperworks' });
+    fireEvent.submit(within(dialog).getByRole('search'));
+    expect(submit).toHaveBeenCalled();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(setOpen).toHaveBeenCalledWith(false);
   });
 
   it('passes typing to the presenter and lists results as links', () => {
     const setQuery = vi.fn();
     renderView({
+      ...idleSearch,
+      open: true,
       query: 'bridge',
       setQuery,
+      allResultsHref: '/search?q=bridge',
       results: {
         status: 'ready',
         query: 'bridge',
+        hasMore: false,
         results: [
           {
             id: 'd1',
@@ -110,19 +170,25 @@ describe('AppHeader', () => {
             organizationName: 'Junior Philippine Institute of Civil Engineers',
             typeName: 'Activity proposal',
             academicYear: '2026-2027',
-            href: '/orgs/jpice/paperworks',
+            href: '/documents/d1',
+            snippet: [
+              { text: 'a truss ', match: false },
+              { text: 'bridge', match: true },
+            ],
           },
         ],
       },
     } satisfies DocumentSearchModel);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Search' })[0]!);
     const dialog = screen.getByRole('dialog', { name: 'Search Paperworks' });
     fireEvent.change(within(dialog).getByRole('searchbox'), { target: { value: 'bridges' } });
     expect(setQuery).toHaveBeenCalledWith('bridges');
     expect(within(dialog).getByText('1 result for “bridge”')).toBeInTheDocument();
-    expect(within(dialog).getByRole('link', { name: /Bridge design competition/ })).toHaveAttribute(
+    const result = within(dialog).getByRole('link', { name: /Bridge design competition/ });
+    expect(result).toHaveAttribute('href', '/documents/d1');
+    expect(within(result).getByText('bridge', { selector: 'mark' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: 'Filter these results' })).toHaveAttribute(
       'href',
-      '/orgs/jpice/paperworks',
+      '/search?q=bridge',
     );
   });
 

@@ -21,6 +21,12 @@ function pages(): RouteObject[] {
   return [
     { index: true, element: <HomePage /> },
     {
+      path: 'search',
+      lazy: async () => ({
+        Component: (await import('@/features/search/search-page')).SearchPage,
+      }),
+    },
+    {
       path: 'colleges',
       lazy: async () => ({
         Component: (await import('@/features/colleges/college-carousel-page')).CollegeCarouselPage,

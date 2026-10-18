@@ -434,6 +434,29 @@ CONTENT = {
             "Set up a single online archive for council documents (Orghive).",
         ],
     }),
+    # The search test (apps/api/test/search.routes.test.ts) looks for "hydraulic ram pump",
+    # which appears only in this file's text, never in a title or description.
+    "jpice-barangay-water-survey-report": (accomplishment, {
+        "overview": "Over two weekends, 24 JPICE members surveyed household water sources in Barangay Cagbayang and Barangay Malino. Teams recorded each source, measured the distance households walk to it and noted how water is lifted to upland homes. In Malino, residents lift spring water with a hydraulic ram pump built in 2011, which no longer runs during the dry months.",
+        "activities": [
+            ["Sep 6", "Orientation and survey form pilot", "24", "Survey form shortened to one page"],
+            ["Sep 13", "Household survey, Barangay Cagbayang", "24", "86 households surveyed"],
+            ["Sep 20", "Household survey, Barangay Malino", "22", "71 households surveyed"],
+            ["Sep 27", "Data encoding and mapping", "10", "Water source map drafted"],
+        ],
+        "highlights": [
+            "157 households surveyed and every water source mapped.",
+            "The broken hydraulic ram pump in Malino was measured for a repair proposal.",
+        ],
+        "challenges": [
+            "Rain cancelled the first Malino visit.",
+            "Several households were away during the day.",
+        ],
+        "recommendations": [
+            "Propose a repair of the Malino ram pump as next semester's community project.",
+            "Share the water source map with both barangay councils.",
+        ],
+    }),
 }
 
 

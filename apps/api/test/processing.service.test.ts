@@ -68,7 +68,10 @@ function setup(options: SetupOptions = {}) {
     imageThumbnail: vi.fn(() => Promise.resolve(Buffer.from('webp'))),
   };
   const audit = { record: vi.fn(() => Promise.resolve()) };
-  const cache = { deleteMatching: vi.fn(() => Promise.resolve()) };
+  const cache = {
+    deleteMatching: vi.fn(() => Promise.resolve()),
+    bump: vi.fn(() => Promise.resolve()),
+  };
   const logger = { warn: vi.fn(), info: vi.fn() };
   const onDocumentScanned = vi.fn(() => Promise.resolve());
   const service = createProcessingService({
@@ -120,6 +123,7 @@ describe('processingService.processVersion', () => {
       NOW,
     );
     expect(cache.deleteMatching).toHaveBeenCalledWith('org:jpice:docs:*');
+    expect(cache.bump).toHaveBeenCalledWith('search:gen');
   });
 
   it('quarantines an infected file and its document, and audits it', async () => {

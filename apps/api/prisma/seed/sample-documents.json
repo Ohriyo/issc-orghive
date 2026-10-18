@@ -105,6 +105,16 @@
       "semester": "second",
       "createdBy": "admin",
       "visibility": "private"
+    },
+    {
+      "slug": "jpice-barangay-water-survey-report",
+      "org": "jpice",
+      "type": "accomplishment-report",
+      "title": "Narrative Report: Barangay Potable Water Survey",
+      "description": "Summary of the JPICE community survey of household water sources in two upland barangays.",
+      "academicYear": "2026-2027",
+      "semester": "first",
+      "createdBy": "jpice-officer"
     }
   ]
 }

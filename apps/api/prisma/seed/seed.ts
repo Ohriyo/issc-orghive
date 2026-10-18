@@ -11,6 +11,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { documentVisibilitySchema, semesterSchema } from '@orghive/shared';
 import { loadConfig } from '#src/config';
+import { pdfText } from '#src/lib/file-processing';
 import { logoVariantKey } from '#src/lib/public-url';
 import { createDb, type Db } from '#src/repositories/prisma';
 import { ceaSbos, colleges, cscSlug, documentTypes, issc, users, type SeedUserKey } from './data';
@@ -180,7 +181,7 @@ async function seedLogos(db: Db) {
 async function clearPublicReadCache() {
   const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 1 });
   try {
-    for (const pattern of ['college:*', 'org:*']) {
+    for (const pattern of ['college:*', 'org:*', 'search:*']) {
       let cursor = '0';
       do {
         const [next, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
@@ -257,9 +258,22 @@ async function seedDocuments(
 
   for (const doc of manifest.documents) {
     const storageKey = `seed/documents/${doc.slug}/v1.pdf`;
-    if (await db.documentVersion.findUnique({ where: { storageKey } })) continue;
-
     const body = readFileSync(join(SEED_DIR, 'assets', `${doc.slug}.pdf`));
+    const existing = await db.documentVersion.findUnique({
+      where: { storageKey },
+      select: { document: { select: { id: true, contentText: true } } },
+    });
+    if (existing) {
+      // Seeded before search read file text: fill it in, as the worker does for uploads.
+      if (existing.document.contentText === null) {
+        await db.document.update({
+          where: { id: existing.document.id },
+          data: { contentText: (await pdfText(body)) || null },
+        });
+      }
+      continue;
+    }
+
     const sha256 = createHash('sha256').update(body).digest('hex');
     if (!(await objectExists(storageKey))) {
       await s3.send(
@@ -285,6 +299,8 @@ async function seedDocuments(
         semester: doc.semester,
         status: 'available',
         visibility: doc.visibility,
+        // What the worker extracts from an upload, so the file's text is searchable.
+        contentText: (await pdfText(body)) || null,
         createdById,
       },
     });

@@ -17,6 +17,7 @@ import { meRouter } from '#src/routes/me.routes';
 import { organizationsRouter } from '#src/routes/organizations.routes';
 import { projectsRouter } from '#src/routes/projects.routes';
 import { reportsRouter } from '#src/routes/reports.routes';
+import { searchRouter } from '#src/routes/search.routes';
 import type { AccessService } from '#src/services/access.service';
 import type { AppealService } from '#src/services/appeal.service';
 import type { AuthService } from '#src/services/auth.service';
@@ -27,6 +28,7 @@ import type { NotificationService } from '#src/services/notification.service';
 import type { OrganizationService } from '#src/services/organization.service';
 import type { ProjectService } from '#src/services/project.service';
 import type { ReportService } from '#src/services/report.service';
+import type { SearchService } from '#src/services/search.service';
 import type { TokenService } from '#src/services/token.service';
 import type { UploadService } from '#src/services/upload.service';
 
@@ -43,6 +45,7 @@ export interface AppServices {
   appeals: AppealService;
   notifications: NotificationService;
   reports: ReportService;
+  search: SearchService;
 }
 
 export interface AppDeps {
@@ -94,6 +97,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       tokens: services.tokens,
     }),
   );
+  v1.use('/search', searchRouter({ search: services.search, tokens: services.tokens }));
   v1.use(
     documentsRouter({
       documents: services.documents,

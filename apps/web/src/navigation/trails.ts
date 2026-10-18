@@ -56,6 +56,11 @@ export const chrome = {
     return { section: 'home', trail: [], parent: null, overlay: true };
   },
 
+  /** /search → parent home. Search spans every organization, so no header section. */
+  search(): PageChrome {
+    return { section: null, trail: [HOME, here('Search')], parent: toDestination(HOME) };
+  },
+
   colleges(): PageChrome {
     return { section: 'colleges', trail: [HOME, here('Colleges')], parent: toDestination(HOME) };
   },

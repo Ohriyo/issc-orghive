@@ -5,8 +5,23 @@ import { DocumentCard, DocumentCardSkeleton } from '@/components/document-card';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
-import type { PaperworksDocuments, PaperworksState } from '../presenters/use-paperworks';
-import { FilterFields, FilterSheet } from './paperworks-filters';
+import { FilterFields, FilterSheet, type FilterSelectSpec } from '@/components/filter-bar';
+import type {
+  PaperworksDocuments,
+  PaperworksFilterModel,
+  PaperworksState,
+  SelectFilter,
+} from '../presenters/use-paperworks';
+
+const PLACEHOLDER = 'Title or description';
+
+function selectsOf({ options }: PaperworksFilterModel): FilterSelectSpec<SelectFilter>[] {
+  return [
+    { name: 'type', label: 'Type', all: 'All types', options: options.types },
+    { name: 'year', label: 'Academic year', all: 'All years', options: options.years },
+    { name: 'semester', label: 'Semester', all: 'All semesters', options: options.semesters },
+  ];
+}
 
 export type PaperworksViewProps = Exclude<PaperworksState, { status: 'not-found' }>;
 
@@ -44,7 +59,12 @@ export function PaperworksView(props: PaperworksViewProps) {
             </header>
 
             <div className="mt-8 hidden md:block">
-              <FilterFields filters={props.filters} layout="row" />
+              <FilterFields
+                filters={props.filters}
+                selects={selectsOf(props.filters)}
+                placeholder={PLACEHOLDER}
+                layout="row"
+              />
               {props.filters.activeCount > 0 ? (
                 <button
                   type="button"
@@ -56,7 +76,11 @@ export function PaperworksView(props: PaperworksViewProps) {
               ) : null}
             </div>
             <div className="mt-6 md:hidden">
-              <FilterSheet filters={props.filters} />
+              <FilterSheet
+                filters={props.filters}
+                selects={selectsOf(props.filters)}
+                placeholder={PLACEHOLDER}
+              />
             </div>
 
             <section aria-label="Documents" className="mt-8">

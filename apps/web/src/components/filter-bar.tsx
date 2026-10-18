@@ -3,77 +3,108 @@ import { ChevronDown, Search, SlidersHorizontal, X } from 'lucide-react';
 import { Dialog } from 'radix-ui';
 import { PillButton } from '@/components/pill-button';
 import { cn } from '@/lib/utils';
-import type {
-  FilterOption,
-  PaperworksFilterModel,
-  SelectFilter,
-} from '../presenters/use-paperworks';
+export interface FilterOption {
+  value: string;
+  label: string;
+}
+
+/** What a presenter gives a filter bar: a search box plus selects, kept in the URL. */
+export interface FilterBarModel<K extends string> {
+  values: Record<K, string>;
+  /** What the search box shows right away; the URL follows after a short pause. */
+  searchInput: string;
+  setSearchInput: (value: string) => void;
+  set: (name: K, value: string) => void;
+  clear: () => void;
+  /** How many filters are on, for the phone Filters button. */
+  activeCount: number;
+}
+
+export interface FilterSelectSpec<K extends string> {
+  name: K;
+  label: string;
+  /** The empty option, e.g. "All types". */
+  all: string;
+  options: FilterOption[];
+}
+
+interface FilterBarProps<K extends string> {
+  filters: FilterBarModel<K>;
+  selects: FilterSelectSpec<K>[];
+  /** Placeholder of the search box: what it searches. */
+  placeholder: string;
+  /** False when the page shows its own search box (the /search page): selects only. */
+  search?: boolean;
+}
 
 const FIELD =
   'h-12 w-full rounded-full border border-input bg-white text-body text-ink shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] transition-colors duration-300 hover:border-forest-500';
 const LABEL = 'mb-1.5 block text-small font-medium text-ink';
 
-const SELECTS: {
-  name: SelectFilter;
-  label: string;
-  all: string;
-  options: keyof PaperworksFilterModel['options'];
-}[] = [
-  { name: 'type', label: 'Type', all: 'All types', options: 'types' },
-  { name: 'year', label: 'Academic year', all: 'All years', options: 'years' },
-  { name: 'semester', label: 'Semester', all: 'All semesters', options: 'semesters' },
-];
+/** Selects only: two per row on tablets, all in one row from lg. */
+const SELECTS_ONLY_ROW = 'grid-cols-2 items-end gap-3 lg:grid-cols-4';
+
+/**
+ * Row layouts by number of selects (static class names for Tailwind). The search box has its
+ * own row on tablets; everything shares one row from lg with three selects, from xl with four.
+ */
+const ROW_LAYOUT: Record<3 | 4, { grid: string; search: string }> = {
+  3: {
+    grid: 'grid-cols-3 items-end gap-3 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]',
+    search: 'col-span-3 lg:col-span-1',
+  },
+  4: {
+    grid: 'grid-cols-4 items-end gap-3 xl:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))]',
+    search: 'col-span-4 xl:col-span-1',
+  },
+};
 
 /**
  * The search box and filter selects. `row` is for md and up (search above the selects on
- * tablets, all in one line from lg);
+ * tablets, all in one line on wide screens);
  * `stack` puts them one under another (inside the phone bottom sheet).
  */
-export function FilterFields({
+export function FilterFields<K extends string>({
   filters,
+  selects,
+  placeholder,
+  search = true,
   layout,
-}: {
-  filters: PaperworksFilterModel;
-  layout: 'row' | 'stack';
-}) {
+}: FilterBarProps<K> & { layout: 'row' | 'stack' }) {
   const id = useId();
+  const row = ROW_LAYOUT[selects.length === 4 ? 4 : 3];
   return (
-    <div
-      className={cn(
-        'grid gap-4',
-        // Tablets: search on its own row, the three selects below; lg: all four in one row.
-        layout === 'row' &&
-          'grid-cols-3 items-end gap-3 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]',
-      )}
-    >
-      <div className={cn(layout === 'row' && 'col-span-3 lg:col-span-1')}>
-        <label htmlFor={`${id}-q`} className={LABEL}>
-          Search
-        </label>
-        <div className="relative">
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-ink-muted"
-          />
-          <input
-            id={`${id}-q`}
-            type="search"
-            value={filters.searchInput}
-            onChange={(event) => filters.setSearchInput(event.target.value)}
-            placeholder="Title or description"
-            enterKeyHint="search"
-            className={cn(FIELD, 'pr-5 pl-11 placeholder:text-ink-muted/80')}
-          />
+    <div className={cn('grid gap-4', layout === 'row' && (search ? row.grid : SELECTS_ONLY_ROW))}>
+      {search ? (
+        <div className={cn(layout === 'row' && row.search)}>
+          <label htmlFor={`${id}-q`} className={LABEL}>
+            Search
+          </label>
+          <div className="relative">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-ink-muted"
+            />
+            <input
+              id={`${id}-q`}
+              type="search"
+              value={filters.searchInput}
+              onChange={(event) => filters.setSearchInput(event.target.value)}
+              placeholder={placeholder}
+              enterKeyHint="search"
+              className={cn(FIELD, 'pr-5 pl-11 placeholder:text-ink-muted/80')}
+            />
+          </div>
         </div>
-      </div>
-      {SELECTS.map((select) => (
+      ) : null}
+      {selects.map((select) => (
         <FilterSelect
           key={select.name}
           id={`${id}-${select.name}`}
           label={select.label}
           all={select.all}
           value={filters.values[select.name]}
-          options={filters.options[select.options]}
+          options={select.options}
           onChange={(value) => filters.set(select.name, value)}
         />
       ))}
@@ -128,7 +159,12 @@ function FilterSelect({
  * Below md: a Filters button that opens the fields in a bottom sheet (a modal dialog:
  * focus stays inside, Esc or "Show results" closes it). Filters apply as they change.
  */
-export function FilterSheet({ filters }: { filters: PaperworksFilterModel }) {
+export function FilterSheet<K extends string>({
+  filters,
+  selects,
+  placeholder,
+  search,
+}: FilterBarProps<K>) {
   const count = filters.activeCount;
   return (
     <Dialog.Root>
@@ -163,7 +199,13 @@ export function FilterSheet({ filters }: { filters: PaperworksFilterModel }) {
               <X aria-hidden="true" className="size-6" />
             </Dialog.Close>
           </div>
-          <FilterFields filters={filters} layout="stack" />
+          <FilterFields
+            filters={filters}
+            selects={selects}
+            placeholder={placeholder}
+            search={search}
+            layout="stack"
+          />
           <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
             <PillButton variant="light" size="md" onClick={filters.clear} disabled={count === 0}>
               Clear all

@@ -11,7 +11,7 @@ import {
   type SemestralReportListResponse,
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
-import { type Cache, cacheKeys } from '#src/lib/cache';
+import { type Cache, invalidateDocuments } from '#src/lib/cache';
 import type { ReportQueue } from '#src/lib/queue';
 import {
   assembleReport,
@@ -58,7 +58,7 @@ export interface ReportServiceDeps {
   sha256: (bytes: Uint8Array) => string;
   notifications: Pick<NotificationService, 'notify'>;
   audit: Pick<AuditLogRepository, 'record'>;
-  cache: Pick<Cache, 'deleteMatching'>;
+  cache: Pick<Cache, 'deleteMatching' | 'bump'>;
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   now?: () => Date;
 }
@@ -367,7 +367,7 @@ export function createReportService({
       try {
         const result = await build(rec, (n) => reports.setProgress(reportId, Math.min(n, 99)));
         await reports.finish(reportId, result.doc.id, now());
-        await cache.deleteMatching(cacheKeys.organizationDocumentsPattern(result.org.slug));
+        await invalidateDocuments(cache, result.org.slug);
         await audit.record({
           action: 'upload',
           actorId: rec.requestedById,

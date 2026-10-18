@@ -173,21 +173,6 @@ describe('documentService.listTypes', () => {
   });
 });
 
-describe('documentService.search', () => {
-  it('searches every organization through the viewer filter, 10 results by default', async () => {
-    const { service, documents } = setup();
-    const result = await service.search('u1', { q: 'bridge' });
-    expect(documents.list).toHaveBeenCalledWith(VIEWER, { search: 'bridge', limit: 10 });
-    expect(result).toMatchObject({ items: [{ id: 'd1' }], nextCursor: null });
-  });
-
-  it('searches as the public when signed out', async () => {
-    const { service, documents } = setup();
-    await service.search(undefined, { q: 'bridge', limit: 5 });
-    expect(documents.list).toHaveBeenCalledWith(PUBLIC_VIEWER, { search: 'bridge', limit: 5 });
-  });
-});
-
 describe('documentService.get', () => {
   it('returns the summary, or 404 when the viewer may not see it', async () => {
     expect(await setup().service.get(READER, 'd1')).toMatchObject({

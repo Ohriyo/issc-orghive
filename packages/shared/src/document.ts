@@ -117,13 +117,6 @@ export const documentTypeListResponseSchema = z
   .meta({ id: 'DocumentTypeListResponse' });
 export type DocumentTypeListResponse = z.infer<typeof documentTypeListResponseSchema>;
 
-/** GET /documents?q=: search every organization's Paperworks the viewer may see. */
-export const documentSearchQuerySchema = z.object({
-  q: z.string().trim().min(2).max(200),
-  limit: z.coerce.number().int().min(1).max(20).optional(),
-});
-export type DocumentSearchQuery = z.infer<typeof documentSearchQuerySchema>;
-
 export const documentSummarySchema = z
   .object({
     id: z.uuid(),

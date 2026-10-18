@@ -353,7 +353,7 @@ describe('visibility, enforced by the repository for every reader', () => {
     };
   });
 
-  /** Which of the three test documents this reader gets, from the list, search and detail. */
+  /** Which of the three test documents this reader gets, from the list and detail. */
   async function seenBy(token?: string) {
     const listed = (
       (await call('get', '/organizations/iecep/documents?limit=100', token).expect(200)).body as {
@@ -407,35 +407,6 @@ describe('visibility, enforced by the repository for every reader', () => {
       expect.arrayContaining([docs.members.id, docs.private.id]),
     );
     expect(entries.at(-1)!.metadata).toEqual({ access: 'view', visibility: 'private' });
-  });
-
-  it('applies the same rule to global search', async () => {
-    const word = `zx${crypto.randomUUID().slice(0, 8)}`;
-    const make = (visibility: 'public' | 'members' | 'private') =>
-      createTestDocument(db, {
-        organizationId: iecep.id,
-        typeId: world.types.proposal.id,
-        title: `${word} ${visibility} report`,
-        status: 'available',
-        createdById: userIds.iecepOfficer,
-        visibility,
-      });
-    const pub = await make('public');
-    const members = await make('members');
-    const priv = await make('private');
-    const ids = async (token?: string) =>
-      (
-        (await call('get', `/documents?q=${word}`, token).expect(200)).body as {
-          items: { id: string }[];
-        }
-      ).items
-        .map((d) => d.id)
-        .sort();
-
-    expect(await ids()).toEqual([pub.id]);
-    expect(await ids(tokenOf.iecepMember)).toEqual([pub.id, members.id].sort());
-    expect(await ids(tokenOf.iecepOfficer)).toEqual([pub.id, members.id, priv.id].sort());
-    expect(await ids(tokenOf.jpiceOfficer)).toEqual([pub.id]);
   });
 });
 
@@ -627,18 +598,6 @@ describe('document reads: caching headers', () => {
 
   it('401s a read with an invalid token instead of serving the public view', async () => {
     await call('get', '/organizations/iecep/documents', 'abc.def.ghi').expect(401);
-  });
-
-  it('rejects a search query shorter than 2 characters', async () => {
-    await call('get', '/documents?q=a').expect(400);
-    await call('get', '/documents').expect(400);
-  });
-
-  it('caches search publicly only for signed-out readers', async () => {
-    const anon = await call('get', '/documents?q=report').expect(200);
-    expect(anon.headers['cache-control']).toContain('public');
-    const signedIn = await call('get', '/documents?q=report', tokenOf.student).expect(200);
-    expect(signedIn.headers['cache-control']).toBe('private, no-store');
   });
 });
 

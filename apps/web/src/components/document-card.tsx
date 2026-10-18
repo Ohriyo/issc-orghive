@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { OriginLink } from '@/navigation/origin-link';
-import type { DocumentStatus } from '@orghive/shared';
+import type { DocumentStatus, SearchSnippet } from '@orghive/shared';
 import { cn } from '@/lib/utils';
 import { HexFrame } from './hex-frame';
+import { HighlightedText } from './highlighted-text';
 import { OrgLogo } from './org-logo';
 import { StatusBadge } from './status-badge';
 
@@ -29,6 +30,8 @@ export interface DocumentCardProps {
    * public lists. Which viewers may see which status is decided by the presenter.
    */
   status?: DocumentStatus;
+  /** Search results: the passage that matched, matched words marked. */
+  excerpt?: SearchSnippet | null;
   className?: string;
 }
 
@@ -53,6 +56,7 @@ export function DocumentCard({
   isNew = false,
   org,
   status,
+  excerpt,
   className,
 }: DocumentCardProps) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -148,6 +152,11 @@ export function DocumentCard({
             {org.name}
           </p>
         )}
+        {excerpt && excerpt.length > 0 ? (
+          <p className="line-clamp-3 text-small text-pretty text-ink">
+            <HighlightedText parts={excerpt} />
+          </p>
+        ) : null}
         <p className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-small text-ink-muted">
           <time dateTime={date}>{formatDate(date)}</time>
           <span>{extension ?? 'No file yet'}</span>

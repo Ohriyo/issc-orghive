@@ -14,3 +14,4 @@ export * from './project';
 export * from './appeal';
 export * from './notification';
 export * from './report';
+export * from './search';

@@ -10,6 +10,7 @@ import {
   type Semester,
 } from '@orghive/shared';
 import type { DocumentCardProps, DocumentFileType } from '@/components/document-card';
+import type { FilterBarModel, FilterOption } from '@/components/filter-bar';
 import { useAuth } from '@/features/auth/presenters/use-auth';
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
@@ -45,22 +46,12 @@ export interface PaperworksFilters {
   semester: string;
 }
 
-export interface FilterOption {
-  value: string;
-  label: string;
-}
+export type { FilterOption };
 
 export type SelectFilter = Exclude<keyof PaperworksFilters, 'q'>;
 
-export interface PaperworksFilterModel {
+export interface PaperworksFilterModel extends FilterBarModel<SelectFilter> {
   values: PaperworksFilters;
-  /** What the search box shows right away; the URL follows after a short pause. */
-  searchInput: string;
-  setSearchInput: (value: string) => void;
-  set: (name: SelectFilter, value: string) => void;
-  clear: () => void;
-  /** How many filters are on, for the phone Filters button. */
-  activeCount: number;
   options: Record<'types' | 'years' | 'semesters', FilterOption[]>;
 }
 

@@ -5,7 +5,6 @@ import {
   type DocumentListQuery,
   type DocumentListResponse,
   type DocumentTypeListResponse,
-  type DocumentSearchQuery,
   type DocumentStatus,
   type DocumentSummary,
   type DocumentVersion,
@@ -15,7 +14,12 @@ import {
   type UpdateDocumentRequest,
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
-import { type Cache, cacheKeys, PUBLIC_READ_TTL_SECONDS } from '#src/lib/cache';
+import {
+  type Cache,
+  cacheKeys,
+  invalidateDocuments,
+  PUBLIC_READ_TTL_SECONDS,
+} from '#src/lib/cache';
 import type { JobQueue } from '#src/lib/queue';
 import type { Storage } from '#src/lib/storage';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
@@ -213,7 +217,7 @@ export function createDocumentService({
 
   /** Any write to an organization's documents clears its cached lists (CLAUDE.md). */
   function invalidate(org: OrgRef) {
-    return cache.deleteMatching(cacheKeys.organizationDocumentsPattern(org.slug));
+    return invalidateDocuments(cache, org.slug);
   }
 
   /**
@@ -291,21 +295,6 @@ export function createDocumentService({
             load,
           ))!;
       return { items: await Promise.all(stored.items.map(present)), nextCursor: stored.nextCursor };
-    },
-
-    /**
-     * Full-text search across every organization, best matches first, through the same
-     * visibility filter. Not cached in Redis: queries are too varied to reuse.
-     */
-    async search(
-      userId: string | undefined,
-      query: DocumentSearchQuery,
-    ): Promise<DocumentListResponse> {
-      const { items } = await documents.list(await viewerFor(userId), {
-        search: query.q,
-        limit: query.limit ?? 10,
-      });
-      return { items: await Promise.all(items.map(summarize)), nextCursor: null };
     },
 
     /** 404 when the document does not exist or the viewer may not see it. */

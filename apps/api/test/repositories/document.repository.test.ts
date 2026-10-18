@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { PUBLIC_VIEWER, type DocumentViewer } from '#src/repositories/document-visibility';
-import { buildWorld, resetDb, testDb, type World } from '../db';
+import { SNIPPET_MATCH_END, SNIPPET_MATCH_START } from '@orghive/shared';
+import { buildWorld, createTestDocument, resetDb, testDb, type World } from '../db';
 
 const db = testDb();
 const documents = createDocumentRepository(db);
@@ -375,5 +376,105 @@ describe('documentRepository processing', () => {
     expect(await documents.findVersion(uploader(), id, v2.id)).toMatchObject({ version: 2 });
     expect(await documents.findVersion(officerOf(world.orgs.jpice.id), id, v2.id)).toBeNull();
     expect(await documents.findStalePending(new Date(Date.now() + 60_000))).toContain(v2.id);
+  });
+});
+
+describe('documentRepository.search', () => {
+  const search = (viewer: DocumentViewer, query: string, extra = {}) =>
+    documents.search(viewer, { query, offset: 0, limit: 20, ...extra });
+  const titlesOf = (result: Awaited<ReturnType<typeof search>>) => result.items.map((d) => d.title);
+
+  it('finds words only inside the file text and marks them in the headline', async () => {
+    await db.document.update({
+      where: { id: world.docs.psmePublic.id },
+      data: { contentText: 'Attendees inspected the gusset plates of the old truss.' },
+    });
+    const result = await search(PUBLIC_VIEWER, 'gusset');
+    expect(titlesOf(result)).toEqual(['PSME bridge seminar report']);
+    expect(result.items[0]!.headline).toContain(`${SNIPPET_MATCH_START}gusset${SNIPPET_MATCH_END}`);
+  });
+
+  it('ranks a title match above tags, and tags above file text', async () => {
+    await db.document.update({
+      where: { id: world.docs.cscCeaPublic.id },
+      data: { contentText: 'a seminar on surveying' },
+    });
+    await db.document.update({
+      where: { id: world.docs.jpicePublic.id },
+      data: { tags: ['seminar'] },
+    });
+    expect(titlesOf(await search(PUBLIC_VIEWER, 'seminar'))).toEqual([
+      'PSME bridge seminar report',
+      'JPICE accomplishment report',
+      'CEA Days proposal',
+    ]);
+  });
+
+  it('applies the visibility filter and leaves out archived and unscanned files', async () => {
+    expect(titlesOf(await search(PUBLIC_VIEWER, 'bridge'))).toEqual(['PSME bridge seminar report']);
+    expect(titlesOf(await search(memberOf(world.orgs.jpice.id), 'bridge')).sort()).toEqual([
+      'JPICE bridge competition proposal',
+      'PSME bridge seminar report',
+    ]);
+    // The uploader sees these in their dashboard, not in search.
+    expect(titlesOf(await search(uploader(), 'narrative'))).toEqual([]);
+    expect(titlesOf(await search(uploader(), 'archived'))).toEqual([]);
+  });
+
+  it('never builds a headline from a document the viewer cannot see', async () => {
+    await db.document.update({
+      where: { id: world.docs.jpicePrivate.id },
+      data: { contentText: 'confidential budget figures' },
+    });
+    expect((await search(PUBLIC_VIEWER, 'confidential')).items).toEqual([]);
+  });
+
+  it('filters by college, organization, type slug and academic year', async () => {
+    const catOrg = await db.organization.create({
+      data: {
+        type: 'SBO',
+        slug: 'cat-sbo',
+        acronym: 'CATS',
+        name: 'CAT SBO',
+        parentId: world.orgs.cscCat.id,
+        collegeId: world.colleges.cat.id,
+      },
+    });
+    await createTestDocument(db, {
+      organizationId: catOrg.id,
+      typeId: world.types.proposal.id,
+      title: 'CAT bridge proposal',
+      status: 'available',
+      createdById: world.users.officer.id,
+    });
+    expect(titlesOf(await search(PUBLIC_VIEWER, 'bridge', { collegeSlug: 'cat' }))).toEqual([
+      'CAT bridge proposal',
+    ]);
+    expect(titlesOf(await search(PUBLIC_VIEWER, 'bridge', { collegeSlug: 'cea' }))).toEqual([
+      'PSME bridge seminar report',
+    ]);
+    expect(
+      titlesOf(await search(PUBLIC_VIEWER, 'bridge', { organizationSlug: 'cat-sbo' })),
+    ).toEqual(['CAT bridge proposal']);
+    expect(
+      titlesOf(await search(PUBLIC_VIEWER, 'bridge', { typeSlug: 'accomplishment-report' })),
+    ).toEqual(['PSME bridge seminar report']);
+    expect(titlesOf(await search(PUBLIC_VIEWER, 'report', { academicYear: '2025-2026' }))).toEqual([
+      'JPICE accomplishment report',
+    ]);
+  });
+
+  it('pages through ranked results', async () => {
+    const first = await search(admin(), 'proposal', { limit: 2 });
+    expect(first.items).toHaveLength(2);
+    expect(first.hasMore).toBe(true);
+    const second = await search(admin(), 'proposal', { offset: 2, limit: 2 });
+    expect(second.items.map((d) => d.id)).not.toContain(first.items[0]!.id);
+  });
+
+  it('finds an organization-scoped Paperworks search beyond other organizations', async () => {
+    expect(
+      await titles(PUBLIC_VIEWER, { search: 'proposal', organizationId: world.orgs.cscCea.id }),
+    ).toEqual(['CEA Days proposal']);
   });
 });

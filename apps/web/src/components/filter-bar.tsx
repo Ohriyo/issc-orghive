@@ -92,7 +92,7 @@ export function FilterFields<K extends string>({
               onChange={(event) => filters.setSearchInput(event.target.value)}
               placeholder={placeholder}
               enterKeyHint="search"
-              className={cn(FIELD, 'pr-5 pl-11 placeholder:text-ink-muted/80')}
+              className={cn(FIELD, 'pr-5 pl-11 placeholder:text-ink-muted')}
             />
           </div>
         </div>

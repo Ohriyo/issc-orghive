@@ -21,6 +21,7 @@ export function factsOf(record: ProjectRecord): ProjectFacts {
     proposalDueOverride: record.proposalDueOverride,
     postEventDueOverride: record.postEventDueOverride,
     filed,
+    exemptFromCompliance: record.organization.type === 'ISSC',
   };
 }
 

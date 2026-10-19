@@ -30,7 +30,8 @@ export interface HierarchyRow {
   /** Colleges have no status of their own. */
   active: boolean | null;
   documentCount: number | null;
-  memberCount: number | null;
+  /** It has an active shared account; null for colleges. */
+  hasAccount: boolean | null;
   /** Set where the row can move within its carousel (colleges, and SBOs in a college). */
   move: { up: (() => void) | null; down: (() => void) | null; position: number; of: number } | null;
   /** True for the last row of a college group, to end its tree guide. */
@@ -103,7 +104,7 @@ export function toRows(
     logoUrl: o.logoUrl,
     active: o.active,
     documentCount: o.documentCount,
-    memberCount: o.memberCount,
+    hasAccount: o.hasAccount,
     move: null,
     lastInGroup: false,
     adds: [],
@@ -122,7 +123,7 @@ export function toRows(
       logoUrl: null,
       active: null,
       documentCount: null,
-      memberCount: null,
+      hasAccount: null,
       move: {
         position: i + 1,
         of: collegeSlugs.length,

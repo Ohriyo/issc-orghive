@@ -15,7 +15,8 @@ export async function resetDb(client: Db) {
     TRUNCATE semestral_reports, notifications, appeal_attachments, appeals, org_freezes,
       project_tasks, projects,
       upload_intents, document_versions, documents, document_types,
-      announcements, audit_logs, refresh_tokens, password_reset_tokens, memberships, users,
+      announcements, audit_logs, refresh_tokens, password_reset_tokens, recovery_codes,
+      officer_terms, users,
       organizations, colleges
     RESTART IDENTITY CASCADE`);
 }
@@ -30,6 +31,51 @@ export async function createTaskDocumentTypes(client: Db) {
 export const TERM_START = new Date('2026-08-01');
 export const TERM_END = new Date('2027-07-31');
 
+/**
+ * An organization's shared account, with its officer-in-charge for the current term. Locked
+ * or deactivated accounts act for nobody.
+ */
+export async function createAccount(
+  client: Db,
+  email: string,
+  organizationId: string,
+  {
+    passwordHash = 'x',
+    locked = false,
+    disabled = false,
+    mustChangePassword = false,
+  }: {
+    passwordHash?: string;
+    locked?: boolean;
+    disabled?: boolean;
+    mustChangePassword?: boolean;
+  } = {},
+) {
+  const user = await client.user.create({
+    data: {
+      email,
+      name: email.split('@')[0]!,
+      passwordHash,
+      organizationId,
+      mustChangePassword,
+      lockedAt: locked ? new Date() : null,
+      disabledAt: disabled ? new Date() : null,
+    },
+  });
+  await client.officerTerm.create({
+    data: {
+      userId: user.id,
+      organizationId,
+      officerName: `${user.name} officer`,
+      officerPosition: 'President',
+      officerEmail: `officer.${email}`,
+      termStart: TERM_START,
+      termEnd: TERM_END,
+    },
+  });
+  return user;
+}
+
 export interface TestDocumentInput {
   organizationId: string;
   typeId: string;
@@ -39,7 +85,7 @@ export interface TestDocumentInput {
   academicYear?: string;
   deleted?: boolean;
   /** Defaults to public, so status alone decides what the public sees. */
-  visibility?: 'public' | 'members' | 'private';
+  visibility?: 'public' | 'governing' | 'private';
 }
 
 /** The scan state of version 1 that each document status implies. */
@@ -144,32 +190,16 @@ export async function buildWorld(client: Db) {
     },
   });
 
-  const user = (email: string) =>
-    client.user.create({ data: { email, name: email, passwordHash: 'x' } });
-  const officer = await user('officer@test.local');
-  const governor = await user('governor@test.local');
-  const outsider = await user('outsider@test.local');
-
-  await client.membership.create({
-    data: {
-      userId: officer.id,
-      organizationId: jpice.id,
-      role: 'officer',
-      isHead: true,
-      termStart: TERM_START,
-      termEnd: TERM_END,
-    },
-  });
-  await client.membership.create({
-    data: {
-      userId: governor.id,
-      organizationId: cscCea.id,
-      role: 'officer',
-      isHead: true,
-      title: 'Governor',
-      termStart: TERM_START,
-      termEnd: TERM_END,
-    },
+  // One shared account per organization (docs/DOMAIN_RULES.md, "Accounts"). The names are
+  // the old roles, so tests still read as "the officer uploads, the governor decides".
+  const officer = await createAccount(client, 'jpice@test.local', jpice.id);
+  const governor = await createAccount(client, 'csc-cea@test.local', cscCea.id);
+  const isscAccount = await createAccount(client, 'issc@test.local', issc.id);
+  const psmeAccount = await createAccount(client, 'psme@test.local', psme.id);
+  const cscCatAccount = await createAccount(client, 'csc-cat@test.local', cscCat.id);
+  // Signed in, but acting for no organization (like the super admin): sees what the public sees.
+  const outsider = await client.user.create({
+    data: { email: 'outsider@test.local', name: 'outsider', passwordHash: 'x' },
   });
 
   const proposal = await client.documentType.create({
@@ -179,6 +209,13 @@ export async function buildWorld(client: Db) {
     data: { slug: 'accomplishment-report', name: 'Accomplishment report' },
   });
 
+  const uploaderOf = new Map([
+    [jpice.id, officer.id],
+    [psme.id, psmeAccount.id],
+    [cscCea.id, governor.id],
+    [cscCat.id, cscCatAccount.id],
+    [issc.id, isscAccount.id],
+  ]);
   const doc = (
     organizationId: string,
     title: string,
@@ -190,7 +227,8 @@ export async function buildWorld(client: Db) {
       title,
       status,
       typeId: proposal.id,
-      createdById: officer.id,
+      // Uploaded by the organization's own shared account.
+      createdById: uploaderOf.get(organizationId)!,
       ...extra,
     });
 
@@ -199,8 +237,8 @@ export async function buildWorld(client: Db) {
       typeId: report.id,
       academicYear: '2025-2026',
     }),
-    jpiceMembers: await doc(jpice.id, 'JPICE bridge competition proposal', 'available', {
-      visibility: 'members',
+    jpiceGoverning: await doc(jpice.id, 'JPICE bridge competition proposal', 'available', {
+      visibility: 'governing',
     }),
     jpicePrivate: await doc(jpice.id, 'JPICE draft resolution', 'available', {
       visibility: 'private',
@@ -225,7 +263,14 @@ export async function buildWorld(client: Db) {
   return {
     colleges: { cea, cat },
     orgs: { issc, cscCea, cscCat, jpice, psme },
-    users: { officer, governor, outsider },
+    users: {
+      officer,
+      governor,
+      outsider,
+      issc: isscAccount,
+      psme: psmeAccount,
+      cscCat: cscCatAccount,
+    },
     types: { proposal, report },
     docs,
   };

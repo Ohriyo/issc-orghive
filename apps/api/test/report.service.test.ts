@@ -19,13 +19,15 @@ let s: ReturnType<typeof buildReportService>;
 const officer = () => ({ userId: world.users.officer.id });
 const jpice = () => ({ id: world.orgs.jpice.id, slug: world.orgs.jpice.slug });
 const FIRST = { academicYear: '2026-2027', semester: 'first' as const };
+/** The report prints the day it was generated; pinned so the cover text stays the same. */
+const GENERATED_AT = new Date('2026-10-17T02:00:00Z'); // 10:00 on October 17, Manila
 
 beforeEach(async () => {
   await resetDb(db);
   world = await buildWorld(db);
   await createTaskDocumentTypes(db);
   await ensureReportDocumentType(db);
-  s = buildReportService(db);
+  s = buildReportService(db, () => GENERATED_AT);
 }, SLOW);
 
 /** Queues a report for JPICE's 1st semester and runs the worker's half. */

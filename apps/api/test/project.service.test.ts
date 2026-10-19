@@ -9,11 +9,10 @@ const JPICE = { id: 'jpice', slug: 'jpice' };
 const IECEP = { id: 'iecep', slug: 'iecep' };
 const ACTOR = { userId: 'u1', ip: '10.0.0.1' };
 const VIEWER: DocumentViewer = {
-  kind: 'user',
+  kind: 'account',
   userId: 'u1',
-  isAdmin: false,
-  memberOrgIds: ['jpice'],
-  officerOrgIds: ['jpice'],
+  organizationId: 'jpice',
+  organizationType: 'SBO',
 };
 /** Oct 10, 10:00 Manila: after creation, before the Oct 20 event. */
 const NOW = new Date('2026-10-10T02:00:00Z');
@@ -88,7 +87,12 @@ function setup(found: ProjectRecord | null = record()) {
         new Map(
           ids.map((id) => [
             id,
-            { id, title: 'Proposal', status: 'available' as const, visibility: 'members' as const },
+            {
+              id,
+              title: 'Proposal',
+              status: 'available' as const,
+              visibility: 'governing' as const,
+            },
           ]),
         ),
       ),
@@ -315,7 +319,7 @@ describe('projectService.submitTaskFile', () => {
     );
     await service.submitTaskFile(ACTOR, JPICE, 'p1', 'PROPOSAL', {
       uploadKey: 'uploads/jpice/k2',
-      visibility: 'members',
+      visibility: 'governing',
     });
     expect(documents.addVersion).toHaveBeenCalledWith(
       ACTOR,
@@ -337,7 +341,7 @@ describe('projectService.submitTaskFile', () => {
     );
     await service.submitTaskFile(ACTOR, JPICE, 'p1', 'PROPOSAL', {
       uploadKey: 'k',
-      visibility: 'members',
+      visibility: 'governing',
     });
     expect(documents.create).toHaveBeenCalled();
     expect(projects.linkDocument).toHaveBeenCalledWith('p1', 'PROPOSAL', 'new-doc');

@@ -1,54 +1,38 @@
-import type { MembershipRepository } from '#src/repositories/membership.repository';
+import type { AccountRepository } from '#src/repositories/account.repository';
 import type { OrganizationRepository } from '#src/repositories/organization.repository';
-import { appealDeciderOf, holdsDecidingSeat, type AppellantOrg } from './appeal-rules';
+import { appealDeciderOf, type AppellantOrg } from './appeal-rules';
 
 export interface RecipientsDeps {
-  memberships: Pick<MembershipRepository, 'findActiveHolders'>;
+  accounts: Pick<AccountRepository, 'findOrganizationAccount'>;
   organizations: Pick<OrganizationRepository, 'listByType'>;
-  now?: () => Date;
 }
 
-const unique = (ids: string[]) => [...new Set(ids)];
+/** Who is told about what: an organization's shared account, and whoever decides its appeals. */
+export function createRecipients({ accounts, organizations }: RecipientsDeps) {
+  async function accountOf(organizationId: string): Promise<string[]> {
+    const account = await accounts.findOrganizationAccount(organizationId);
+    return account ? [account.id] : [];
+  }
 
-/** Who is told about what: an organization's officers, and whoever decides its appeals. */
-export function createRecipients({
-  memberships,
-  organizations,
-  now = () => new Date(),
-}: RecipientsDeps) {
-  async function isscAdmins(): Promise<string[]> {
+  async function isscAccount(): Promise<string[]> {
     const [issc] = await organizations.listByType('ISSC');
-    if (!issc) return [];
-    const holders = await memberships.findActiveHolders(issc.id, now());
-    return unique(holders.filter((h) => h.role === 'admin').map((h) => h.user.id));
+    return issc ? accountOf(issc.id) : [];
   }
 
   return {
-    /** The organization's active officers. */
-    async officersOf(organizationId: string): Promise<string[]> {
-      const holders = await memberships.findActiveHolders(organizationId, now());
-      return unique(holders.filter((h) => h.role === 'officer').map((h) => h.user.id));
-    },
+    /** The organization's active account (none while it has no account, or it is locked). */
+    officersOf: accountOf,
 
     /**
-     * Who decides `appellant`'s appeals now (appeal-rules.ts): the seat holder, or the ISSC
-     * admins while the seat is vacant.
+     * Who decides `appellant`'s appeals now (appeal-rules.ts): the parent organization's
+     * account, or the ISSC account while that seat is vacant. Nobody for the ISSC itself.
      */
     async decidersOf(appellant: AppellantOrg): Promise<{ userIds: string[]; seatFilled: boolean }> {
       const decider = appealDeciderOf(appellant);
-      const deciderType = appellant.type === 'SBO' ? 'CSC' : 'ISSC';
-      const holders = await memberships.findActiveHolders(decider.organizationId, now());
-      const seated = holders.filter((h) =>
-        holdsDecidingSeat(appellant, {
-          role: h.role,
-          isHead: h.isHead,
-          organization: { id: decider.organizationId, type: deciderType },
-        }),
-      );
-      if (seated.length > 0) {
-        return { userIds: unique(seated.map((h) => h.user.id)), seatFilled: true };
-      }
-      return { userIds: await isscAdmins(), seatFilled: false };
+      if (!decider) return { userIds: [], seatFilled: false };
+      const seated = await accountOf(decider.organizationId);
+      if (seated.length > 0) return { userIds: seated, seatFilled: true };
+      return { userIds: await isscAccount(), seatFilled: false };
     },
   };
 }

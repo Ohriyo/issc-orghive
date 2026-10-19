@@ -9,11 +9,10 @@ import { PUBLIC_VIEWER, type DocumentViewer } from '#src/repositories/document-v
 import { createSearchService } from '#src/services/search.service';
 
 const VIEWER: DocumentViewer = {
-  kind: 'user',
+  kind: 'account',
   userId: 'u1',
-  isAdmin: false,
-  memberOrgIds: ['jpice'],
-  officerOrgIds: [],
+  organizationId: 'jpice',
+  organizationType: 'SBO',
 };
 
 function match(overrides: Partial<DocumentSearchMatch> = {}): DocumentSearchMatch {

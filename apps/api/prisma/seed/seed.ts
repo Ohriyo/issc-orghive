@@ -15,7 +15,15 @@ import { pdfText } from '#src/lib/file-processing';
 import { LOGO_CACHE_CONTROL, logoWidthsFor } from '#src/lib/logo';
 import { logoVariantKey } from '#src/lib/public-url';
 import { createDb, type Db } from '#src/repositories/prisma';
-import { ceaSbos, colleges, cscSlug, documentTypes, issc, users, type SeedUserKey } from './data';
+import {
+  colleges,
+  cscSlug,
+  documentTypes,
+  issc,
+  sbosByCollege,
+  accountEmail,
+  officersInCharge,
+} from './data';
 
 const SEED_DIR = import.meta.dirname;
 
@@ -52,12 +60,11 @@ const manifestSchema = z.object({
       semester: semesterSchema,
       // Sample Paperworks stand for the public archive unless a row says otherwise.
       visibility: documentVisibilitySchema.default('public'),
-      createdBy: z.enum(['admin', 'jpice-officer', 'jpice-adviser', 'cea-governor']),
     }),
   ),
 });
 
-/** The academic year starts in August; seeded memberships cover the current one. */
+/** The academic year starts in August; seeded officer terms cover the current one. */
 function currentTerm(now = new Date()) {
   const startYear = now.getUTCMonth() >= 7 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
   return {
@@ -105,16 +112,26 @@ async function seedOrganizations(db: Db) {
     orgIds.set(org.slug, org.id);
   }
 
-  const cea = await db.college.findUniqueOrThrow({ where: { code: 'CEA' } });
-  const cscCea = orgIds.get(cscSlug('cea'))!;
-  for (const sbo of ceaSbos) {
-    const data = { acronym: sbo.acronym, name: sbo.name, description: sbo.description ?? null };
-    const org = await db.organization.upsert({
-      where: { slug: sbo.slug },
-      update: data,
-      create: { type: 'SBO', slug: sbo.slug, parentId: cscCea, collegeId: cea.id, ...data },
-    });
-    orgIds.set(org.slug, org.id);
+  for (const c of colleges) {
+    const college = await db.college.findUniqueOrThrow({ where: { code: c.code } });
+    const csc = orgIds.get(cscSlug(c.slug))!;
+    for (const [index, sbo] of (sbosByCollege[c.code] ?? []).entries()) {
+      const data = { acronym: sbo.acronym, name: sbo.name, description: sbo.description ?? null };
+      const org = await db.organization.upsert({
+        where: { slug: sbo.slug },
+        update: data,
+        // Carousel position only on create: admins may have reordered them since.
+        create: {
+          type: 'SBO',
+          slug: sbo.slug,
+          parentId: csc,
+          collegeId: college.id,
+          position: index,
+          ...data,
+        },
+      });
+      orgIds.set(org.slug, org.id);
+    }
   }
   return orgIds;
 }
@@ -187,53 +204,56 @@ async function clearPublicReadCache() {
   }
 }
 
-async function seedUsers(db: Db, orgIds: Map<string, string>) {
+/**
+ * One shared account per organization, each with its officer-in-charge for this term. The
+ * password is SEED_PASSWORD, so every account must replace it on first login.
+ */
+async function seedAccounts(db: Db, orgIds: Map<string, string>) {
   const term = currentTerm();
-  const userIds = new Map<SeedUserKey, string>();
-  for (const u of users) {
+  const passwordHash = await argon2.hash(seedPassword, { type: argon2.argon2id });
+  const accounts = new Map<string, string>();
+  for (const [slug, organizationId] of orgIds) {
+    const org = await db.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { acronym: true },
+    });
+    const email = accountEmail(slug);
     const user = await db.user.upsert({
-      where: { email: u.email },
-      update: { name: u.name },
+      where: { email },
+      update: { name: org.acronym, organizationId },
       create: {
-        email: u.email,
-        name: u.name,
-        passwordHash: await argon2.hash(seedPassword, { type: argon2.argon2id }),
-        // SEED_PASSWORD is shared, so every seeded account must replace it on first login.
+        email,
+        name: org.acronym,
+        organizationId,
+        passwordHash,
         mustChangePassword: true,
       },
     });
-    userIds.set(u.key, user.id);
+    accounts.set(slug, user.id);
 
-    const organizationId = orgIds.get(u.org)!;
-    await db.membership.upsert({
-      where: {
-        userId_organizationId_role_termStart: {
+    const officer = officersInCharge[slug] ?? {
+      name: 'Not on record',
+      position: 'Officer-in-charge',
+    };
+    const open = await db.officerTerm.findFirst({ where: { userId: user.id, endedAt: null } });
+    if (!open) {
+      await db.officerTerm.create({
+        data: {
           userId: user.id,
           organizationId,
-          role: u.role,
+          officerName: officer.name,
+          officerPosition: officer.position,
+          officerEmail: email,
           termStart: term.start,
+          termEnd: term.end,
         },
-      },
-      update: { isHead: u.isHead, title: u.title, termEnd: u.openEnded ? null : term.end },
-      create: {
-        userId: user.id,
-        organizationId,
-        role: u.role,
-        isHead: u.isHead,
-        title: u.title,
-        termStart: term.start,
-        termEnd: u.openEnded ? null : term.end,
-      },
-    });
+      });
+    }
   }
-  return userIds;
+  return accounts;
 }
 
-async function seedDocuments(
-  db: Db,
-  orgIds: Map<string, string>,
-  userIds: Map<SeedUserKey, string>,
-) {
+async function seedDocuments(db: Db, orgIds: Map<string, string>, accounts: Map<string, string>) {
   const types = new Map<string, string>();
   for (const t of documentTypes) {
     const row = await db.documentType.upsert({
@@ -280,7 +300,8 @@ async function seedDocuments(
       );
     }
 
-    const createdById = userIds.get(doc.createdBy)!;
+    // A document is uploaded by its organization's shared account.
+    const createdById = accounts.get(doc.org)!;
     // Seed files are known to be clean, so the documents are available straight away.
     const document = await db.document.create({
       data: {
@@ -325,19 +346,19 @@ async function main() {
   const db = createDb(config.DATABASE_URL);
   try {
     const orgIds = await seedOrganizations(db);
-    const userIds = await seedUsers(db, orgIds);
-    const docs = await seedDocuments(db, orgIds, userIds);
+    const accounts = await seedAccounts(db, orgIds);
+    const docs = await seedDocuments(db, orgIds, accounts);
     const logos = await seedLogos(db);
     await clearPublicReadCache();
     console.log(
-      `Seeded ${orgIds.size} organizations, ${colleges.length} colleges, ${users.length} users.`,
+      `Seeded ${orgIds.size} organizations, ${colleges.length} colleges, ${accounts.size} accounts (one per organization).`,
     );
     console.log(`Logos: ${logos} updated. Public read cache cleared.`);
     console.log(
       `Sample documents: ${docs.created} created, ${docs.total - docs.created} already present.`,
     );
     console.log(
-      `Sign-in emails: ${users.map((u) => u.email).join(', ')} (password: SEED_PASSWORD)`,
+      `Sign in as <organization slug>@orghive.local, e.g. ${accountEmail('jpice')}, ${accountEmail('csc-cea')}, ${accountEmail('issc')} (password: SEED_PASSWORD)`,
     );
   } finally {
     await db.$disconnect();

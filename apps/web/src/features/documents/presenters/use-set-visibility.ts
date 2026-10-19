@@ -15,15 +15,15 @@ export interface SetVisibility {
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 403) {
-    return 'Only officers of this organization can change who sees its documents.';
+    return 'Only this organization’s own account can change who sees its documents.';
   }
   if (error instanceof ApiError && (error.status === 0 || error.status < 500)) return error.message;
   return 'Something went wrong on our side. Try again in a moment.';
 }
 
 /**
- * PATCH /documents/:id/visibility for the organization's officers. The API refuses admins;
- * views only offer the control to officers. Every document list and the dashboard refresh.
+ * PATCH /documents/:id/visibility for the organization's own account. The API refuses every
+ * other account; views only offer the control to it. Every document list and the dashboard refresh.
  */
 export function useSetVisibility(): SetVisibility {
   const queryClient = useQueryClient();

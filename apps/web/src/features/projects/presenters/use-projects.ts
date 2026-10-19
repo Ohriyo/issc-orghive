@@ -61,11 +61,9 @@ export function sortForWork(projects: ProjectSummary[]): ProjectSummary[] {
   );
 }
 
-/** Officers create projects and file tasks; admins too (audited on the API). */
+/** The organization's own account creates projects and files tasks; nobody else. */
 export function canManageProjects(data: DashboardResponse, orgId: string): boolean {
-  return (
-    data.isAdmin || data.memberships.some((m) => m.organizationId === orgId && m.role === 'officer')
-  );
+  return data.organizations.some((o) => o.organization.id === orgId);
 }
 
 export function projectsHref(slug: string): string {

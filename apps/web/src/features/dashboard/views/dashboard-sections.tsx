@@ -6,6 +6,7 @@ import {
   Eye,
   FileUp,
   Gavel,
+  ListChecks,
   Settings,
   ShieldAlert,
   type LucideIcon,
@@ -18,6 +19,7 @@ import { STATUS_STYLE } from '@/components/status-style';
 import { cn } from '@/lib/utils';
 import type {
   ActivityItem,
+  SemesterView,
   AttentionItem,
   RecentDocument,
   RolePanel,
@@ -33,12 +35,12 @@ const dateFormat = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
 /** A shape cue per tile, so a tile never relies on color alone. */
 const TILE_DOT: Record<TileKey, string> = {
   public: 'rounded-full bg-leaf',
-  members: 'rounded-full border-2 border-leaf',
+  governing: 'rounded-full border-2 border-leaf',
   private: 'rounded-sm bg-ink-muted',
   quarantined: STATUS_STYLE.quarantined.dot,
 };
 
-/** Public, Members only, Private, Blocked by scan: each opens My documents filtered to it. */
+/** Public, Governing bodies, Private, Blocked by scan: each opens My documents filtered to it. */
 export function StatTiles({ tiles }: { tiles: StatTile[] }) {
   return (
     <ul
@@ -287,6 +289,91 @@ export function RecentActivity({
   );
 }
 
+/**
+ * "This semester" for an officer: the organization's projects by status, and the next three
+ * deadlines with how far off each is. One panel, so it reads as one summary.
+ */
+export function ThisSemester({ semester }: { semester: SemesterView }) {
+  const total = semester.counts.reduce((sum, c) => sum + c.count, 0);
+  return (
+    <section
+      aria-labelledby="semester-heading"
+      className="grid gap-6 rounded-2xl bg-white p-5 shadow-pool ring-1 ring-ink/10 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:gap-10 md:p-6"
+    >
+      <div>
+        <h2 id="semester-heading" className={SECTION_TITLE}>
+          This semester
+        </h2>
+        <p className="mt-1 text-small text-ink-muted">{semester.label}</p>
+        {total === 0 ? (
+          <p className="mt-4 text-body text-ink">No projects with an event this semester yet.</p>
+        ) : (
+          <dl className="mt-4 grid grid-cols-3 divide-x divide-border">
+            {semester.counts.map((c) => (
+              <div key={c.status} className="px-3 first:pl-0">
+                <dt className="text-small text-ink-muted">{c.label}</dt>
+                <dd
+                  className={cn(
+                    'mt-1 text-h2 leading-none font-bold tabular-nums',
+                    c.status === 'blocked' && c.count > 0 ? 'text-destructive' : 'text-ink',
+                  )}
+                >
+                  {c.count}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        <OriginLink
+          to={semester.projectsHref}
+          className={cn(TEXT_LINK, 'mt-5 inline-block text-small')}
+        >
+          All projects
+        </OriginLink>
+      </div>
+      <div>
+        <h3 className="text-body font-semibold text-ink">Next deadlines</h3>
+        {semester.deadlines.length === 0 ? (
+          <p className="mt-3 text-body text-ink-muted">Nothing is due. Every open task is filed.</p>
+        ) : (
+          <ol className="mt-2 flex flex-col">
+            {semester.deadlines.map((d) => (
+              <li
+                key={d.key}
+                className="flex items-baseline gap-4 border-t border-border py-3 first:border-t-0"
+              >
+                <time
+                  dateTime={d.dueAt}
+                  className={cn(
+                    'w-28 shrink-0 text-small font-semibold tabular-nums',
+                    d.soon ? 'text-caution' : 'text-ink',
+                  )}
+                >
+                  {d.dueLabel}
+                  <span className="block font-normal text-ink-muted">{d.when}</span>
+                </time>
+                <span className="min-w-0">
+                  <span className="block text-body font-medium text-ink">{d.task}</span>
+                  {/* Its own 44px line: tap-area alone leaves small text under the minimum. */}
+                  <OriginLink
+                    to={d.href}
+                    className={cn(
+                      TEXT_LINK,
+                      'inline-flex min-h-11 items-center text-small break-words',
+                    )}
+                  >
+                    {d.projectName}
+                  </OriginLink>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /** Extra work that comes with a role. Each panel renders only when its role applies. */
 const PANEL_TEXT: Record<
   RolePanel['kind'],
@@ -297,6 +384,12 @@ const PANEL_TEXT: Record<
     title: 'Appeals',
     body: 'Blocked projects and frozen organizations waiting for your decision.',
     action: 'Open appeals',
+  },
+  overview: {
+    icon: ListChecks,
+    title: 'Compliance overview',
+    body: 'Projects, deadlines, freezes and appeals of the organizations your council oversees.',
+    action: 'Open overview',
   },
   admin: {
     icon: Settings,

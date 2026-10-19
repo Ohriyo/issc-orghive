@@ -3,7 +3,10 @@ import {
   changePasswordRequestSchema,
   forgotPasswordRequestSchema,
   loginRequestSchema,
+  mfaSetupRequestSchema,
+  mfaVerifyRequestSchema,
   resetPasswordRequestSchema,
+  type MfaSetupResponse,
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 import { REFRESH_COOKIE, REFRESH_COOKIE_OPTIONS as refreshCookie } from '#src/lib/refresh-cookie';
@@ -36,7 +39,28 @@ function sendSession(res: Response, session: SessionResult) {
 export function createAuthController(auth: AuthService) {
   const login: RequestHandler = async (req, res) => {
     const body = loginRequestSchema.parse(req.body);
-    sendSession(res, await auth.login(body, context(req)));
+    const result = await auth.login(body, context(req));
+    // A super admin's code step: no cookie, no token until the code is right.
+    if (result.kind === 'mfa') res.json(result.challenge);
+    else sendSession(res, result.session);
+  };
+
+  const verifyMfa: RequestHandler = async (req, res) => {
+    const body = mfaVerifyRequestSchema.parse(req.body);
+    sendSession(res, await auth.verifyMfa(body, context(req)));
+  };
+
+  const confirmMfaSetup: RequestHandler = async (req, res) => {
+    const { code } = mfaSetupRequestSchema.parse(req.body);
+    const claims = authOf(res);
+    const { recoveryCodes, ...session } = await auth.confirmMfaSetup(
+      claims.userId,
+      claims.sessionId,
+      code,
+      context(req),
+    );
+    setRefreshCookie(res, session.refresh);
+    res.json({ ...session.auth, recoveryCodes } satisfies MfaSetupResponse);
   };
 
   const refresh: RequestHandler = async (req, res) => {
@@ -80,5 +104,15 @@ export function createAuthController(auth: AuthService) {
     res.json(await auth.me(authOf(res).userId));
   };
 
-  return { login, refresh, logout, forgotPassword, resetPassword, changePassword, me };
+  return {
+    login,
+    verifyMfa,
+    confirmMfaSetup,
+    refresh,
+    logout,
+    forgotPassword,
+    resetPassword,
+    changePassword,
+    me,
+  };
 }

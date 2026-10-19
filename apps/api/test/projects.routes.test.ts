@@ -6,7 +6,7 @@ import type { Storage } from '#src/lib/storage';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrgFreezeRepository } from '#src/repositories/org-freeze.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createProjectRepository } from '#src/repositories/project.repository';
@@ -38,6 +38,7 @@ const storage: Storage = {
   },
   read: () => Promise.reject(new Error('not used')),
   put: () => Promise.resolve(),
+  copy: () => Promise.resolve(),
   move: () => Promise.resolve(),
   delete: () => Promise.resolve(),
 };
@@ -49,57 +50,35 @@ const queue = {
   },
 };
 
-type Who = 'student' | 'officer' | 'adviser' | 'psmeOfficer' | 'admin';
+/** JPICE's account, its CSC (governor), a sibling SBO, the ISSC (admin), and no organization. */
+type Who = 'student' | 'officer' | 'governor' | 'psmeOfficer' | 'admin';
 let world: World;
 let app: ReturnType<typeof buildTestApp>;
 const userIds = {} as Record<Who, string>;
 const tokenOf = {} as Record<Who, string>;
 
 const today = manilaDate(new Date());
-const daysFromNow = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
 beforeAll(async () => {
   await resetDb(db);
   world = await buildWorld(db);
   await createTaskDocumentTypes(db);
-  const current = { termStart: daysFromNow(-60), termEnd: daysFromNow(300) };
-  const people: [Who, string | null, 'officer' | 'adviser' | 'admin'][] = [
-    ['student', null, 'officer'],
-    ['officer', world.orgs.jpice.id, 'officer'],
-    ['adviser', world.orgs.jpice.id, 'adviser'],
-    ['psmeOfficer', world.orgs.psme.id, 'officer'],
-    ['admin', world.orgs.issc.id, 'admin'],
-  ];
-  for (const [key, orgId, role] of people) {
-    const user = await db.user.create({
-      data: { email: `${key}@projects.test`, name: key, passwordHash: 'x' },
-    });
-    if (orgId) {
-      await db.membership.create({
-        data: {
-          userId: user.id,
-          organizationId: orgId,
-          role,
-          ...current,
-          ...(role === 'admin' && { termEnd: null }),
-        },
-      });
-    }
-    userIds[key] = user.id;
-    tokenOf[key] = (
-      await tokens.sign({
-        userId: user.id,
-        roles: [],
-        isAdmin: false,
-        passwordChangeRequired: false,
-      })
-    ).token;
+  const people: Record<Who, string> = {
+    student: world.users.outsider.id,
+    officer: world.users.officer.id,
+    governor: world.users.governor.id,
+    psmeOfficer: world.users.psme.id,
+    admin: world.users.issc.id,
+  };
+  for (const [key, userId] of Object.entries(people) as [Who, string][]) {
+    userIds[key] = userId;
+    tokenOf[key] = (await tokens.sign({ userId, passwordChangeRequired: false })).token;
   }
 
-  const memberships = createMembershipRepository(db);
+  const accounts = createAccountRepository(db);
   const organizations = createOrganizationRepository(db);
   const audit = createAuditLogRepository(db);
-  const viewers = createDocumentViewerService({ memberships });
+  const viewers = createDocumentViewerService({ accounts });
   const uploads = createUploadService({ intents: createUploadIntentRepository(db), storage });
   const documentTypes = createDocumentTypeRepository(db);
   const documents = createDocumentService({
@@ -118,11 +97,10 @@ beforeAll(async () => {
     uploads,
     documents,
     access: createAccessService({
-      memberships,
+      accounts,
       organizations,
       documents: documentRepo,
       projects: projectRepo,
-      audit,
     }),
     projects: createProjectService({
       projects: projectRepo,
@@ -171,7 +149,7 @@ async function fileTask(
   projectId: string,
   type: ProjectTaskType,
   who: Who = 'officer',
-  visibility = 'members',
+  visibility = 'governing',
 ) {
   const url = await call('post', `/projects/${projectId}/tasks/${type}/upload-url`, who, PDF);
   expect(url.status, JSON.stringify(url.body)).toBe(201);
@@ -192,7 +170,12 @@ async function scanClean(documentId: string) {
   });
   await documentRepo.markClean(
     doc.versions[0]!.id,
-    { sha256: 'a'.repeat(64), thumbnailKey: null, contentText: null },
+    {
+      storageKey: `files/test/${doc.versions[0]!.id}`,
+      sha256: 'a'.repeat(64),
+      thumbnailKey: null,
+      contentText: null,
+    },
     new Date(),
   );
   await projectSync.documentScanned(documentId);
@@ -215,27 +198,27 @@ describe('project authorization', () => {
     [
       'list projects',
       (who) => call('get', '/organizations/jpice/projects', who),
-      { anonymous: 401, student: 403, psmeOfficer: 403, adviser: 200, officer: 200, admin: 200 },
+      { anonymous: 401, student: 403, psmeOfficer: 403, governor: 200, officer: 200, admin: 200 },
     ],
     [
       'read a project',
       (who) => call('get', `/projects/${project.id}`, who),
-      { anonymous: 401, student: 403, psmeOfficer: 403, adviser: 200, officer: 200, admin: 200 },
+      { anonymous: 401, student: 403, psmeOfficer: 403, governor: 200, officer: 200, admin: 200 },
     ],
     [
       'create a project',
       (who) => call('post', '/organizations/jpice/projects', who, projectBody()),
-      { anonymous: 401, student: 403, psmeOfficer: 403, adviser: 403, officer: 201, admin: 201 },
+      { anonymous: 401, student: 403, psmeOfficer: 403, governor: 403, officer: 201, admin: 403 },
     ],
     [
       'edit a project',
       (who) => call('patch', `/projects/${project.id}`, who, { location: 'Gym' }),
-      { anonymous: 401, student: 403, psmeOfficer: 403, adviser: 403, officer: 200, admin: 200 },
+      { anonymous: 401, student: 403, psmeOfficer: 403, governor: 403, officer: 200, admin: 403 },
     ],
     [
       'get a task upload URL',
       (who) => call('post', `/projects/${project.id}/tasks/PROPOSAL/upload-url`, who, PDF),
-      { anonymous: 401, student: 403, psmeOfficer: 403, adviser: 403, officer: 201, admin: 201 },
+      { anonymous: 401, student: 403, psmeOfficer: 403, governor: 403, officer: 201, admin: 403 },
     ],
     [
       'file a task document',
@@ -245,7 +228,7 @@ describe('project authorization', () => {
           visibility: 'public',
         }),
       // Authorized users get past the guard; the unknown upload key is then a 400.
-      { anonymous: 401, student: 403, psmeOfficer: 403, adviser: 403, officer: 400, admin: 400 },
+      { anonymous: 401, student: 403, psmeOfficer: 403, governor: 403, officer: 400, admin: 403 },
     ],
   ];
 
@@ -349,22 +332,22 @@ describe('submitting tasks through the document pipeline', () => {
   it('submits the proposal once its file passes the scan, which unlocks NOM and MOM', async () => {
     const project = await newProject({ nomRequired: true, momRequired: true });
 
-    const afterUpload = await fileTask(project.id, 'PROPOSAL', 'officer', 'members');
+    const afterUpload = await fileTask(project.id, 'PROPOSAL', 'officer', 'governing');
     const proposal = afterUpload.tasks[0]!;
-    // Still open while the scan runs; only the uploader sees the file.
+    // Still open while the scan runs; only the organization sees the file.
     expect(proposal).toMatchObject({ status: 'open', document: { status: 'scanning' } });
-    const asAdviser = (await call('get', `/projects/${project.id}`, 'adviser').expect(200))
+    const asCsc = (await call('get', `/projects/${project.id}`, 'governor').expect(200))
       .body as ProjectDetail;
-    expect(asAdviser.tasks[0]).toMatchObject({ status: 'open', document: null });
-    expect(statusOf(asAdviser, 'NOM')).toBe('locked');
+    expect(asCsc.tasks[0]).toMatchObject({ status: 'open', document: null });
+    expect(statusOf(asCsc, 'NOM')).toBe('locked');
 
     await scanClean(proposal.document!.id);
 
-    const after = (await call('get', `/projects/${project.id}`, 'adviser').expect(200))
+    const after = (await call('get', `/projects/${project.id}`, 'governor').expect(200))
       .body as ProjectDetail;
     expect(after.tasks[0]).toMatchObject({
       status: 'submitted',
-      document: { status: 'available', visibility: 'members' },
+      document: { status: 'available', visibility: 'governing' },
     });
     expect(after.tasks[0]!.submittedAt).not.toBeNull();
     expect(statusOf(after, 'NOM')).toBe('open');
@@ -375,7 +358,7 @@ describe('submitting tasks through the document pipeline', () => {
     const doc = await db.document.findUniqueOrThrow({ where: { id: proposal.document!.id } });
     expect(doc).toMatchObject({
       organizationId: world.orgs.jpice.id,
-      visibility: 'members',
+      visibility: 'governing',
       status: 'available',
       title: `Project Proposal: ${project.name}`,
     });
@@ -384,7 +367,9 @@ describe('submitting tasks through the document pipeline', () => {
     });
     expect(stored).toMatchObject({ status: 'submitted', documentId: doc.id });
     await call('get', `/documents/${doc.id}`).expect(404);
-    await call('get', `/documents/${doc.id}`, 'adviser').expect(200);
+    // A governing file: its CSC sees it, a sibling SBO does not.
+    await call('get', `/documents/${doc.id}`, 'governor').expect(200);
+    await call('get', `/documents/${doc.id}`, 'psmeOfficer').expect(404);
   });
 
   it('refuses a locked task, a task the project does not need, and non-PDF files', async () => {
@@ -427,20 +412,6 @@ describe('submitting tasks through the document pipeline', () => {
     const second = await fileTask(project.id, 'PROPOSAL');
     expect(second.tasks[0]).toMatchObject({ status: 'submitted', document: { id: docId } });
     expect(await db.documentVersion.count({ where: { documentId: docId } })).toBe(2);
-  });
-
-  it('does not let another officer replace a file still being scanned', async () => {
-    const project = await newProject();
-    await fileTask(project.id, 'PROPOSAL', 'officer');
-    const { uploadKey } = (
-      await call('post', `/projects/${project.id}/tasks/PROPOSAL/upload-url`, 'admin', PDF).expect(
-        201,
-      )
-    ).body as { uploadKey: string };
-    await call('post', `/projects/${project.id}/tasks/PROPOSAL/documents`, 'admin', {
-      uploadKey,
-      visibility: 'public',
-    }).expect(409);
   });
 });
 

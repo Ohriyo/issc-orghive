@@ -20,18 +20,19 @@ import { testKeys } from './auth-fixtures';
 const USER = '0195f3c0-0000-7000-8000-000000000001';
 const DOC = '0195f3c0-0000-7000-8000-0000000000d1';
 const PROJECT = '0195f3c0-0000-7000-8000-0000000000c1';
+const UPDATE = '0195f3c0-0000-7000-8000-0000000000a9';
 const JPICE = { id: '0195f3c0-0000-7000-8000-0000000000aa', slug: 'jpice' };
 const tokens = createTokenService(testKeys());
 
 /** An access service that knows one organization and one document, and allows `allow`. */
 function fakeAccess(allow: boolean) {
-  const decide = () =>
-    allow ? Promise.resolve('membership' as const) : Promise.reject(AppError.forbidden());
+  const decide = () => (allow ? Promise.resolve() : Promise.reject(AppError.forbidden()));
   return {
     resolveBySlug: vi.fn((slug: string) => Promise.resolve(slug === 'jpice' ? JPICE : null)),
     resolveByDocument: vi.fn((id: string) => Promise.resolve(id === DOC ? JPICE : null)),
     resolveByProject: vi.fn((id: string) => Promise.resolve(id === PROJECT ? JPICE : null)),
-    requireRole: vi.fn(decide),
+    resolveByAnnouncement: vi.fn((id: string) => Promise.resolve(id === UPDATE ? JPICE : null)),
+    requireOrgAccess: vi.fn(decide),
     requireAdmin: vi.fn(() => (allow ? Promise.resolve() : Promise.reject(AppError.forbidden()))),
     requireActive: vi.fn(() => Promise.resolve()),
   } satisfies AccessService;
@@ -40,24 +41,14 @@ function fakeAccess(allow: boolean) {
 /** Mutating routes guarded the way CLAUDE.md requires. */
 function guardedApp(access: AccessService) {
   const app = express();
-  const { requireOrgRole, requireOwnOrgRole } = createOrgGuards(access);
+  const { requireOwnOrg, requireOrgOrGoverning } = createOrgGuards(access);
   const ok: express.RequestHandler = (_req, res) => {
     res.json({ userId: authOf(res).userId, org: orgOf(res).slug });
   };
-  app.post('/orgs/:slug/documents', requireAuth(tokens), requireOrgRole('officer'), ok);
-  app.patch(
-    '/documents/:documentId',
-    requireAuth(tokens),
-    requireOrgRole('officer', 'adviser'),
-    ok,
-  );
-  app.patch('/projects/:projectId', requireAuth(tokens), requireOrgRole('officer'), ok);
-  app.patch(
-    '/documents/:documentId/visibility',
-    requireAuth(tokens),
-    requireOwnOrgRole('officer'),
-    ok,
-  );
+  app.post('/orgs/:slug/documents', requireAuth(tokens), requireOwnOrg, ok);
+  app.patch('/documents/:documentId', requireAuth(tokens), requireOrgOrGoverning, ok);
+  app.patch('/projects/:projectId', requireAuth(tokens), requireOwnOrg, ok);
+  app.patch('/documents/:documentId/visibility', requireAuth(tokens), requireOwnOrg, ok);
   app.get('/maybe', optionalAuth(tokens), (_req, res) => {
     res.json({ userId: maybeAuthOf(res)?.userId ?? null });
   });
@@ -68,8 +59,6 @@ function guardedApp(access: AccessService) {
 async function tokenFor(opts: { passwordChangeRequired?: boolean } = {}) {
   const { token } = await tokens.sign({
     userId: USER,
-    roles: [],
-    isAdmin: false,
     passwordChangeRequired: opts.passwordChangeRequired ?? false,
   });
   return token;
@@ -119,20 +108,14 @@ describe('optionalAuth', () => {
 describe('org guards', () => {
   const auth = async () => `Bearer ${await tokenFor()}`;
 
-  it('resolves the organization from :slug and checks the roles against it', async () => {
+  it('resolves the organization from :slug and checks the account against it', async () => {
     const access = fakeAccess(true);
     const res = await request(guardedApp(access))
       .post('/orgs/jpice/documents')
       .set('Authorization', await auth())
       .expect(200);
     expect(res.body).toEqual({ userId: USER, org: 'jpice' });
-    expect(access.requireRole).toHaveBeenCalledWith(
-      USER,
-      JPICE,
-      ['officer'],
-      expect.objectContaining({ method: 'POST', route: '/orgs/:slug/documents' }),
-      { adminOverride: true },
-    );
+    expect(access.requireOrgAccess).toHaveBeenCalledWith(USER, JPICE, 'own');
   });
 
   it("resolves the organization from the document's organization", async () => {
@@ -142,13 +125,7 @@ describe('org guards', () => {
       .set('Authorization', await auth())
       .expect(200);
     expect(access.resolveByDocument).toHaveBeenCalledWith(DOC);
-    expect(access.requireRole).toHaveBeenCalledWith(
-      USER,
-      JPICE,
-      ['officer', 'adviser'],
-      expect.objectContaining({ route: '/documents/:documentId' }),
-      { adminOverride: true },
-    );
+    expect(access.requireOrgAccess).toHaveBeenCalledWith(USER, JPICE, 'governing');
   });
 
   it("resolves the organization from the project's organization", async () => {
@@ -180,7 +157,7 @@ describe('org guards', () => {
       .patch(`/documents/${crypto.randomUUID()}`)
       .set('Authorization', await auth())
       .expect(404);
-    expect(access.requireRole).not.toHaveBeenCalled();
+    expect(access.requireOrgAccess).not.toHaveBeenCalled();
   });
 
   it('400s a malformed :documentId or :slug', async () => {
@@ -207,18 +184,12 @@ describe('org guards', () => {
       .expect(403);
   });
 
-  it('turns the admin override off for requireOwnOrgRole', async () => {
+  it('asks for the organization’s own account on a visibility change', async () => {
     const access = fakeAccess(true);
     await request(guardedApp(access))
       .patch(`/documents/${DOC}/visibility`)
       .set('Authorization', await auth())
       .expect(200);
-    expect(access.requireRole).toHaveBeenCalledWith(
-      USER,
-      JPICE,
-      ['officer'],
-      expect.objectContaining({ route: '/documents/:documentId/visibility' }),
-      { adminOverride: false },
-    );
+    expect(access.requireOrgAccess).toHaveBeenCalledWith(USER, JPICE, 'own');
   });
 });

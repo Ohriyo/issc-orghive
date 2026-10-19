@@ -90,7 +90,8 @@ export const adminOrganizationSchema = z
     /** False while deactivated: hidden from browsing, no uploads or new projects. */
     active: z.boolean(),
     documentCount: z.number().int(),
-    memberCount: z.number().int(),
+    /** It has an active shared account (docs/DOMAIN_RULES.md, "Accounts"). */
+    hasAccount: z.boolean(),
   })
   .meta({ id: 'AdminOrganization' });
 export type AdminOrganization = z.infer<typeof adminOrganizationSchema>;

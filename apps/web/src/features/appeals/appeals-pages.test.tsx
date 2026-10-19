@@ -9,13 +9,13 @@ import {
   type Appeal,
   type AuthResponse,
   type DashboardResponse,
-  type MembershipRole,
   type NotificationListResponse,
   type OrganizationCompliance,
   type ProjectDetail,
 } from '@orghive/shared';
 import { routes } from '@/app/router';
 import { authStore } from '@/lib/auth-store';
+import { accountSession, NO_COUNTS, TEST_ORGS } from '@/test/accounts';
 import { toComplianceSummary } from './presenters/appeal-format';
 
 const JPICE_ID = '0195f3c0-0000-7000-8000-0000000000a1';
@@ -28,58 +28,48 @@ const today = manilaDate(new Date());
 const JPICE = { type: 'SBO' as const, slug: 'jpice', acronym: 'JPICE', name: 'JPICE full name' };
 const CSC = { type: 'CSC' as const, slug: 'csc-cea', acronym: 'CSC-CEA', name: 'CSC of CEA' };
 
-type Who = 'officer' | 'adviser' | 'governor';
+/** `officer`: JPICE's own account. `governor`: CSC-CEA's account, which decides its appeals. */
+type Who = 'officer' | 'governor';
+
+function orgOf(who: Who) {
+  return who === 'governor'
+    ? { ...TEST_ORGS.cscCea, ...CSC, id: CSC_ID }
+    : { ...TEST_ORGS.jpice, ...JPICE, id: JPICE_ID };
+}
 
 function session(who: Who): AuthResponse {
-  const governor = who === 'governor';
-  const role: MembershipRole = who === 'adviser' ? 'adviser' : 'officer';
-  const orgId = governor ? CSC_ID : JPICE_ID;
-  return {
-    accessToken: 'test-token',
-    expiresIn: 900,
-    user: {
-      id: '0195f3c0-0000-7000-8000-000000000001',
-      name: 'Juan Dela Cruz',
-      email: 'juan@nwssu.test',
-      mustChangePassword: false,
-      roles: [{ orgId, role, isHead: governor }],
-      memberships: [
-        {
-          orgId,
-          orgSlug: governor ? 'csc-cea' : 'jpice',
-          orgAcronym: governor ? 'CSC-CEA' : 'JPICE',
-          role,
-          isHead: governor,
-          title: governor ? 'Governor' : null,
-        },
-      ],
-    },
-  };
+  return accountSession('own', orgOf(who));
 }
 
 function dashboard(who: Who): DashboardResponse {
   const governor = who === 'governor';
-  const org = governor ? { ...CSC, id: CSC_ID } : { ...JPICE, id: JPICE_ID };
+  const org = orgOf(who);
   return {
-    memberships: [
-      {
-        organizationId: org.id,
-        role: who === 'adviser' ? 'adviser' : 'officer',
-        isHead: governor,
-        title: null,
-        termEnd: '2027-07-31',
-      },
-    ],
+    term: {
+      officerInCharge: { name: 'Juan Dela Cruz', position: 'President', email: 'juan@nwssu.test' },
+      termEnd: '2027-07-31',
+    },
     organizations: [
       {
-        organization: { ...org, logoUrl: null, logoSrcSet: null },
-        counts: { public: 1, members: 0, private: 0, scanning: 0, quarantined: 0, archived: 0 },
+        organization: {
+          id: org.id,
+          type: org.type,
+          slug: org.slug,
+          acronym: org.acronym,
+          name: org.name,
+          logoUrl: null,
+          logoSrcSet: null,
+        },
+        counts: { ...NO_COUNTS, public: 1 },
         recentDocuments: [],
         quarantined: [],
         activity: [],
+        semester: null,
       },
     ],
-    isAdmin: false,
+    isIssc: false,
+    canSeeCompliance: governor,
+    decidesAppeals: governor,
   };
 }
 
@@ -186,7 +176,7 @@ beforeEach(() => {
   queue = [
     appeal({ status: 'pending', remarks: null, decidedAt: null, decidedBy: null, canDecide: true }),
   ];
-  notifications = { items: [], unreadCount: 0 };
+  notifications = { items: [], unreadCount: 0, nextCursor: null };
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockImplementation((input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -194,7 +184,9 @@ beforeEach(() => {
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined;
     calls.push({ url, method, body });
     if (url.endsWith('/me/dashboard')) return json(dashboard(who));
-    if (url.endsWith('/me/notifications')) return json(notifications);
+    if (new URL(url, 'http://localhost').pathname.endsWith('/me/notifications')) {
+      return json(notifications);
+    }
     if (url.includes('/me/notifications/')) return json(null, 204);
     if (url.endsWith('/organizations/jpice/compliance')) return json(compliance);
     if (url.endsWith('/organizations/jpice/projects')) return json({ items: [] });
@@ -296,8 +288,8 @@ describe('a blocked project page', () => {
     expect(within(section).getByText(/Rejected Oct 17, 2026 by Maria Santos/)).toBeInTheDocument();
   });
 
-  it('gives an adviser the banner without the appeal button', async () => {
-    who = 'adviser';
+  it('gives its CSC the banner without the appeal button', async () => {
+    who = 'governor';
     renderAt(`/projects/${PROJECT_ID}`);
     const banner = await screen.findByRole('region', {
       name: 'Bridge Design Competition is blocked',
@@ -341,11 +333,11 @@ describe('submitting an appeal', () => {
     ).toBeInTheDocument();
   });
 
-  it('refuses an adviser', async () => {
-    who = 'adviser';
+  it('refuses any other account', async () => {
+    who = 'governor';
     renderAt(`/dashboard/appeals/new?org=jpice&project=${PROJECT_ID}`);
     expect(
-      await screen.findByText("Only JPICE's officers submit its appeals."),
+      await screen.findByText('Only the organization’s own account submits its appeals.'),
     ).toBeInTheDocument();
   });
 });
@@ -440,6 +432,7 @@ describe('the dashboard', () => {
 describe('the notification bell', () => {
   it('shows the unread count, and opening one marks it read and goes to its page', async () => {
     notifications = {
+      nextCursor: null,
       unreadCount: 1,
       items: [
         {

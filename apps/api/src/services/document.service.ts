@@ -65,7 +65,6 @@ export interface DocumentServiceDeps {
     | 'create'
     | 'update'
     | 'setVisibility'
-    | 'visibleOnlyAsAdmin'
     | 'softDelete'
     | 'archive'
     | 'restore'
@@ -220,28 +219,6 @@ export function createDocumentService({
     return invalidateDocuments(cache, org.slug);
   }
 
-  /**
-   * Admins may see any available or archived document for support, but each time they see
-   * one only because they are an admin, it is audited (docs/PROJECT_WORKFLOW_SPEC.md 0.1).
-   */
-  async function auditAdminView(
-    viewer: DocumentViewer,
-    reader: Reader,
-    doc: { id: string; organizationId: string; visibility: DocumentVisibility },
-    access: 'view' | 'versions' | 'download',
-  ) {
-    if (viewer.kind !== 'user' || !(await documents.visibleOnlyAsAdmin(viewer, doc.id))) return;
-    await audit.record({
-      action: 'admin_override',
-      actorId: viewer.userId,
-      entityType: 'document',
-      entityId: doc.id,
-      organizationId: doc.organizationId,
-      metadata: { access, visibility: doc.visibility },
-      ip: reader.ip,
-    });
-  }
-
   function auditUpload(actor: Actor, org: OrgRef, documentId: string, file: object) {
     return audit.record({
       action: 'upload',
@@ -302,7 +279,6 @@ export function createDocumentService({
       const viewer = await viewerFor(reader.userId);
       const doc = await documents.findById(viewer, id);
       if (!doc) throw AppError.notFound('Document not found');
-      await auditAdminView(viewer, reader, { ...doc, organizationId: doc.organization.id }, 'view');
       return summarize(doc);
     },
 
@@ -384,7 +360,6 @@ export function createDocumentService({
       const viewer = await viewerFor(reader.userId);
       const found = await documents.listVersions(viewer, id);
       if (!found) throw AppError.notFound('Document not found');
-      await auditAdminView(viewer, reader, { id, ...found }, 'versions');
       return {
         versions: found.versions.map((v) => toDocumentVersion(v, found.currentVersionId)),
       };
@@ -406,7 +381,6 @@ export function createDocumentService({
       if (version.scanStatus !== 'clean') {
         throw AppError.conflict('This file is not available: it has not passed the virus scan');
       }
-      await auditAdminView(viewer, reader, { id, ...version.document }, 'download');
       const url = await storage.presignGet(
         version.storageKey,
         { filename: version.originalFilename, contentType: version.mimeType, disposition },

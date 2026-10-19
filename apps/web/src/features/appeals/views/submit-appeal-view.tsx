@@ -41,7 +41,7 @@ export function SubmitAppealView({ model }: { model: SubmitAppealModel }) {
             <h1 className="mt-8 text-h1 font-bold text-ink">Submit an appeal</h1>
             <p className="mt-4 max-w-prose text-body-lg text-ink">
               {model.status === 'forbidden'
-                ? `Only ${model.orgAcronym}'s officers submit its appeals.`
+                ? 'Only the organization’s own account submits its appeals.'
                 : model.message}
             </p>
             {model.status === 'nothing' ? (

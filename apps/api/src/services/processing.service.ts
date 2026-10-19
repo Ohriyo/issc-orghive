@@ -8,6 +8,54 @@ import type { AppealRepository } from '#src/repositories/appeal.repository';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import type { DocumentRepository, ProcessingRecord } from '#src/repositories/document.repository';
 import type { UploadIntentRepository } from '#src/repositories/upload-intent.repository';
+import type { NotificationService } from './notification.service';
+
+/** Told to the uploader only, like the file itself before its scan passes (DOMAIN_RULES.md). */
+type QuarantineNotifier = Pick<NotificationService, 'notify'>;
+
+const REFUSAL_TEXT: Record<'infected' | 'invalid', string> = {
+  infected: 'the virus scan found something harmful in it',
+  invalid: 'its content does not match its file type',
+};
+
+/**
+ * Where a scanned upload lives: uploads/<org>/<uuid> -> files/<org>/<uuid>. The upload's
+ * pre-signed PUT URL stays valid for minutes after the scan, so the bytes scanned and served
+ * are a copy no upload URL can reach; otherwise a clean file could be swapped for an
+ * unscanned one.
+ */
+export function scannedKeyOf(uploadKey: string): string {
+  if (!uploadKey.startsWith('uploads/')) throw new Error(`Not an upload key: ${uploadKey}`);
+  return `files/${uploadKey.slice('uploads/'.length)}`;
+}
+
+/** files/<org>/<uuid> -> quarantine/<org>/<uuid>: outside every served prefix. */
+function quarantineKeyOf(scannedKey: string): string {
+  return `quarantine/${scannedKey.slice('files/'.length)}`;
+}
+
+/**
+ * Copies the upload and reads the copy: everything after this works on the snapshot. On a
+ * retried job the copy is simply made again; the upload stays until the verdict is saved.
+ */
+async function snapshot(storage: Pick<Storage, 'copy' | 'read'>, uploadKey: string) {
+  const scannedKey = scannedKeyOf(uploadKey);
+  await storage.copy(uploadKey, scannedKey);
+  return { scannedKey, body: await storage.read(scannedKey) };
+}
+
+/** Once the verdict is saved the upload object is not needed; a leftover is never served. */
+async function dropUpload(
+  storage: Pick<Storage, 'delete'>,
+  logger: Pick<Logger, 'warn'>,
+  uploadKey: string,
+) {
+  try {
+    await storage.delete(uploadKey);
+  } catch (err) {
+    logger.warn({ err, uploadKey }, 'Could not delete the upload object after processing');
+  }
+}
 
 /** The content helpers the worker uses (lib/file-processing in production, fakes in tests). */
 export interface FileTools {
@@ -21,7 +69,7 @@ export interface FileTools {
 export interface ProcessingServiceDeps {
   documents: Pick<DocumentRepository, 'findForProcessing' | 'markClean' | 'markRefused'>;
   intents: Pick<UploadIntentRepository, 'listAbandoned' | 'deleteMany'>;
-  storage: Pick<Storage, 'read' | 'put' | 'move' | 'delete'>;
+  storage: Pick<Storage, 'read' | 'put' | 'copy' | 'move' | 'delete'>;
   scanner: VirusScanner;
   tools: FileTools;
   audit: Pick<AuditLogRepository, 'record'>;
@@ -29,6 +77,8 @@ export interface ProcessingServiceDeps {
   logger: Pick<Logger, 'warn' | 'info'>;
   /** Called once a document's file is found clean (project tasks listen; see worker.ts). */
   onDocumentScanned?: (documentId: string) => Promise<void>;
+  /** Tells the uploader when their file is refused. */
+  notifications?: QuarantineNotifier;
   now?: () => Date;
 }
 
@@ -86,16 +136,17 @@ export function createProcessingService({
   cache,
   logger,
   onDocumentScanned = () => Promise.resolve(),
+  notifications,
   now = () => new Date(),
 }: ProcessingServiceDeps) {
   async function refuse(
     rec: ProcessingRecord,
+    scannedKey: string,
     scanStatus: 'infected' | 'invalid',
     reason: string,
   ): Promise<ProcessOutcome> {
-    // uploads/<org>/<uuid> -> quarantine/<org>/<uuid>: outside every served prefix.
-    const quarantineKey = rec.storageKey.replace(/^uploads\//, 'quarantine/');
-    await storage.move(rec.storageKey, quarantineKey);
+    const quarantineKey = quarantineKeyOf(scannedKey);
+    await storage.move(scannedKey, quarantineKey);
     const { quarantinedDocument } = await documents.markRefused(
       rec.id,
       { scanStatus, reason, quarantineKey },
@@ -114,8 +165,17 @@ export function createProcessingService({
         quarantinedDocument,
       },
     });
+    await dropUpload(storage, logger, rec.storageKey);
     await invalidateDocuments(cache, rec.document.organization.slug);
     logger.warn({ versionId: rec.id, scanStatus, reason }, 'Upload refused and quarantined');
+    await notifications?.notify({
+      userIds: [rec.uploadedById],
+      kind: 'upload_quarantined',
+      title: `${rec.originalFilename} was refused`,
+      body: `${rec.originalFilename} (version ${rec.version} of "${rec.document.title}") was quarantined because ${REFUSAL_TEXT[scanStatus]}. Nobody can open it. Upload a clean copy.`,
+      link: `/documents/${rec.document.id}`,
+      dedupeKey: `quarantined:version:${rec.id}`,
+    });
     return scanStatus;
   }
 
@@ -153,12 +213,17 @@ export function createProcessingService({
       const rec = await documents.findForProcessing(versionId);
       if (!rec || rec.scanStatus !== 'pending') return 'skipped';
 
-      const body = await storage.read(rec.storageKey);
+      const { scannedKey, body } = await snapshot(storage, rec.storageKey);
       const verdict = await inspectUpload(body, rec, { scanner, tools });
-      if (!verdict.clean) return refuse(rec, verdict.scanStatus, verdict.reason);
+      if (!verdict.clean) return refuse(rec, scannedKey, verdict.scanStatus, verdict.reason);
 
       const extras = await preview(rec, body);
-      await documents.markClean(versionId, { sha256: tools.sha256Hex(body), ...extras }, now());
+      await documents.markClean(
+        versionId,
+        { storageKey: scannedKey, sha256: tools.sha256Hex(body), ...extras },
+        now(),
+      );
+      await dropUpload(storage, logger, rec.storageKey);
       // A project task's file: its project may move on (the task is submitted).
       await onDocumentScanned(rec.document.id);
       await invalidateDocuments(cache, rec.document.organization.slug);
@@ -192,11 +257,13 @@ export function createPendingRequeue(deps: {
 
 export interface AttachmentProcessingDeps {
   appeals: Pick<AppealRepository, 'findAttachment' | 'markAttachmentScanned'>;
-  storage: Pick<Storage, 'read' | 'move'>;
+  storage: Pick<Storage, 'read' | 'copy' | 'move' | 'delete'>;
   scanner: VirusScanner;
   tools: Pick<FileTools, 'detectMimeType'>;
   audit: Pick<AuditLogRepository, 'record'>;
   logger: Pick<Logger, 'warn' | 'info'>;
+  /** Tells the uploader when their file is refused. */
+  notifications?: QuarantineNotifier;
 }
 
 /**
@@ -210,6 +277,7 @@ export function createAttachmentProcessing({
   tools,
   audit,
   logger,
+  notifications,
 }: AttachmentProcessingDeps) {
   return {
     /** Idempotent: a file no longer pending is skipped. Errors throw so BullMQ retries. */
@@ -217,16 +285,18 @@ export function createAttachmentProcessing({
       const rec = await appeals.findAttachment(attachmentId);
       if (!rec || rec.scanStatus !== 'pending') return 'skipped';
 
-      const body = await storage.read(rec.storageKey);
+      const { scannedKey, body } = await snapshot(storage, rec.storageKey);
       const verdict = await inspectUpload(body, rec, { scanner, tools });
       if (verdict.clean) {
-        await appeals.markAttachmentScanned(rec.id, 'clean');
+        await appeals.markAttachmentScanned(rec.id, 'clean', scannedKey);
+        await dropUpload(storage, logger, rec.storageKey);
         logger.info({ attachmentId }, 'Appeal attachment processed');
         return 'clean';
       }
-      const quarantineKey = rec.storageKey.replace(/^uploads\//, 'quarantine/');
-      await storage.move(rec.storageKey, quarantineKey);
+      const quarantineKey = quarantineKeyOf(scannedKey);
+      await storage.move(scannedKey, quarantineKey);
       await appeals.markAttachmentScanned(rec.id, verdict.scanStatus, quarantineKey);
+      await dropUpload(storage, logger, rec.storageKey);
       await audit.record({
         action: 'quarantine',
         actorId: rec.uploadedById,
@@ -236,6 +306,14 @@ export function createAttachmentProcessing({
         metadata: { scanStatus: verdict.scanStatus, reason: verdict.reason },
       });
       logger.warn({ attachmentId, scanStatus: verdict.scanStatus }, 'Appeal attachment refused');
+      await notifications?.notify({
+        userIds: [rec.uploadedById],
+        kind: 'upload_quarantined',
+        title: `${rec.originalFilename} was refused`,
+        body: `Your appeal attachment ${rec.originalFilename} was quarantined because ${REFUSAL_TEXT[verdict.scanStatus]}. Remove it from the appeal and attach a clean copy.`,
+        link: null,
+        dedupeKey: `quarantined:attachment:${rec.id}`,
+      });
       return verdict.scanStatus;
     },
   };

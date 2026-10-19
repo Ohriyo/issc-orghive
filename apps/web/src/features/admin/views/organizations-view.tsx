@@ -112,7 +112,12 @@ function columnsFor(state: Ready): DataTableColumn<HierarchyRow>[] {
       cell: ({ row }) => <OrderCell row={row.original} />,
     },
     { id: 'documents', header: 'Documents', cell: ({ row }) => row.original.documentCount },
-    { id: 'members', header: 'Members', cell: ({ row }) => row.original.memberCount },
+    {
+      id: 'account',
+      header: 'Account',
+      cell: ({ row }) =>
+        row.original.hasAccount === null ? null : row.original.hasAccount ? 'Active' : 'None',
+    },
     { id: 'status', header: 'Status', cell: ({ row }) => <StatusCell row={row.original} /> },
     {
       id: 'actions',
@@ -183,7 +188,8 @@ function HierarchyList({ rows, state }: { rows: HierarchyRow[]; state: Ready }) 
               <StatusCell row={row} />
               {row.documentCount !== null ? (
                 <span className="text-ink-muted">
-                  {row.documentCount} documents, {row.memberCount} members
+                  {row.documentCount} documents,{' '}
+                  {row.hasAccount ? 'account active' : 'no account yet'}
                 </span>
               ) : null}
             </span>

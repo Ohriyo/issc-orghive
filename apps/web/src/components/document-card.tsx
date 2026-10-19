@@ -26,7 +26,7 @@ export interface DocumentCardProps {
   /** The organization that owns the document. Its hexagon seal sits on the card's band. */
   org?: { name: string; logoSrc?: string; shortName?: string };
   /**
-   * Lifecycle status, for officers and advisers browsing their own Paperworks. Omit it on
+   * Lifecycle status, for an organization's account browsing its own Paperworks. Omit it on
    * public lists. Which viewers may see which status is decided by the presenter.
    */
   status?: DocumentStatus;

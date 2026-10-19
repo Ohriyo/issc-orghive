@@ -27,6 +27,7 @@ function facts(overrides: Partial<ProjectFacts> = {}, filed: ProjectTaskType[] =
     targetDate: '2026-10-20',
     nomRequired: false,
     momRequired: false,
+    exemptFromCompliance: false,
     proposalDueOverride: null,
     postEventDueOverride: null,
     filed: new Set(filed),
@@ -218,6 +219,16 @@ describe('planProject: post-event deadline (spec 3B)', () => {
     const plan = planProject(facts(), ms(REPORTS_DUE, 1));
     expect(plan.status).toBe('blocked');
     expect(plan.overdueReports).toEqual([]);
+  });
+
+  it('never blocks or freezes the ISSC, whose appeals nobody decides', () => {
+    const issc = (filed: ProjectTaskType[] = []) => facts({ exemptFromCompliance: true }, filed);
+    const late = planProject(issc(), ms(REPORTS_DUE, 1));
+    expect(late.status).toBe('active');
+    expect(late.overdueReports).toEqual([]);
+    expect(planProject(issc(['PROPOSAL']), ms(REPORTS_DUE, 1)).overdueReports).toEqual([]);
+    // Deadlines still show.
+    expect(late.proposalDueAt).toEqual(PROPOSAL_DUE);
   });
 
   it('uses the deadline an approved appeal set', () => {

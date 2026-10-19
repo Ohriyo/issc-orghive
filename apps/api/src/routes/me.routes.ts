@@ -23,6 +23,8 @@ export function meRouter({ dashboard, notifications, tokens }: MeRouterDeps): Ro
   router.get('/notifications', auth, notificationController.list);
   router.post('/notifications/read-all', auth, notificationController.markAllRead);
   router.post('/notifications/:notificationId/read', auth, notificationController.markRead);
+  router.get('/notification-preferences', auth, notificationController.preferences);
+  router.put('/notification-preferences', auth, notificationController.updatePreferences);
 
   return router;
 }

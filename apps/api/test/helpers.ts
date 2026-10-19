@@ -41,8 +41,20 @@ const unwiredServices: AppServices = {
     get: (_t, key) => () => unwired(`reports.${String(key)}`),
   }),
   search: { search: () => unwired('search') },
+  announcements: new Proxy({} as AppServices['announcements'], {
+    get: (_t, key) => () => unwired(`announcements.${String(key)}`),
+  }),
+  complianceOverview: new Proxy({} as AppServices['complianceOverview'], {
+    get: (_t, key) => () => unwired(`complianceOverview.${String(key)}`),
+  }),
   adminOrganizations: new Proxy({} as AppServices['adminOrganizations'], {
     get: (_t, key) => () => unwired(`adminOrganizations.${String(key)}`),
+  }),
+  system: new Proxy({} as AppServices['system'], {
+    get: (_t, key) => () => unwired(`system.${String(key)}`),
+  }),
+  superAdmins: new Proxy({} as AppServices['superAdmins'], {
+    get: (_t, key) => () => unwired(`superAdmins.${String(key)}`),
   }),
 };
 

@@ -1,40 +1,26 @@
 import type { DocumentViewer } from '#src/repositories/document-visibility';
-import type {
-  ActiveMembership,
-  MembershipRepository,
-} from '#src/repositories/membership.repository';
-
-/** An active `admin` membership on the ISSC is system-wide; `admin` elsewhere grants nothing extra. */
-export function isSystemAdmin(active: ActiveMembership[]): boolean {
-  return active.some((m) => m.role === 'admin' && m.organization.type === 'ISSC');
-}
+import type { AccountRepository } from '#src/repositories/account.repository';
 
 export interface DocumentViewerServiceDeps {
-  memberships: Pick<MembershipRepository, 'findActiveForUser'>;
-  now?: () => Date;
+  accounts: Pick<AccountRepository, 'findAccount'>;
 }
 
 /**
- * Turns a user's active memberships into a DocumentViewer: which organizations they are a
- * member of, and which they are an officer of. A membership past its term grants nothing.
- * No organization reviews another's documents (docs/PROJECT_WORKFLOW_SPEC.md, section 0).
+ * Turns a user into a DocumentViewer: the shared account's organization. An account that
+ * may not act for one right now (locked, deactivated, or the super admin, who belongs to
+ * none) sees what the public sees. No organization reviews another's documents
+ * (docs/PROJECT_WORKFLOW_SPEC.md, section 0).
  */
-export function createDocumentViewerService({
-  memberships,
-  now = () => new Date(),
-}: DocumentViewerServiceDeps) {
+export function createDocumentViewerService({ accounts }: DocumentViewerServiceDeps) {
   return {
     async forUser(userId: string): Promise<DocumentViewer> {
-      const active = await memberships.findActiveForUser(userId, now());
-      const idsWhere = (keep: (m: ActiveMembership) => boolean) => [
-        ...new Set(active.filter(keep).map((m) => m.organization.id)),
-      ];
+      const account = await accounts.findAccount(userId);
+      if (!account) return { kind: 'public' };
       return {
-        kind: 'user',
+        kind: 'account',
         userId,
-        isAdmin: isSystemAdmin(active),
-        memberOrgIds: idsWhere(() => true),
-        officerOrgIds: idsWhere((m) => m.role === 'officer'),
+        organizationId: account.organization.id,
+        organizationType: account.organization.type,
       };
     },
   };

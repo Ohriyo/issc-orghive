@@ -13,7 +13,7 @@ import {
   type ProjectTaskStatus,
   type ProjectTaskType,
 } from '@orghive/shared';
-import { useAuth } from '@/features/auth/presenters/use-auth';
+import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import { uploadErrorMessage } from '@/features/documents/presenters/upload-version';
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
@@ -185,10 +185,7 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
   if (!query.data) return { status: 'loading' };
 
   const project = query.data;
-  const canManage =
-    !!user?.memberships.some(
-      (m) => m.orgSlug === project.organization.slug && m.role === 'officer',
-    ) || !!user?.roles.some((r) => r.role === 'admin');
+  const canManage = isOwnOrganization(user, { slug: project.organization.slug });
 
   const setUpload = (type: ProjectTaskType, state: TaskUploadState) =>
     setUploads((all) => ({ ...all, [type]: state }));

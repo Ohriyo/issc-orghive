@@ -12,8 +12,8 @@ const USER = {
   name: 'Juan Dela Cruz',
   email: 'juan@nwssu.test',
   mustChangePassword: false,
-  roles: [],
-  memberships: [],
+  organization: null,
+  officerInCharge: null,
 };
 
 function auth(overrides: Partial<typeof USER> = {}): AuthResponse {

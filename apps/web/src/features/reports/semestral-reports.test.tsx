@@ -2,14 +2,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  AuthResponse,
-  DashboardResponse,
-  MembershipRole,
-  SemestralReport,
-} from '@orghive/shared';
+import type { AuthResponse, DashboardResponse, SemestralReport } from '@orghive/shared';
 import { routes } from '@/app/router';
 import { authStore } from '@/lib/auth-store';
+import { accountSession, TEST_ORGS } from '@/test/accounts';
 import { semesterOptions } from './presenters/use-semestral-reports';
 
 const JPICE_ID = '0195f3c0-0000-7000-8000-0000000000a1';
@@ -17,41 +13,21 @@ const REPORT_ID = '0195f3c0-0000-7000-8000-0000000000b1';
 const DOC_ID = '0195f3c0-0000-7000-8000-0000000000d1';
 const VERSION_ID = '0195f3c0-0000-7000-8000-0000000000e1';
 
-let role: MembershipRole = 'officer';
 let reports: SemestralReport[] = [];
 const fetchMock = vi.fn<typeof fetch>();
 const calls: { url: string; method: string; body?: unknown }[] = [];
 const assign = vi.fn();
 
 function session(): AuthResponse {
-  return {
-    accessToken: 'test-token',
-    expiresIn: 900,
-    user: {
-      id: '0195f3c0-0000-7000-8000-000000000001',
-      name: 'Juan Dela Cruz',
-      email: 'juan@nwssu.test',
-      mustChangePassword: false,
-      roles: [{ orgId: JPICE_ID, role, isHead: false }],
-      memberships: [
-        {
-          orgId: JPICE_ID,
-          orgSlug: 'jpice',
-          orgAcronym: 'JPICE',
-          role,
-          isHead: false,
-          title: null,
-        },
-      ],
-    },
-  };
+  return accountSession('own', { ...TEST_ORGS.jpice, id: JPICE_ID });
 }
 
 function dashboard(): DashboardResponse {
   return {
-    memberships: [
-      { organizationId: JPICE_ID, role, isHead: false, title: null, termEnd: '2027-07-31' },
-    ],
+    term: {
+      officerInCharge: { name: 'Juan Dela Cruz', position: 'President', email: 'juan@nwssu.test' },
+      termEnd: '2027-07-31',
+    },
     organizations: [
       {
         organization: {
@@ -63,13 +39,16 @@ function dashboard(): DashboardResponse {
           logoUrl: null,
           logoSrcSet: null,
         },
-        counts: { public: 1, members: 0, private: 0, scanning: 0, quarantined: 0, archived: 0 },
+        counts: { public: 1, governing: 0, private: 0, scanning: 0, quarantined: 0, archived: 0 },
         recentDocuments: [],
         quarantined: [],
         activity: [],
+        semester: null,
       },
     ],
-    isAdmin: false,
+    isIssc: false,
+    canSeeCompliance: false,
+    decidesAppeals: false,
   };
 }
 
@@ -96,7 +75,6 @@ function json(body: unknown, status = 200) {
 }
 
 beforeEach(() => {
-  role = 'officer';
   reports = [];
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('location', { ...window.location, assign });
@@ -236,13 +214,5 @@ describe('the Semestral End Report panel', () => {
     expect(
       await screen.findByText('Something went wrong while making the report. Try again.'),
     ).toBeInTheDocument();
-  });
-
-  it('is not shown to advisers', async () => {
-    role = 'adviser';
-    renderDashboard();
-    await screen.findByText(/Junior Philippine Institute of Civil Engineers/);
-    expect(screen.queryByRole('heading', { name: 'Semestral End Report' })).toBeNull();
-    expect(calls.some((c) => c.url.endsWith('/semestral-reports'))).toBe(false);
   });
 });

@@ -6,7 +6,7 @@ import { createPublicUrl } from '#src/lib/public-url';
 import { createAdminOrganizationRepository } from '#src/repositories/admin-organization.repository';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createProjectRepository } from '#src/repositories/project.repository';
 import { createAccessService } from '#src/services/access.service';
@@ -27,9 +27,6 @@ const days = (n: number) => new Date(Date.now() + n * 24 * 60 * 60 * 1000);
 async function signFor(userId: string) {
   const { token } = await tokens.sign({
     userId,
-    roles: [],
-    // The token says admin; the database decides (the past admin's term is over).
-    isAdmin: true,
     passwordChangeRequired: false,
   });
   return token;
@@ -38,36 +35,29 @@ async function signFor(userId: string) {
 beforeAll(async () => {
   await resetDb(db);
   world = await buildWorld(db);
-  const people: ['admin' | 'pastAdmin', Date | null][] = [
-    ['admin', null],
-    ['pastAdmin', days(-1)],
-  ];
-  for (const [key, termEnd] of people) {
-    const user = await db.user.create({
-      data: { email: `${key.toLowerCase()}@admin.test`, name: key, passwordHash: 'x' },
-    });
-    await db.membership.create({
-      data: {
-        userId: user.id,
-        organizationId: world.orgs.issc.id,
-        role: 'admin',
-        termStart: days(-90),
-        termEnd,
-      },
-    });
-    tokenOf[key] = await signFor(user.id);
-  }
+  // The ISSC's shared account is the admin. A former ISSC account, now deactivated, still has
+  // a valid token: the database decides, so it is refused.
+  tokenOf.admin = await signFor(world.users.issc.id);
+  const past = await db.user.create({
+    data: {
+      email: 'past.issc@admin.test',
+      name: 'past',
+      passwordHash: 'x',
+      organizationId: world.orgs.issc.id,
+      disabledAt: days(-1),
+    },
+  });
+  tokenOf.pastAdmin = await signFor(past.id);
   tokenOf.officer = await signFor(world.users.officer.id);
 
   const audit = createAuditLogRepository(db);
   app = buildTestApp({
     tokens,
     access: createAccessService({
-      memberships: createMembershipRepository(db),
+      accounts: createAccountRepository(db),
       organizations: createOrganizationRepository(db),
       documents: createDocumentRepository(db),
       projects: createProjectRepository(db),
-      audit,
     }),
     adminOrganizations: createAdminOrganizationService({
       admin: createAdminOrganizationRepository(db),

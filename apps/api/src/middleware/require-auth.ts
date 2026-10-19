@@ -1,13 +1,14 @@
 import type { Request, RequestHandler, Response } from 'express';
 import {
+  announcementIdParamsSchema,
+  BACKGROUND_REQUEST_HEADER,
   documentIdParamsSchema,
   ErrorCode,
   projectIdParamsSchema,
   slugParamsSchema,
-  type MembershipRole,
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
-import type { AccessContext, AccessService, OrgRef } from '#src/services/access.service';
+import type { AccessService, OrgAccessScope, OrgRef } from '#src/services/access.service';
 import type { AccessClaims, TokenService } from '#src/services/token.service';
 
 const AUTH_KEY = 'auth';
@@ -20,12 +21,27 @@ export function authOf(res: Response): AccessClaims {
   return claims as AccessClaims;
 }
 
+/**
+ * What the auth guards need: token verification, plus (in the app) the super admin
+ * session check. Every router receives the same object as `tokens`, so super admin
+ * sessions get their idle timeout on every route without each router knowing about it.
+ */
+export interface AccessVerifier extends Pick<TokenService, 'verify'> {
+  /** Ends an idle or expired super admin session (401); background requests don't count. */
+  checkSession?(claims: AccessClaims, activity: { background: boolean }): Promise<void>;
+}
+
 export interface RequireAuthOptions {
   /**
    * Accept a token issued with a temporary password. Only the change-password route
    * (and /me, so the app can show who is signed in) sets this.
    */
   allowPasswordChange?: boolean;
+  /**
+   * Accept a super admin token from before the authenticator is confirmed. Only MFA setup
+   * and /me set this.
+   */
+  allowMfaSetup?: boolean;
 }
 
 /** The claims `optionalAuth` attached, or undefined for a signed-out request. */
@@ -36,14 +52,26 @@ export function maybeAuthOf(res: Response): AccessClaims | undefined {
 async function authenticate(
   req: Request,
   res: Response,
-  tokens: Pick<TokenService, 'verify'>,
-  allowPasswordChange: boolean,
+  tokens: AccessVerifier,
+  { allowPasswordChange = false, allowMfaSetup = false }: RequireAuthOptions,
 ) {
   const header = req.get('authorization');
   const match = header?.match(/^Bearer ([A-Za-z0-9_.-]+)$/);
   if (!match) throw AppError.unauthorized();
 
   const claims = await tokens.verify(match[1]!);
+  if (claims.sessionId && tokens.checkSession) {
+    await tokens.checkSession(claims, {
+      background: req.get(BACKGROUND_REQUEST_HEADER) === '1',
+    });
+  }
+  if (claims.mfaSetupRequired && !allowMfaSetup) {
+    throw new AppError(
+      403,
+      ErrorCode.MFA_SETUP_REQUIRED,
+      'Set up your authenticator app before continuing',
+    );
+  }
   if (claims.passwordChangeRequired && !allowPasswordChange) {
     throw new AppError(
       403,
@@ -56,11 +84,11 @@ async function authenticate(
 
 /** Verifies `Authorization: Bearer <access token>`. */
 export function requireAuth(
-  tokens: Pick<TokenService, 'verify'>,
-  { allowPasswordChange = false }: RequireAuthOptions = {},
+  tokens: AccessVerifier,
+  options: RequireAuthOptions = {},
 ): RequestHandler {
   return async (req, res, next) => {
-    await authenticate(req, res, tokens, allowPasswordChange);
+    await authenticate(req, res, tokens, options);
     next();
   };
 }
@@ -70,9 +98,9 @@ export function requireAuth(
  * signed out; a header that is present must still be valid (401 otherwise), so a broken
  * token never silently downgrades to the public view.
  */
-export function optionalAuth(tokens: Pick<TokenService, 'verify'>): RequestHandler {
+export function optionalAuth(tokens: AccessVerifier): RequestHandler {
   return async (req, res, next) => {
-    if (req.get('authorization') !== undefined) await authenticate(req, res, tokens, false);
+    if (req.get('authorization') !== undefined) await authenticate(req, res, tokens, {});
     next();
   };
 }
@@ -85,8 +113,8 @@ export function orgOf(res: Response): OrgRef {
 }
 
 /**
- * The target organization: from `:slug`, or from the owning organization of `:documentId`
- * or `:projectId`. 404 when it does not exist (or the document or project is deleted).
+ * The target organization: from `:slug`, or from the owning organization of `:documentId`,
+ * `:projectId` or `:announcementId`. 404 when it does not exist (or the document or project is deleted).
  */
 async function resolveOrg(access: AccessService, req: Request): Promise<OrgRef> {
   if (req.params.slug !== undefined) {
@@ -107,42 +135,43 @@ async function resolveOrg(access: AccessService, req: Request): Promise<OrgRef> 
     if (!org) throw AppError.notFound('Project not found');
     return org;
   }
-  throw new Error('Org guards need a :slug, :documentId or :projectId route param');
-}
-
-function contextOf(req: Request): AccessContext {
-  // The route pattern (":documentId"), not the URL, and never the body.
-  const pattern = (req.route as { path?: string } | undefined)?.path ?? '';
-  return { method: req.method, route: `${req.baseUrl}${pattern}`, ip: req.ip };
+  if (req.params.announcementId !== undefined) {
+    const { announcementId } = announcementIdParamsSchema.parse({
+      announcementId: req.params.announcementId,
+    });
+    const org = await access.resolveByAnnouncement(announcementId);
+    if (!org) throw AppError.notFound('Update not found');
+    return org;
+  }
+  throw new Error('Org guards need a :slug, :documentId, :projectId or :announcementId param');
 }
 
 /**
- * Guards for org-scoped routes. Use after `requireAuth` on every mutating route
- * (CLAUDE.md). Memberships are checked against the database with an active term, not
- * taken from the token. ISSC admins pass `requireOrgRole`; that override is audited.
+ * Guards for org-scoped routes, on shared organization accounts. Use after `requireAuth` on
+ * every mutating route (CLAUDE.md). The account is read from the database, not the token.
  */
 export function createOrgGuards(access: AccessService) {
   const guard =
-    (roles: MembershipRole[], adminOverride: boolean): RequestHandler =>
+    (scope: OrgAccessScope): RequestHandler =>
     async (req, res, next) => {
-      const claims = authOf(res);
       const org = await resolveOrg(access, req);
-      await access.requireRole(claims.userId, org, roles, contextOf(req), { adminOverride });
+      await access.requireOrgAccess(authOf(res).userId, org, scope);
       (res.locals as Record<string, unknown>)[ORG_KEY] = org;
       next();
     };
 
   return {
-    /** The user holds one of `roles` in the target organization, or is an ISSC admin. */
-    requireOrgRole: (...roles: [MembershipRole, ...MembershipRole[]]): RequestHandler =>
-      guard(roles, true),
+    /**
+     * The target organization's own account, alone. Everything that changes its work:
+     * uploads, visibility, deletes, projects, reports, updates.
+     */
+    requireOwnOrg: guard('own'),
 
     /**
-     * The user holds one of `roles` in the target organization; admins do not pass. For
-     * decisions that belong to the organization alone, such as who can see its documents.
+     * The organization's own account or one of its governing bodies (its college's CSC, the
+     * ISSC): reading its projects, compliance and appeals.
      */
-    requireOwnOrgRole: (...roles: [MembershipRole, ...MembershipRole[]]): RequestHandler =>
-      guard(roles, false),
+    requireOrgOrGoverning: guard('governing'),
 
     /**
      * After an org guard: refuses writes for a deactivated organization (uploads and new
@@ -153,7 +182,7 @@ export function createOrgGuards(access: AccessService) {
       next();
     }) as RequestHandler,
 
-    /** Active ISSC admins only. Use after `requireAuth`. */
+    /** The ISSC account only (the /admin screens). Use after `requireAuth`. */
     requireAdmin: (async (_req, res, next) => {
       await access.requireAdmin(authOf(res).userId);
       next();

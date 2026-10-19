@@ -14,7 +14,8 @@
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:headers": "node scripts/check-headers.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -14,7 +14,9 @@ import {
   createAuthService,
   REFRESH_TOKEN_TTL_MS,
   SESSION_MAX_AGE_MS,
+  SUPER_ADMIN_SESSION_MAX_MS,
 } from '#src/services/auth.service';
+import type { SuperAdminService } from '#src/services/super-admin.service';
 
 const USER_ID = '0195f3c0-0000-7000-8000-000000000001';
 const ISSC_ID = '0195f3c0-0000-7000-8000-0000000000aa';
@@ -46,6 +48,11 @@ function setup(user: Partial<UserCredentials> = {}) {
         passwordHash: 'hashed:old password!!',
         mustChangePassword: false,
         disabledAt: null,
+        lockedAt: null,
+        systemRole: 'NONE',
+        mfaSecret: null,
+        mfaEnabledAt: null,
+        mfaLastTimeStep: null,
         ...user,
       },
     ],
@@ -59,6 +66,25 @@ function setup(user: Partial<UserCredentials> = {}) {
     Promise.resolve({ token: 'access-token', expiresIn: 900 }),
   );
   let nextId = 0;
+  const lastLogins = new Map<string, Date>();
+  const superAdmins = {
+    ensureNotLockedOut: vi.fn(() => Promise.resolve()),
+    countFailure: vi.fn(() => Promise.resolve()),
+    createChallenge: vi.fn(() =>
+      Promise.resolve({
+        mfaRequired: true as const,
+        challengeToken: 'c'.repeat(43),
+        expiresIn: 300,
+      }),
+    ),
+    completeChallenge: vi.fn(() =>
+      Promise.resolve({ user: users.get(USER_ID)!, method: 'totp' as const }),
+    ),
+    confirmSetup: vi.fn(() => Promise.resolve(['abcde-fghij'])),
+    startSession: vi.fn(() => Promise.resolve()),
+    checkSession: vi.fn<SuperAdminService['checkSession']>(() => Promise.resolve()),
+    endSession: vi.fn(() => Promise.resolve()),
+  };
 
   const service = createAuthService({
     users: {
@@ -69,27 +95,42 @@ function setup(user: Partial<UserCredentials> = {}) {
         users.set(id, { ...users.get(id)!, passwordHash, mustChangePassword: false });
         return Promise.resolve();
       },
+      recordLogin: (id, at) => {
+        lastLogins.set(id, at);
+        return Promise.resolve();
+      },
     },
-    memberships: {
-      findActiveDetailsForUser: () =>
-        Promise.resolve([
-          {
-            id: 'm1',
-            role: 'admin' as const,
-            isHead: false,
-            title: 'System administrator',
-            termEnd: null,
-            organization: {
-              id: ISSC_ID,
-              type: 'ISSC' as const,
-              slug: 'issc',
-              acronym: 'ISSC',
-              name: 'Institutional Supreme Student Council',
-              logoKey: null,
-              logoWidths: [],
-            },
-          },
-        ]),
+    // The ISSC's shared account; super admins belong to no organization.
+    accounts: {
+      findAccount: (id) =>
+        Promise.resolve(
+          users.get(id)?.systemRole === 'NONE'
+            ? {
+                userId: id,
+                organization: {
+                  id: ISSC_ID,
+                  type: 'ISSC' as const,
+                  parentId: null,
+                  slug: 'issc',
+                  acronym: 'ISSC',
+                  name: 'Institutional Supreme Student Council',
+                  logoKey: null,
+                  logoWidths: [],
+                },
+              }
+            : null,
+        ),
+      findCurrentTerm: (id) =>
+        Promise.resolve(
+          users.get(id)?.systemRole === 'NONE'
+            ? {
+                officerName: 'Maria Lopez',
+                officerPosition: 'ISSC President',
+                officerEmail: 'maria@nwssu.test',
+                termEnd: new Date('2027-07-31'),
+              }
+            : null,
+        ),
     },
     refreshTokens: {
       create: (t: NewRefreshToken) => {
@@ -139,6 +180,7 @@ function setup(user: Partial<UserCredentials> = {}) {
       },
     },
     tokens: { sign },
+    superAdmins,
     passwords,
     mailer,
     logger: pino({ level: 'silent' }),
@@ -154,6 +196,8 @@ function setup(user: Partial<UserCredentials> = {}) {
     mailer,
     passwords,
     sign,
+    superAdmins,
+    lastLogins,
     advance: (ms: number) => {
       now = new Date(now.getTime() + ms);
     },
@@ -162,18 +206,34 @@ function setup(user: Partial<UserCredentials> = {}) {
 }
 
 const ctx = { ip: '203.0.113.9', userAgent: 'vitest' };
-const login = (s: ReturnType<typeof setup>, password = 'old password!!') =>
-  s.service.login({ email: 'admin@nwssu.test', password }, ctx);
+async function login(s: ReturnType<typeof setup>, password = 'old password!!') {
+  const result = await s.service.login({ email: 'admin@nwssu.test', password }, ctx);
+  if (result.kind !== 'session') throw new Error('Expected a session, got the MFA step');
+  return result.session;
+}
 
 describe('authService.login', () => {
-  it('starts a session: a 7-day refresh token inside a 30-day session, and an access token with roles', async () => {
+  it('starts a session: a 7-day refresh token inside a 30-day session, and the account’s organization', async () => {
     const s = setup();
     const { auth, refresh } = await login(s);
 
-    expect(auth.user.roles).toEqual([{ orgId: ISSC_ID, role: 'admin', isHead: false }]);
+    expect(auth.user.organization).toEqual({
+      id: ISSC_ID,
+      type: 'ISSC',
+      slug: 'issc',
+      acronym: 'ISSC',
+      name: 'Institutional Supreme Student Council',
+      parentId: null,
+    });
+    expect(auth.user.officerInCharge).toEqual({
+      name: 'Maria Lopez',
+      position: 'ISSC President',
+      email: 'maria@nwssu.test',
+    });
     expect(s.sign).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: USER_ID, isAdmin: true, passwordChangeRequired: false }),
+      expect.objectContaining({ userId: USER_ID, passwordChangeRequired: false }),
     );
+    expect(s.lastLogins.get(USER_ID)).toEqual(T0);
     expect(refresh.expiresAt.getTime()).toBe(T0.getTime() + REFRESH_TOKEN_TTL_MS);
     const stored = s.tokens.get(hashToken(refresh.token))!;
     expect(stored.sessionExpiresAt.getTime()).toBe(T0.getTime() + SESSION_MAX_AGE_MS);
@@ -192,8 +252,34 @@ describe('authService.login', () => {
     ]);
   });
 
-  it('refuses a disabled account and flags a temporary password in the token', async () => {
-    await expect(login(setup({ disabledAt: T0 }))).rejects.toMatchObject({ status: 401 });
+  it('tells a deactivated or locked account why, but only after the correct password', async () => {
+    const off = setup({ disabledAt: T0 });
+    await expect(login(off)).rejects.toMatchObject({
+      status: 403,
+      code: ErrorCode.ACCOUNT_DEACTIVATED,
+      message: 'This account has been deactivated. Please contact the ISSC admin.',
+    });
+    await expect(login(off, 'wrong')).rejects.toMatchObject({
+      status: 401,
+      code: ErrorCode.INVALID_CREDENTIALS,
+      message: 'Invalid email or password.',
+    });
+    const locked = setup({ lockedAt: T0 });
+    await expect(login(locked)).rejects.toMatchObject({
+      status: 403,
+      code: ErrorCode.ACCOUNT_LOCKED,
+    });
+    await expect(login(locked, 'wrong')).rejects.toMatchObject({
+      code: ErrorCode.INVALID_CREDENTIALS,
+    });
+    expect(locked.audit.map((a) => a.metadata)).toEqual([
+      { reason: 'locked' },
+      { reason: 'wrong_password' },
+    ]);
+    expect(locked.audit[0]).toMatchObject({ userAgent: 'vitest' });
+  });
+
+  it('flags a temporary password in the token', async () => {
     const s = setup({ mustChangePassword: true });
     expect((await login(s)).auth.user.mustChangePassword).toBe(true);
     expect(s.sign).toHaveBeenCalledWith(expect.objectContaining({ passwordChangeRequired: true }));
@@ -337,21 +423,140 @@ describe('authService.changePassword / me', () => {
     ).rejects.toMatchObject({ status: 400, code: ErrorCode.INVALID_CREDENTIALS });
   });
 
-  it('returns the user with fresh roles, and 401 once disabled', async () => {
+  it('returns the user with its organization, and 401 once disabled or locked', async () => {
     const s = setup();
-    expect(await s.service.me(USER_ID)).toMatchObject({ id: USER_ID, roles: [{ role: 'admin' }] });
-    // Display names for the header menu ride along in the user payload.
-    expect((await s.service.me(USER_ID)).memberships).toEqual([
-      {
-        orgId: ISSC_ID,
-        orgSlug: 'issc',
-        orgAcronym: 'ISSC',
-        role: 'admin',
-        isHead: false,
-        title: 'System administrator',
-      },
-    ]);
-    s.users.set(USER_ID, { ...s.users.get(USER_ID)!, disabledAt: T0 });
+    expect(await s.service.me(USER_ID)).toMatchObject({
+      id: USER_ID,
+      organization: { slug: 'issc', type: 'ISSC' },
+      officerInCharge: { name: 'Maria Lopez' },
+    });
+    s.users.set(USER_ID, { ...s.users.get(USER_ID)!, lockedAt: T0 });
     await expect(s.service.me(USER_ID)).rejects.toMatchObject({ status: 401 });
+    s.users.set(USER_ID, { ...s.users.get(USER_ID)!, lockedAt: null, disabledAt: T0 });
+    await expect(s.service.me(USER_ID)).rejects.toMatchObject({ status: 401 });
+  });
+});
+
+describe('authService for super admins', () => {
+  const SUPER = { systemRole: 'SUPER_ADMIN' as const, mfaSecret: 'sealed', mfaEnabledAt: T0 };
+  const STRONG = 'violet orbit lantern 42';
+  const CHALLENGE = { challengeToken: 'c'.repeat(43), code: '123456' };
+
+  it('answers a right password with the code step: no session, no refresh token', async () => {
+    const s = setup(SUPER);
+    const result = await s.service.login(
+      { email: 'admin@nwssu.test', password: 'old password!!' },
+      ctx,
+    );
+
+    expect(result).toEqual({
+      kind: 'mfa',
+      challenge: { mfaRequired: true, challengeToken: 'c'.repeat(43), expiresIn: 300 },
+    });
+    expect(s.superAdmins.ensureNotLockedOut).toHaveBeenCalledWith(USER_ID, ctx);
+    expect(s.tokens.size).toBe(0);
+    expect(s.audit).toEqual([]);
+  });
+
+  it('counts a wrong super admin password toward the separate lockout', async () => {
+    const s = setup(SUPER);
+    await expect(login(s, 'wrong')).rejects.toMatchObject({ code: ErrorCode.INVALID_CREDENTIALS });
+    expect(s.superAdmins.countFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ id: USER_ID }),
+      ctx,
+      'password',
+    );
+    expect(s.audit[0]).toMatchObject({ action: 'login_failed', userAgent: 'vitest' });
+  });
+
+  it('starts an 8-hour session with a session id once the code is right', async () => {
+    const s = setup(SUPER);
+    const { auth, refresh } = await s.service.verifyMfa(CHALLENGE, ctx);
+
+    const stored = s.tokens.get(hashToken(refresh.token))!;
+    expect(stored.sessionExpiresAt.getTime()).toBe(T0.getTime() + SUPER_ADMIN_SESSION_MAX_MS);
+    expect(refresh.expiresAt).toEqual(stored.sessionExpiresAt);
+    expect(s.superAdmins.startSession).toHaveBeenCalledWith(stored.familyId, T0);
+    expect(s.sign).toHaveBeenCalledWith(
+      expect.objectContaining({ systemRole: 'SUPER_ADMIN', sessionId: stored.familyId }),
+    );
+    expect(auth.user).toMatchObject({ systemRole: 'SUPER_ADMIN', mfaSetupRequired: false });
+    expect(s.audit.at(-1)).toMatchObject({ action: 'login', metadata: { mfa: 'totp' } });
+  });
+
+  it('gives a super admin without a confirmed authenticator a setup-only session', async () => {
+    const s = setup({ ...SUPER, mfaEnabledAt: null });
+    const { auth } = await login(s);
+    expect(auth.user.mfaSetupRequired).toBe(true);
+    expect(s.sign).toHaveBeenCalledWith(expect.objectContaining({ mfaSetupRequired: true }));
+    expect(s.audit.at(-1)).toMatchObject({ metadata: { mfa: 'setup_pending' } });
+  });
+
+  it('swaps the setup session for a full one when the authenticator is confirmed', async () => {
+    const s = setup({ ...SUPER, mfaEnabledAt: null });
+    const setupSession = await login(s);
+    const setupFamily = s.tokens.get(hashToken(setupSession.refresh.token))!.familyId;
+    s.users.set(USER_ID, { ...s.users.get(USER_ID)!, mfaEnabledAt: T0 });
+
+    const result = await s.service.confirmMfaSetup(USER_ID, setupFamily, '123456', ctx);
+
+    expect(result.recoveryCodes).toEqual(['abcde-fghij']);
+    expect(result.auth.user.mfaSetupRequired).toBe(false);
+    expect(s.superAdmins.endSession).toHaveBeenCalledWith(setupFamily);
+    expect(s.live().map((t) => t.familyId)).not.toContain(setupFamily);
+    expect(s.live()).toHaveLength(1);
+  });
+
+  it('checks the idle timeout on refresh, as background activity', async () => {
+    const s = setup(SUPER);
+    const { refresh } = await s.service.verifyMfa(CHALLENGE, ctx);
+    const family = s.tokens.get(hashToken(refresh.token))!.familyId;
+
+    const next = await s.service.refresh(refresh.token, ctx);
+    expect(s.superAdmins.checkSession).toHaveBeenCalledWith(family, { background: true });
+    expect(s.sign).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: family }));
+
+    s.superAdmins.checkSession.mockRejectedValueOnce(new Error('idle'));
+    await expect(s.service.refresh(next.refresh.token, ctx)).rejects.toThrow('idle');
+  });
+
+  it('ends the super admin session on logout', async () => {
+    const s = setup(SUPER);
+    const { refresh } = await s.service.verifyMfa(CHALLENGE, ctx);
+    await s.service.logout(refresh.token, ctx);
+    expect(s.superAdmins.endSession).toHaveBeenCalledWith(
+      s.tokens.get(hashToken(refresh.token))!.familyId,
+    );
+  });
+
+  it('holds super admin passwords to the stricter policy, on change and on reset', async () => {
+    const s = setup(SUPER);
+    await expect(
+      s.service.changePassword(
+        USER_ID,
+        { currentPassword: 'old password!!', newPassword: 'short but 12' },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 400, code: ErrorCode.VALIDATION_ERROR });
+    await s.service.changePassword(
+      USER_ID,
+      { currentPassword: 'old password!!', newPassword: STRONG },
+      ctx,
+    );
+    expect(s.users.get(USER_ID)!.passwordHash).toBe(`hashed:${STRONG}`);
+
+    await s.service.requestPasswordReset('admin@nwssu.test', ctx);
+    const token = /#token=([\w-]{43})/.exec(s.mailer.sent[0]!.text)![1]!;
+    await expect(
+      s.service.resetPassword({ token, newPassword: 'passwordpassword' }, ctx),
+    ).rejects.toMatchObject({ status: 400, code: ErrorCode.VALIDATION_ERROR });
+  });
+
+  it('reports the system role in /me', async () => {
+    const s = setup(SUPER);
+    expect(await s.service.me(USER_ID)).toMatchObject({
+      systemRole: 'SUPER_ADMIN',
+      mfaSetupRequired: false,
+    });
   });
 });

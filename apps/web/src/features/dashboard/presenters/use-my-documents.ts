@@ -44,7 +44,7 @@ export function tabLabel(tab: StatusTab): string {
 
 /** How many documents a tab holds, from the dashboard counts. */
 export function tabCount(tab: StatusTab, counts: DocumentCounts): number {
-  const available = counts.public + counts.members + counts.private;
+  const available = counts.public + counts.governing + counts.private;
   if (tab === 'all') return available + counts.scanning + counts.quarantined + counts.archived;
   if (tab === 'available') return available;
   return counts[tab];
@@ -237,11 +237,9 @@ export function useMyDocuments(): MyDocumentsModel {
 
   const data = dashboard.data;
   const counts = data.organizations.find((o) => o.organization.id === org.id)!.counts;
-  const isOfficer = data.memberships.some(
-    (m) => m.organizationId === org.id && m.role === 'officer',
-  );
-  // Admins may edit, archive and restore (audited) but never change who sees a document.
-  const canManage = data.isAdmin || isOfficer;
+  // Only the organization's own account manages its documents (and it alone lists them here).
+  const isOfficer = data.organizations.some((o) => o.organization.id === org.id);
+  const canManage = isOfficer;
 
   const hrefFor = (next: StatusTab, keepVisibility = true) => {
     const search = new URLSearchParams({ org: org.slug });
@@ -311,7 +309,7 @@ export function useMyDocuments(): MyDocumentsModel {
         run(
           id,
           () => transition.mutateAsync({ id, to: 'archive' }),
-          'Archived. Only your officers see it now; restore it from the Archived tab.',
+          'Archived. Only your organization sees it now; restore it from the Archived tab.',
         ),
       restore: (id) =>
         run(

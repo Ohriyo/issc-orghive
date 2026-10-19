@@ -18,6 +18,10 @@ graphify-out/
 playwright-report/
 test-results/
 
+# Lighthouse CI
+.lighthouseci/
+lighthouse-report/
+
 # Local Claude Code settings
 .claude/settings.local.json
 

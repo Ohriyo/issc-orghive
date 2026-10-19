@@ -66,7 +66,7 @@ export function SearchOverlay({ search }: SearchOverlayProps) {
                   onChange={(event) => search.setQuery(event.target.value)}
                   placeholder="Search proposals, reports, resolutions"
                   enterKeyHint="search"
-                  className="min-w-0 flex-1 bg-transparent text-body-lg text-ink outline-none placeholder:text-ink-muted/80"
+                  className="min-w-0 flex-1 bg-transparent text-body-lg text-ink outline-none placeholder:text-ink-muted"
                 />
                 <kbd
                   aria-hidden="true"

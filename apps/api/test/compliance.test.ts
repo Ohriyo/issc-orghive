@@ -88,8 +88,8 @@ describe('the hourly compliance check', () => {
     expect(blocked.tasks.map((t) => t.status)).toEqual(['locked', 'locked', 'locked']);
     expect(await audits('project_block', project.id)).toBe(1);
     expect(await notified('officer', 'deadline_missed')).toBe(1);
-    // Only the organization's officers are told, and each email is queued once.
-    expect(await notified('adviser', 'deadline_missed')).toBe(0);
+    // Only the organization's own account is told, and each email is queued once.
+    expect(await notified('psmeOfficer', 'deadline_missed')).toBe(0);
     // Plus the "due in 3 days" reminder sent earlier: one email per notification.
     expect(await notified('officer', 'deadline_soon')).toBe(1);
     expect(s.queued.emails).toHaveLength(await db.notification.count());
@@ -169,14 +169,14 @@ describe('appeals of a blocked SBO project', () => {
     expect((await s.appeals.queue(as('governor'), { status: 'pending' })).items).toEqual([
       expect.objectContaining({ id: appeal.id, canDecide: true }),
     ]);
-    for (const who of ['catGovernor', 'cscOfficer', 'isscPresident', 'admin'] as const) {
+    for (const who of ['catGovernor', 'isscPresident', 'psmeOfficer'] as const) {
       expect((await s.appeals.queue(as(who), { status: 'pending' })).items, who).toEqual([]);
       await expect(
         s.appeals.decide(as(who), appeal.id, { decision: 'reject', remarks: 'Not convinced.' }),
         who,
       ).rejects.toMatchObject({
         status: 403,
-        message: 'Only the Governor of CSC-CEA decides this appeal.',
+        message: 'Only the CSC-CEA account decides this appeal.',
       });
     }
   });
@@ -220,7 +220,7 @@ describe('appeals of a blocked SBO project', () => {
     expect(rejected).toMatchObject({
       status: 'rejected',
       remarks: 'Attach the adviser’s leave notice.',
-      decidedBy: { name: 'governor@test.local' },
+      decidedBy: { name: 'csc-cea' },
     });
     expect((await s.repos.projects.findById(project.id))!.status).toBe('blocked');
     expect(await audits('reject', first.id)).toBe(1);
@@ -263,24 +263,20 @@ describe('appeals of a blocked SBO project', () => {
     expect(await audits('project_block', project.id)).toBe(2);
   });
 
-  it('nobody decides their own appeal', async () => {
-    const project = await blockedProject();
-    // The Governor is also an officer of JPICE.
-    await db.membership.create({
-      data: {
-        userId: w.ids.governor,
-        organizationId: w.orgs.jpice.id,
-        role: 'officer',
-        termStart: new Date('2026-08-01'),
-        termEnd: new Date('2027-07-31'),
-      },
+  it('nobody decides their own appeal: a CSC’s goes to the ISSC, not to itself', async () => {
+    const project = await seedProject(db, {
+      organizationId: w.orgs.cscCea.id,
+      createdById: w.ids.governor,
+      createdAt: CREATED,
+      targetDate: '2026-10-20',
     });
-    const appeal = await s.appeals.submit(as('governor'), jpice(), {
-      type: 'PROJECT_BLOCK',
-      projectId: project.id,
-      reason,
-      attachmentIds: [],
-    });
+    at(after(PROPOSAL_DUE));
+    await s.sync.syncAll();
+    const appeal = await s.appeals.submit(
+      as('governor'),
+      { id: w.orgs.cscCea.id, slug: w.orgs.cscCea.slug },
+      { type: 'PROJECT_BLOCK', projectId: project.id, reason, attachmentIds: [] },
+    );
     expect((await s.appeals.queue(as('governor'), { status: 'pending' })).items).toEqual([]);
     await expect(
       s.appeals.decide(as('governor'), appeal.id, {
@@ -291,8 +287,8 @@ describe('appeals of a blocked SBO project', () => {
   });
 });
 
-describe('appeals of a CSC and of an SBO whose Governor seat is vacant', () => {
-  it('a CSC appeal is decided only by the ISSC President', async () => {
+describe('appeals of a CSC, and of an SBO whose CSC has no active account', () => {
+  it('a CSC appeal is decided only by the ISSC account', async () => {
     const project = await seedProject(db, {
       organizationId: w.orgs.cscCea.id,
       createdById: w.ids.governor,
@@ -315,7 +311,7 @@ describe('appeals of a CSC and of an SBO whose Governor seat is vacant', () => {
         decision: 'approve',
         newDueDate: '2026-10-25',
       }),
-    ).rejects.toMatchObject({ message: 'Only the ISSC President decides this appeal.' });
+    ).rejects.toMatchObject({ message: 'Only the ISSC account decides this appeal.' });
     await expect(
       s.appeals.decide(as('isscPresident'), appeal.id, {
         decision: 'approve',
@@ -324,12 +320,9 @@ describe('appeals of a CSC and of an SBO whose Governor seat is vacant', () => {
     ).resolves.toMatchObject({ status: 'approved' });
   });
 
-  it('an ISSC admin decides while the seat is vacant, as an audited override', async () => {
-    // CSC-CAT's Governor's term ended.
-    await db.membership.updateMany({
-      where: { userId: w.ids.catGovernor },
-      data: { termEnd: new Date('2026-09-01') },
-    });
+  it('the ISSC account decides while the CSC’s seat is vacant, as an audited override', async () => {
+    // CSC-CAT's account is locked (for example, unassigned after the end of term).
+    await db.user.update({ where: { id: w.ids.catGovernor }, data: { lockedAt: new Date() } });
     const project = await seedProject(db, {
       organizationId: w.orgs.catSbo.id,
       createdById: w.ids.catSboOfficer,
@@ -422,12 +415,12 @@ describe('appeal attachments', () => {
     const appeal = await s.appeals.submit(as('officer'), jpice(), input);
     expect(appeal.attachments).toEqual([expect.objectContaining({ scanStatus: 'clean' })]);
 
-    // Officers of JPICE and the deciders may open it; nobody else learns it exists.
+    // JPICE's account and the deciding account may open it; nobody else learns it exists.
     await expect(
       s.appeals.attachmentDownload(as('governor'), appeal.id, attachment.id),
     ).resolves.toMatchObject({ url: expect.stringContaining('?get') as unknown });
     await s.appeals.attachmentDownload(as('officer'), appeal.id, attachment.id);
-    for (const who of ['psmeOfficer', 'outsider', 'catGovernor', 'adviser'] as const) {
+    for (const who of ['psmeOfficer', 'outsider', 'catGovernor', 'isscPresident'] as const) {
       await expect(
         s.appeals.attachmentDownload(as(who), appeal.id, attachment.id),
         who,
@@ -439,7 +432,7 @@ describe('appeal attachments', () => {
     });
     expect(views.map((v) => (v.metadata as { access: string }).access)).toEqual([
       'decider',
-      'officer',
+      'organization',
     ]);
     // Already part of an appeal.
     await expect(s.appeals.getAttachment(jpice(), attachment.id)).resolves.toBeDefined();
@@ -505,7 +498,7 @@ describe('notifications', () => {
     expect(await mail.sendEmail(first!.id)).toBe('skipped');
     expect(mailer.sent).toHaveLength(1);
     expect(mailer.sent[0]).toMatchObject({
-      to: 'officer@test.local',
+      to: 'jpice@test.local',
       subject: expect.stringContaining('is blocked') as unknown,
     });
     expect(mailer.sent[0]!.text).toContain('http://localhost:5173/projects/');

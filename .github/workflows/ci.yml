@@ -1,16 +1,22 @@
 name: CI
 
+# Fast checks (lint, types, unit/API tests with coverage, stubbed e2e, visual) run on every
+# push. The full-stack e2e suite needs every service, so it runs on pull requests to main
+# and on pushes to main (F17 decision, 2026-10-18).
 on:
   push:
+  pull_request:
+    branches: [main]
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   check:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     # Repository tests run against a real Postgres; they create and migrate orghive_test.
     services:
       postgres:
@@ -48,13 +54,23 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm --filter @orghive/shared --filter web test
+      # Services must stay at least 80% covered, together and each file on its own
+      # (apps/api/vitest.config.ts); below that this step fails.
+      - run: pnpm --filter api test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-coverage
+          path: apps/api/coverage
+          retention-days: 14
 
   # Responsive and accessibility rules from CLAUDE.md: every public route at 360, 768,
   # 1366 and 1920 px must not scroll sideways, every button/link must be at least 44x44px,
   # and axe must find no WCAG 2.2 AA violations. The API is stubbed in the browser, so no
   # database or storage services are needed.
   e2e:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -77,3 +93,89 @@ jobs:
             apps/web/e2e/playwright-report
             apps/web/e2e/test-results
           retention-days: 7
+
+  # Visual regression: home, college carousel, college page and org page must match their
+  # baselines (apps/web/e2e/__screenshots__). Rendered in the same Playwright image as
+  # `pnpm --filter web test:visual` uses locally, so fonts and anti-aliasing match. The
+  # report also holds each page beside its design/ prototype with a similarity score, for
+  # review; that comparison never fails the job.
+  visual:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble
+      options: --ipc=host
+    env:
+      ORGHIVE_VISUAL: '1'
+      CI: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter web test:visual
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-report
+          path: |
+            apps/web/e2e/playwright-report
+            apps/web/e2e/test-results
+          retention-days: 14
+
+  # The full-stack suite (apps/web/e2e-full): real API, worker, Postgres, Redis, MinIO,
+  # ClamAV and mailpit from docker-compose.yml. Browse → download; upload → scan →
+  # visibility; missed deadline → appeal → unblocked; search; admin adds an organization.
+  e2e-full:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CI: true
+      # Throwaway accounts in a throwaway database; not a secret.
+      SEED_PASSWORD: orghive-ci-e2e-password
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - name: Configure the API (compose defaults, fresh JWT keys)
+        run: |
+          grep -v '^JWT_' apps/api/.env.example > apps/api/.env
+          pnpm --filter api --silent keys:generate >> apps/api/.env
+
+      # ClamAV downloads its signatures on first start, so it can take several minutes.
+      - name: Start services
+        run: |
+          docker compose up -d
+          docker compose wait minio-init
+          for i in $(seq 1 90); do
+            unhealthy=$(docker compose ps --format '{{.Service}} {{.Health}}' | grep -E 'postgres|redis|minio |clamav|mailpit' | grep -vc ' healthy$' || true)
+            [ "$unhealthy" = "0" ] && echo "All services healthy" && exit 0
+            sleep 10
+          done
+          docker compose ps
+          exit 1
+
+      - run: pnpm --filter web test:e2e:full
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-full-report
+          path: |
+            apps/web/e2e-full/playwright-report
+            apps/web/e2e-full/test-results
+          retention-days: 7
+      - name: Service logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200

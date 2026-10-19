@@ -24,6 +24,8 @@ export interface CollegePlace {
 const HOME: Crumb = { label: 'Home', href: '/' };
 const COLLEGES: Crumb = { label: 'Colleges', href: '/colleges' };
 const DASHBOARD: Crumb = { label: 'Dashboard', href: '/dashboard' };
+const UPDATES: Crumb = { label: 'Updates', href: '/updates' };
+const NOTIFICATIONS: Crumb = { label: 'Notifications', href: '/dashboard/notifications' };
 
 const toDestination = (crumb: Crumb) => ({ path: crumb.href ?? '/', label: crumb.label });
 
@@ -121,6 +123,20 @@ export const chrome = {
     };
   },
 
+  /** /updates: the ISSC's and the CSCs' posts, linked from the ISSC card; parent home. */
+  updates(): PageChrome {
+    return { section: 'issc', trail: [HOME, here('Updates')], parent: toDestination(HOME) };
+  },
+
+  /** /updates/:id → parent /updates. */
+  update(title: string | null): PageChrome {
+    return {
+      section: 'issc',
+      trail: [HOME, UPDATES, here(title ?? 'Update')],
+      parent: toDestination(UPDATES),
+    };
+  },
+
   dashboard(): PageChrome {
     return { section: 'dashboard', trail: [here('Dashboard')], parent: null };
   },
@@ -132,6 +148,13 @@ export const chrome = {
       trail: [DASHBOARD, { label: 'Admin', href: '/admin' }, here(label)],
       parent: toDestination(DASHBOARD),
     };
+  },
+
+  /** /system/…: System › section, parent the console overview (the overview: no parent). */
+  system(label: string | null): PageChrome {
+    if (!label) return { section: null, trail: [here('System')], parent: null };
+    const system = { label: 'System', href: '/system/overview' };
+    return { section: null, trail: [system, here(label)], parent: toDestination(system) };
   },
 
   /** Workspace screens: Dashboard › [organization ›] screen, parent the Dashboard. */
@@ -173,6 +196,24 @@ export const chrome = {
       section: 'dashboard',
       trail: [DASHBOARD, list, here(name ?? 'Project')],
       parent: toDestination(list),
+    };
+  },
+
+  /** /dashboard/notifications: every notification, parent the Dashboard. */
+  notifications(): PageChrome {
+    return {
+      section: 'dashboard',
+      trail: [DASHBOARD, here('Notifications')],
+      parent: toDestination(DASHBOARD),
+    };
+  },
+
+  /** /dashboard/notifications/settings → parent the notifications. */
+  notificationSettings(): PageChrome {
+    return {
+      section: 'dashboard',
+      trail: [DASHBOARD, NOTIFICATIONS, here('Email settings')],
+      parent: toDestination(NOTIFICATIONS),
     };
   },
 

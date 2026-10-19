@@ -11,7 +11,7 @@ export interface TextFieldProps extends Omit<ComponentProps<'input'>, 'id'> {
 }
 
 const INPUT =
-  'h-12 w-full rounded-full border border-input bg-white px-5 text-body text-ink shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] transition-colors duration-300 placeholder:text-ink-muted/70 hover:border-forest-500 aria-invalid:border-destructive';
+  'h-12 w-full rounded-full border border-input bg-white px-5 text-body text-ink shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] transition-colors duration-300 placeholder:text-ink-muted hover:border-forest-500 aria-invalid:border-destructive';
 
 /** A labelled input in the design system's pill shape, with its hint and error wired for screen readers. */
 export function TextField({ label, error, hint, className, type, ...input }: TextFieldProps) {

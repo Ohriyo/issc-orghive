@@ -2,9 +2,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AuthResponse, DocumentSummary, MembershipRole } from '@orghive/shared';
+import type { AuthResponse, DocumentSummary } from '@orghive/shared';
 import { routes } from '@/app/router';
 import { authStore } from '@/lib/auth-store';
+import { accountSession, TEST_ORGS, type TestAccount } from '@/test/accounts';
 
 const JPICE_ID = '0195f3c0-0000-7000-8000-0000000000a1';
 const DOC_ID = '0195f3c0-0000-7000-8000-0000000000d1';
@@ -16,7 +17,7 @@ const DOC: DocumentSummary = {
   academicYear: '2026-2027',
   semester: 'first',
   status: 'available',
-  visibility: 'members',
+  visibility: 'governing',
   tags: [],
   createdAt: '2026-10-01T00:00:00.000Z',
   updatedAt: '2026-10-01T00:00:00.000Z',
@@ -25,28 +26,9 @@ const DOC: DocumentSummary = {
   currentVersion: null,
 };
 
-function session(role: MembershipRole): AuthResponse {
-  return {
-    accessToken: 'test-token',
-    expiresIn: 900,
-    user: {
-      id: '0195f3c0-0000-7000-8000-000000000001',
-      name: 'Juan Dela Cruz',
-      email: 'juan@nwssu.test',
-      mustChangePassword: false,
-      roles: [{ orgId: JPICE_ID, role, isHead: false }],
-      memberships: [
-        {
-          orgId: JPICE_ID,
-          orgSlug: 'jpice',
-          orgAcronym: 'JPICE',
-          role,
-          isHead: false,
-          title: null,
-        },
-      ],
-    },
-  };
+/** `own`: JPICE's account; `governing`: its CSC; `issc`: the ISSC account. */
+function session(role: TestAccount): AuthResponse {
+  return accountSession(role, { ...TEST_ORGS.jpice, id: JPICE_ID });
 }
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -99,15 +81,17 @@ describe('/documents/:id visibility', () => {
     // First test in the file: also loads the lazy route and the AppShell.
     { timeout: 15_000 },
     async () => {
-      authStore.setSession(session('officer'));
+      authStore.setSession(session('own'));
       renderDocument();
       const select = await screen.findByRole(
         'combobox',
         { name: 'Who can see it' },
         { timeout: 5000 },
       );
-      expect(select).toHaveValue('members');
-      expect(screen.getByText('Members of your organization')).toBeInTheDocument();
+      expect(select).toHaveValue('governing');
+      expect(
+        screen.getByText('Your organization, your college CSC and the ISSC'),
+      ).toBeInTheDocument();
       fireEvent.change(select, { target: { value: 'public' } });
       await waitFor(() =>
         expect(calls).toContainEqual({
@@ -120,11 +104,13 @@ describe('/documents/:id visibility', () => {
     },
   );
 
-  it('shows other readers who can see it, without a control', async () => {
-    for (const role of ['adviser', 'admin'] as const) {
+  it('shows governing bodies who can see it, without a control', async () => {
+    for (const role of ['governing', 'issc'] as const) {
       authStore.setSession(session(role));
       renderDocument();
-      expect(await screen.findByText('Members only', {}, { timeout: 5000 })).toBeInTheDocument();
+      expect(
+        await screen.findByText('Governing bodies', {}, { timeout: 5000 }),
+      ).toBeInTheDocument();
       expect(screen.queryByRole('combobox', { name: /Who can see it/ })).not.toBeInTheDocument();
       document.body.innerHTML = '';
     }

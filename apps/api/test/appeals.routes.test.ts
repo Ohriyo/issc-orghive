@@ -1,9 +1,8 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { addDays, manilaDate, type Appeal } from '@orghive/shared';
-import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createProjectRepository } from '#src/repositories/project.repository';
 import { createAccessService } from '#src/services/access.service';
@@ -32,19 +31,16 @@ beforeAll(async () => {
   w = await buildComplianceWorld(db);
   s = buildComplianceServices(db);
   for (const [who, userId] of Object.entries(w.ids)) {
-    tokenOf[who as Person] = (
-      await tokens.sign({ userId, roles: [], isAdmin: false, passwordChangeRequired: false })
-    ).token;
+    tokenOf[who as Person] = (await tokens.sign({ userId, passwordChangeRequired: false })).token;
   }
-  const memberships = createMembershipRepository(db);
+  const accounts = createAccountRepository(db);
   app = buildTestApp({
     tokens,
     access: createAccessService({
-      memberships,
+      accounts,
       organizations: createOrganizationRepository(db),
       documents: createDocumentRepository(db),
       projects: createProjectRepository(db),
-      audit: createAuditLogRepository(db),
     }),
     appeals: s.appeals,
     notifications: s.notifications,
@@ -94,8 +90,8 @@ describe('every appeal and notification route needs a session (401)', () => {
 });
 
 describe('GET /organizations/:slug/compliance', () => {
-  it('shows members the blocked project and who decides (check on read)', async () => {
-    const res = await call('get', '/organizations/jpice/compliance', 'adviser').expect(200);
+  it('shows the organization the blocked project and who decides (check on read)', async () => {
+    const res = await call('get', '/organizations/jpice/compliance', 'officer').expect(200);
     expect(res.headers['cache-control']).toBe('private, no-store');
     expect(res.body).toMatchObject({
       frozen: false,
@@ -104,17 +100,19 @@ describe('GET /organizations/:slug/compliance', () => {
     });
   });
 
-  it('403s non-members, including the deciding CSC', async () => {
+  it('shows it to its governing bodies, and 403s anyone else', async () => {
+    await call('get', '/organizations/jpice/compliance', 'governor').expect(200);
+    await call('get', '/organizations/jpice/compliance', 'isscPresident').expect(200);
     await call('get', '/organizations/jpice/compliance', 'psmeOfficer').expect(403);
-    await call('get', '/organizations/jpice/compliance', 'governor').expect(403);
+    await call('get', '/organizations/jpice/compliance', 'catGovernor').expect(403);
   });
 });
 
 describe('POST /organizations/:slug/appeals and the decision', () => {
   const body = () => ({ type: 'PROJECT_BLOCK', projectId: blockedId, reason });
 
-  it('403s an adviser, another org’s officer and an admin: only the org’s own officers appeal', async () => {
-    for (const who of ['adviser', 'psmeOfficer', 'admin'] as const) {
+  it('403s every other account, governing bodies included: only the organization appeals', async () => {
+    for (const who of ['psmeOfficer', 'governor', 'admin'] as const) {
       await call('post', '/organizations/jpice/appeals', who, body()).expect(403);
     }
   });
@@ -126,7 +124,7 @@ describe('POST /organizations/:slug/appeals and the decision', () => {
     }).expect(400);
   });
 
-  it('submits, queues for the Governor only, and is decided by them', async () => {
+  it('submits, queues for the CSC-CEA account only, and is decided by it', async () => {
     const res = await call('post', '/organizations/jpice/appeals', 'officer', body()).expect(201);
     const appeal = res.body as Appeal;
     expect(appeal).toMatchObject({ status: 'pending', type: 'PROJECT_BLOCK' });
@@ -152,7 +150,7 @@ describe('POST /organizations/:slug/appeals and the decision', () => {
     expect(decided.status, JSON.stringify(decided.body)).toBe(200);
     expect(decided.body).toMatchObject({ status: 'approved' });
 
-    const history = await call('get', `/projects/${blockedId}/appeals`, 'adviser').expect(200);
+    const history = await call('get', `/projects/${blockedId}/appeals`, 'governor').expect(200);
     expect((history.body as { items: Appeal[] }).items).toEqual([
       expect.objectContaining({ id: appeal.id, status: 'approved' }),
     ]);
@@ -171,8 +169,8 @@ describe('POST /organizations/:slug/appeals and the decision', () => {
 });
 
 describe('appeal attachments', () => {
-  it('only the org’s own officers upload; others get 403', async () => {
-    for (const who of ['adviser', 'psmeOfficer', 'admin', 'governor'] as const) {
+  it('only the organization’s own account uploads; others get 403', async () => {
+    for (const who of ['psmeOfficer', 'admin', 'governor'] as const) {
       await call('post', '/organizations/jpice/appeal-attachments/upload-url', who, PDF).expect(
         403,
       );

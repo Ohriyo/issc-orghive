@@ -34,7 +34,7 @@ export function NewProjectView({ model }: { model: NewProjectModel }) {
             <h1 className="mt-8 text-h1 font-bold text-ink">New project</h1>
             <p className="mt-4 max-w-prose text-body-lg text-ink">
               {model.status === 'forbidden'
-                ? `Only ${model.org.acronym}'s officers create its projects.`
+                ? `Only ${model.org.acronym}'s own account creates its projects.`
                 : 'You’re not in an organization yet, so you cannot create a project.'}
             </p>
           </>

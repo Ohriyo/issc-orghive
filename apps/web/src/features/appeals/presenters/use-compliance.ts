@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { appealListResponseSchema, organizationComplianceSchema } from '@orghive/shared';
-import { useAuth } from '@/features/auth/presenters/use-auth';
+import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -15,10 +15,10 @@ export type ComplianceModel =
   | { status: 'error'; retry: () => void }
   | ({ status: 'ready' } & ComplianceSummary);
 
-/** Whether the signed-in user is an officer of the organization (only officers appeal). */
+/** Whether the signed-in account is the organization's own (only it appeals). */
 export function useIsOfficerOf(slug: string | null): boolean {
   const { user } = useAuth();
-  return !!slug && !!user?.memberships.some((m) => m.orgSlug === slug && m.role === 'officer');
+  return isOwnOrganization(user, { slug });
 }
 
 /**

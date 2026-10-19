@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { ADMIN_ROUTES, PUBLIC_ROUTES, SIGNED_IN_ROUTES, stubApi } from './fixtures';
+import { ADMIN_ROUTES, PUBLIC_ROUTES, SIGNED_IN_ROUTES, SYSTEM_ROUTES } from './fixtures';
+import { openPage as open } from './open-page';
 
 /**
  * The responsive rules from CLAUDE.md, enforced on every public route at every width:
@@ -16,23 +17,6 @@ const VIEWPORTS = [
 ] as const;
 
 const MIN_TARGET = 44;
-
-/** Loads a route, waits for content, and scrolls once so every scroll reveal has run. */
-async function open(page: Page, path: string, signedIn = false, admin = false) {
-  await stubApi(page, { signedIn, admin });
-  await page.goto(path);
-  // Generous: the first visit to each lazy route compiles it on the dev server.
-  await expect(page.locator('h1').first()).toBeAttached({ timeout: 15_000 });
-  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 15_000 });
-  await page.evaluate(async () => {
-    const step = Math.round(innerHeight * 0.6);
-    for (let y = 0; y < document.documentElement.scrollHeight; y += step) {
-      window.scrollTo(0, y);
-      await new Promise((resolve) => setTimeout(resolve, 60));
-    }
-    window.scrollTo(0, 0);
-  });
-}
 
 /** Elements wider than the viewport that no ancestor clips: the cause of a side scroll. */
 function overflowCulprits(page: Page) {
@@ -120,10 +104,18 @@ for (const viewport of VIEWPORTS) {
       ...PUBLIC_ROUTES.map((path) => ({ path, signedIn: false })),
       ...SIGNED_IN_ROUTES.map((path) => ({ path, signedIn: true })),
       ...ADMIN_ROUTES.map((path) => ({ path, signedIn: true, admin: true })),
-    ] as { path: string; signedIn: boolean; admin?: boolean }[];
-    for (const { path, signedIn, admin } of cases) {
-      test(`${path}${admin ? ' (admin)' : signedIn ? ' (signed in)' : ''}`, async ({ page }) => {
-        await open(page, path, signedIn, admin);
+      ...SYSTEM_ROUTES.map((path) => ({ path, signedIn: true, superAdmin: true })),
+    ] as { path: string; signedIn: boolean; admin?: boolean; superAdmin?: boolean }[];
+    for (const { path, signedIn, admin, superAdmin } of cases) {
+      const who = superAdmin
+        ? ' (super admin)'
+        : admin
+          ? ' (admin)'
+          : signedIn
+            ? ' (signed in)'
+            : '';
+      test(`${path}${who}`, async ({ page }) => {
+        await open(page, path, signedIn, admin, superAdmin);
 
         // Every page renders inside AppShell: one header, with the way home.
         await expect(page.getByRole('banner')).toHaveCount(1);

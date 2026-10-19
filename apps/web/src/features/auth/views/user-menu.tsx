@@ -1,4 +1,4 @@
-import { ChevronDown, KeyRound, LayoutDashboard, LogOut } from 'lucide-react';
+import { ChevronDown, KeyRound, LayoutDashboard, LogOut, ShieldCheck } from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 import { Link } from 'react-router';
 import { cn } from '@/lib/utils';
@@ -55,6 +55,9 @@ export function UserMenu({ account, className }: { account: SignedIn; className?
           <DropdownMenu.Label className="px-3 pt-2 pb-3">
             <span className="block truncate text-body font-semibold text-ink">{account.name}</span>
             <span className="block truncate text-small text-ink-muted">{account.email}</span>
+            {account.systemConsole ? (
+              <span className="mt-2 block text-small font-medium text-ink">Super admin</span>
+            ) : null}
             {account.roles.length > 0 ? (
               <span className="mt-2 flex flex-col gap-0.5">
                 {account.roles.map((line) => (
@@ -63,11 +66,19 @@ export function UserMenu({ account, className }: { account: SignedIn; className?
                   </span>
                 ))}
               </span>
-            ) : (
-              <span className="mt-2 block text-small text-ink-muted">No organization roles</span>
+            ) : account.systemConsole ? null : (
+              <span className="mt-2 block text-small text-ink-muted">No organization</span>
             )}
           </DropdownMenu.Label>
           <DropdownMenu.Separator className="mx-3 mb-1 h-px bg-border" />
+          {account.systemConsole ? (
+            <DropdownMenu.Item asChild className={ITEM}>
+              <Link to="/system">
+                <ShieldCheck aria-hidden="true" className="size-5" />
+                System console
+              </Link>
+            </DropdownMenu.Item>
+          ) : null}
           <DropdownMenu.Item asChild className={ITEM}>
             <Link to="/dashboard">
               <LayoutDashboard aria-hidden="true" className="size-5" />

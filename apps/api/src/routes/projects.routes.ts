@@ -13,33 +13,38 @@ export interface ProjectsRouterDeps {
 
 /**
  * Projects and their milestone checklist (docs/PROJECT_WORKFLOW_SPEC.md, 2A and 2B). The
- * organization's members read them; its officers create, edit and file tasks. A task's
- * file then follows the document visibility rules like any other Paperworks file.
+ * organization's account and its governing bodies read them; only its own account creates,
+ * edits and files tasks. A task's file then follows the document visibility rules like any
+ * other Paperworks file.
  */
 export function projectsRouter({ projects, access, tokens }: ProjectsRouterDeps): Router {
   const router = Router();
   const controller = createProjectController(projects);
-  const { requireOrgRole, requireActiveOrg } = createOrgGuards(access);
+  const { requireOwnOrg, requireOrgOrGoverning, requireActiveOrg } = createOrgGuards(access);
   const auth = requireAuth(tokens);
-  const member = requireOrgRole('officer', 'adviser');
-  const officer = requireOrgRole('officer');
 
-  router.get('/organizations/:slug/projects', auth, member, controller.list);
+  router.get('/organizations/:slug/projects', auth, requireOrgOrGoverning, controller.list);
   // A deactivated organization cannot start projects or file their documents.
-  router.post('/organizations/:slug/projects', auth, officer, requireActiveOrg, controller.create);
-  router.get('/projects/:projectId', auth, member, controller.get);
-  router.patch('/projects/:projectId', auth, officer, controller.update);
+  router.post(
+    '/organizations/:slug/projects',
+    auth,
+    requireOwnOrg,
+    requireActiveOrg,
+    controller.create,
+  );
+  router.get('/projects/:projectId', auth, requireOrgOrGoverning, controller.get);
+  router.patch('/projects/:projectId', auth, requireOwnOrg, controller.update);
   router.post(
     '/projects/:projectId/tasks/:type/upload-url',
     auth,
-    officer,
+    requireOwnOrg,
     requireActiveOrg,
     controller.taskUploadUrl,
   );
   router.post(
     '/projects/:projectId/tasks/:type/documents',
     auth,
-    officer,
+    requireOwnOrg,
     requireActiveOrg,
     controller.submitTaskFile,
   );

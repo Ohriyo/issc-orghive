@@ -91,10 +91,7 @@ describe('HomeView', () => {
       '/orgs/issc/paperworks',
     );
     expect(links.getByRole('link', { name: 'CSC' })).toHaveAttribute('href', '/colleges');
-    expect(links.getByRole('link', { name: 'Updates' })).toHaveAttribute(
-      'href',
-      '/orgs/issc/updates',
-    );
+    expect(links.getByRole('link', { name: 'Updates' })).toHaveAttribute('href', '/updates');
   });
 
   it('shows loading placeholders while data is on its way', () => {

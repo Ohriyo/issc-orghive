@@ -9,6 +9,8 @@ import { createErrorHandler, notFoundHandler } from '#src/middleware/error-handl
 import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
 import { createOpenApiDocument } from '#src/openapi';
 import { adminRouter } from '#src/routes/admin.routes';
+import { announcementsRouter } from '#src/routes/announcements.routes';
+import { complianceOverviewRouter } from '#src/routes/compliance-overview.routes';
 import { appealsRouter } from '#src/routes/appeals.routes';
 import { authRouter } from '#src/routes/auth.routes';
 import { collegesRouter } from '#src/routes/colleges.routes';
@@ -19,8 +21,12 @@ import { organizationsRouter } from '#src/routes/organizations.routes';
 import { projectsRouter } from '#src/routes/projects.routes';
 import { reportsRouter } from '#src/routes/reports.routes';
 import { searchRouter } from '#src/routes/search.routes';
+import { systemRouter } from '#src/routes/system.routes';
+import type { AccessVerifier } from '#src/middleware/require-auth';
 import type { AccessService } from '#src/services/access.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
+import type { AnnouncementService } from '#src/services/announcement.service';
+import type { ComplianceOverviewService } from '#src/services/compliance-overview.service';
 import type { AppealService } from '#src/services/appeal.service';
 import type { AuthService } from '#src/services/auth.service';
 import type { CollegeService } from '#src/services/college.service';
@@ -31,12 +37,14 @@ import type { OrganizationService } from '#src/services/organization.service';
 import type { ProjectService } from '#src/services/project.service';
 import type { ReportService } from '#src/services/report.service';
 import type { SearchService } from '#src/services/search.service';
-import type { TokenService } from '#src/services/token.service';
+import type { SuperAdminService } from '#src/services/super-admin.service';
+import type { SystemService } from '#src/services/system.service';
 import type { UploadService } from '#src/services/upload.service';
 
 export interface AppServices {
   auth: AuthService;
-  tokens: Pick<TokenService, 'verify'>;
+  /** Token verification plus the super admin session check (idle and 8-hour limits). */
+  tokens: AccessVerifier;
   colleges: CollegeService;
   organizations: OrganizationService;
   documents: DocumentService;
@@ -49,6 +57,10 @@ export interface AppServices {
   reports: ReportService;
   search: SearchService;
   adminOrganizations: AdminOrganizationService;
+  announcements: AnnouncementService;
+  complianceOverview: ComplianceOverviewService;
+  system: SystemService;
+  superAdmins: SuperAdminService;
 }
 
 export interface AppDeps {
@@ -102,10 +114,28 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   );
   v1.use('/search', searchRouter({ search: services.search, tokens: services.tokens }));
   v1.use(
+    announcementsRouter({
+      announcements: services.announcements,
+      access: services.access,
+      tokens: services.tokens,
+    }),
+  );
+  v1.use(
+    complianceOverviewRouter({ overview: services.complianceOverview, tokens: services.tokens }),
+  );
+  v1.use(
     '/admin',
     adminRouter({
       organizations: services.adminOrganizations,
       access: services.access,
+      tokens: services.tokens,
+    }),
+  );
+  v1.use(
+    '/system',
+    systemRouter({
+      system: services.system,
+      superAdmins: services.superAdmins,
       tokens: services.tokens,
     }),
   );

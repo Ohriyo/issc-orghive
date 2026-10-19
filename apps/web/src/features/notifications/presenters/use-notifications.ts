@@ -6,6 +6,9 @@ import { queryKeys } from '@/lib/query-keys';
 
 const relative = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 
+/** The bell lists the latest few; the rest are on /dashboard/notifications. */
+const BELL_SIZE = 10;
+
 /** "5 minutes ago", "yesterday". */
 export function timeAgo(iso: string, now: Date): string {
   const seconds = Math.round((new Date(iso).getTime() - now.getTime()) / 1000);
@@ -48,7 +51,12 @@ export function useNotifications(
   const navigate = useNavigate();
   const query = useQuery({
     queryKey: queryKeys.notifications,
-    queryFn: () => api.get('/me/notifications', { schema: notificationListResponseSchema }),
+    // Background: the bell's polling is not activity (super admin idle timeout).
+    queryFn: () =>
+      api.get(`/me/notifications?limit=${BELL_SIZE}`, {
+        schema: notificationListResponseSchema,
+        background: true,
+      }),
     enabled: signedIn,
     staleTime: 30_000,
     refetchInterval: 60_000,

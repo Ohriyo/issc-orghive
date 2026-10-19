@@ -55,7 +55,7 @@ export function SearchPageView({ filters, results }: SearchPageState) {
               onChange={(event) => filters.setSearchInput(event.target.value)}
               placeholder={PLACEHOLDER}
               enterKeyHint="search"
-              className="min-w-0 flex-1 bg-transparent text-body-lg text-ink outline-none placeholder:text-ink-muted/80"
+              className="min-w-0 flex-1 bg-transparent text-body-lg text-ink outline-none placeholder:text-ink-muted"
             />
           </div>
         </form>

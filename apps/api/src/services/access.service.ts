@@ -1,11 +1,11 @@
-import { ErrorCode, type MembershipRole } from '@orghive/shared';
+import { ErrorCode } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
-import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
+import type { AccountRepository } from '#src/repositories/account.repository';
+import type { AnnouncementRepository } from '#src/repositories/announcement.repository';
 import type { DocumentRepository } from '#src/repositories/document.repository';
-import type { MembershipRepository } from '#src/repositories/membership.repository';
 import type { OrganizationRepository } from '#src/repositories/organization.repository';
 import type { ProjectRepository } from '#src/repositories/project.repository';
-import { isSystemAdmin } from '#src/services/document-viewer.service';
+import { isGoverningBodyOf, isIssc } from '#src/services/account-rules';
 
 /** The organization a request acts on. */
 export interface OrgRef {
@@ -13,76 +13,44 @@ export interface OrgRef {
   slug: string;
 }
 
-/** What the guard knows about the request, for the admin-override audit entry. */
-export interface AccessContext {
-  method: string;
-  /** The route pattern, e.g. "/api/v1/documents/:documentId". Never the body. */
-  route: string;
-  ip?: string;
-}
-
-/** How access was granted: a qualifying membership, or an audited ISSC admin override. */
-export type AccessGrant = 'membership' | 'admin_override';
-
-export interface RequireRoleOptions {
-  /**
-   * Let an ISSC admin without the role through (audited). Default true. False for decisions
-   * that belong to the organization alone, such as who can see its documents.
-   */
-  adminOverride?: boolean;
-}
+/**
+ * Who may act on an organization: `own` is its account alone (everything that changes its
+ * work); `governing` also lets its governing bodies through, its college's CSC and the ISSC
+ * (reading its projects, compliance and appeals).
+ */
+export type OrgAccessScope = 'own' | 'governing';
 
 export interface AccessServiceDeps {
-  memberships: Pick<MembershipRepository, 'findActiveForUser'>;
+  accounts: Pick<AccountRepository, 'findAccount'>;
   organizations: Pick<OrganizationRepository, 'findBySlug'>;
   documents: Pick<DocumentRepository, 'organizationOf'>;
   projects: Pick<ProjectRepository, 'organizationOf'>;
-  audit: Pick<AuditLogRepository, 'record'>;
-  now?: () => Date;
+  /** Only routes with :announcementId need it. */
+  announcements?: Pick<AnnouncementRepository, 'organizationOf'>;
 }
 
 /**
- * Authorization for org-scoped routes. Always reads memberships from the database, never
- * from the access token, so a term that ended or a role that was removed stops granting
- * access immediately instead of when the token expires.
+ * Authorization for org-scoped routes, on shared organization accounts (docs/DOMAIN_RULES.md,
+ * "Accounts"). Always read from the database, never from the access token, so a lock or a
+ * deactivation stops granting access at once instead of when the token expires.
  */
 export function createAccessService({
-  memberships,
+  accounts,
   organizations,
   documents,
   projects,
-  audit,
-  now = () => new Date(),
+  announcements,
 }: AccessServiceDeps) {
-  async function adminOverride(
-    userId: string,
-    org: OrgRef,
-    required: string,
-    ctx: AccessContext,
-  ): Promise<AccessGrant> {
-    await audit.record({
-      action: 'admin_override',
-      actorId: userId,
-      entityType: 'organization',
-      entityId: org.id,
-      organizationId: org.id,
-      metadata: { required, method: ctx.method, route: ctx.route },
-      ip: ctx.ip,
-    });
-    return 'admin_override';
-  }
-
   return {
-    /** Active ISSC admins only (the /admin screens). Read from the database, not the token. */
+    /** The ISSC account only (the /admin screens). */
     async requireAdmin(userId: string): Promise<void> {
-      if (!isSystemAdmin(await memberships.findActiveForUser(userId, now()))) {
-        throw AppError.forbidden();
-      }
+      const account = await accounts.findAccount(userId);
+      if (!isIssc(account?.organization)) throw AppError.forbidden();
     },
 
     /**
      * A deactivated organization cannot upload or create projects (docs/DOMAIN_RULES.md,
-     * "Administration"); admins acting for it are refused too.
+     * "Administration").
      */
     async requireActive(org: OrgRef): Promise<void> {
       const found = await organizations.findBySlug(org.slug);
@@ -90,9 +58,21 @@ export function createAccessService({
         throw new AppError(
           403,
           ErrorCode.ORGANIZATION_INACTIVE,
-          'This organization is inactive. An ISSC admin can reactivate it.',
+          'This organization is inactive. The ISSC can reactivate it.',
         );
       }
+    },
+
+    /** Lets the organization's own account through, or (`governing`) a governing body. */
+    async requireOrgAccess(userId: string, org: OrgRef, scope: OrgAccessScope): Promise<void> {
+      const account = await accounts.findAccount(userId);
+      if (!account) throw AppError.forbidden();
+      if (account.organization.id === org.id) return;
+      if (scope === 'governing') {
+        const target = await organizations.findBySlug(org.slug);
+        if (target && isGoverningBodyOf(account.organization, target)) return;
+      }
+      throw AppError.forbidden();
     },
 
     async resolveBySlug(slug: string): Promise<OrgRef | null> {
@@ -105,31 +85,15 @@ export function createAccessService({
       return documents.organizationOf(documentId);
     },
 
+    /** The council that posted an update. Null for unknown or deleted updates. */
+    resolveByAnnouncement(announcementId: string): Promise<OrgRef | null> {
+      if (!announcements) throw new Error('Wire announcements into the access service');
+      return announcements.organizationOf(announcementId);
+    },
+
     /** The organization owning a project. Null for unknown or deleted projects. */
     resolveByProject(projectId: string): Promise<OrgRef | null> {
       return projects.organizationOf(projectId);
-    },
-
-    /**
-     * Allows a user holding one of `roles` in `org` through an active membership. An ISSC
-     * admin without such a role is let through too, and that override is audited, unless
-     * `adminOverride` is false.
-     */
-    async requireRole(
-      userId: string,
-      org: OrgRef,
-      roles: readonly MembershipRole[],
-      ctx: AccessContext,
-      { adminOverride: allowOverride = true }: RequireRoleOptions = {},
-    ): Promise<AccessGrant> {
-      const active = await memberships.findActiveForUser(userId, now());
-      if (active.some((m) => m.organization.id === org.id && roles.includes(m.role))) {
-        return 'membership';
-      }
-      if (allowOverride && isSystemAdmin(active)) {
-        return adminOverride(userId, org, `role:${roles.join('|')}`, ctx);
-      }
-      throw AppError.forbidden();
     },
   };
 }

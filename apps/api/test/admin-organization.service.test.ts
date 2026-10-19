@@ -108,7 +108,7 @@ describe('organizations', () => {
       acronym: 'UAPSA',
       name: 'United Architects of the Philippines Student Auxiliary',
     });
-    expect(org).toMatchObject({ slug: 'uapsa', active: true, memberCount: 0 });
+    expect(org).toMatchObject({ slug: 'uapsa', active: true, hasAccount: false });
     const row = await db.organization.findUniqueOrThrow({ where: { slug: 'uapsa' } });
     expect(row.parentId).toBe(world.orgs.cscCea.id);
     expect((await service.tree()).colleges[1]!.sbos.at(-1)!.slug).toBe('uapsa');

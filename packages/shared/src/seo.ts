@@ -74,6 +74,22 @@ export function organizationSeo(org: OrgSeoInput): PageSeo {
   };
 }
 
+/**
+ * /orgs/:slug/paperworks. Says what the archive holds, from facts only: the organization's
+ * name and the kinds of documents Orghive keeps.
+ */
+export function paperworksSeo(org: OrgSeoInput): PageSeo {
+  return {
+    title: pageTitle(`${org.acronym} Paperworks`),
+    description: truncateDescription(
+      `Paperworks of the ${org.name} (${org.acronym}): proposals, reports, resolutions and accomplishment reports in ${SITE_NAME}, NwSSU's archive of student-organization documents.`,
+    ),
+    path: `/orgs/${org.slug}/paperworks`,
+    image: org.logoUrl ?? DEFAULT_OG_IMAGE_PATH,
+    imageAlt: org.logoUrl ? `${org.name} logo` : DEFAULT_IMAGE_ALT,
+  };
+}
+
 type CollegeSeoInput = Pick<CollegeDetail, 'slug' | 'name' | 'motto' | 'description' | 'csc'>;
 
 /** /colleges/:slug. The CSC's logo stands in for the college, as it does in the carousel. */

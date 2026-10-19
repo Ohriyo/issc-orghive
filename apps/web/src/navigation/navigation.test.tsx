@@ -202,6 +202,24 @@ describe('logical parents (Back without an origin)', () => {
     });
     expect(chrome.colleges().parent).toEqual({ path: '/', label: 'Home' });
   });
+
+  it('notification settings go back to the notifications, and those to the Dashboard', () => {
+    expect(chrome.notifications().parent).toEqual({ path: '/dashboard', label: 'Dashboard' });
+    expect(chrome.notificationSettings().parent).toEqual({
+      path: '/dashboard/notifications',
+      label: 'Notifications',
+    });
+  });
+
+  it('Updates hang off home; an update goes back to Updates', () => {
+    expect(chrome.updates().parent).toEqual({ path: '/', label: 'Home' });
+    expect(chrome.update('Assembly').parent).toEqual({ path: '/updates', label: 'Updates' });
+    expect(chrome.update('Assembly').trail.map((c) => c.label)).toEqual([
+      'Home',
+      'Updates',
+      'Assembly',
+    ]);
+  });
 });
 
 /** Every route the app has, signed out and signed in. */
@@ -221,6 +239,11 @@ const ROUTES = [
   '/dashboard/projects/new',
   '/projects/0195f3c0-0000-7000-8000-0000000000c1',
   '/admin',
+  '/dashboard/compliance',
+  '/dashboard/notifications',
+  '/dashboard/notifications/settings',
+  '/updates',
+  '/updates/0195f3c0-0000-7000-8000-0000000000e1',
   '/login',
   '/forgot-password',
   '/reset-password',

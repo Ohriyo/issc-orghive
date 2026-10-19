@@ -1,11 +1,18 @@
-import type { NotificationKind, NotificationListResponse } from '@orghive/shared';
+import {
+  emailPreferences,
+  type NotificationKind,
+  type NotificationListQuery,
+  type NotificationListResponse,
+  type NotificationPreferences,
+  type UpdateNotificationPreferences,
+} from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 import type { Mailer } from '#src/lib/mailer';
 import type { NotificationQueue } from '#src/lib/queue';
 import type { Logger } from '#src/logger';
 import type { NotificationRepository } from '#src/repositories/notification.repository';
 
-/** How many notifications the bell lists. */
+/** How many notifications a page lists unless the caller asks for fewer. */
 export const NOTIFICATION_LIST_SIZE = 30;
 
 export interface NotifyInput {
@@ -30,9 +37,9 @@ export interface NotificationServiceDeps {
 }
 
 /**
- * In-app notifications; the worker emails each one once (`sendEmail`). Sending never fails
- * the action that caused it: an email that could not be queued is logged, and the in-app
- * notification is still there.
+ * In-app notifications; the worker emails each one once (`sendEmail`), unless its user turned
+ * email off for that kind. Sending never fails the action that caused it: an email that
+ * could not be queued is logged, and the in-app notification is still there.
  */
 export function createNotificationService({
   notifications,
@@ -43,7 +50,7 @@ export function createNotificationService({
   return {
     async notify(input: NotifyInput): Promise<void> {
       const userIds = [...new Set(input.userIds)];
-      const ids = await notifications.createMany(
+      const created = await notifications.createMany(
         userIds.map((userId) => ({
           userId,
           kind: input.kind,
@@ -54,22 +61,43 @@ export function createNotificationService({
         })),
       );
       try {
+        // Skipped up front for those who turned this kind off (an update can reach every
+        // member); the worker checks again before sending, in case they change their mind.
+        const optedOut = await notifications.optedOutOf(
+          input.kind,
+          created.map((n) => n.userId),
+        );
+        const ids = created.filter((n) => !optedOut.has(n.userId)).map((n) => n.id);
         await queue.enqueueEmails(ids);
       } catch (err) {
         logger.warn(
-          { err, kind: input.kind, count: ids.length },
+          { err, kind: input.kind, count: created.length },
           'Could not queue notification emails',
         );
       }
     },
 
-    async list(userId: string): Promise<NotificationListResponse> {
-      const [items, unreadCount] = await Promise.all([
-        notifications.listForUser(userId, NOTIFICATION_LIST_SIZE),
+    /** Newest first, a page at a time; `unread` lists only unread ones. */
+    async list(
+      userId: string,
+      query: NotificationListQuery = {},
+    ): Promise<NotificationListResponse> {
+      const take = query.limit ?? NOTIFICATION_LIST_SIZE;
+      if (query.cursor && !(await notifications.belongsTo(query.cursor, userId))) {
+        throw AppError.notFound('Notification not found');
+      }
+      const [rows, unreadCount] = await Promise.all([
+        notifications.listForUser(userId, {
+          take,
+          cursor: query.cursor,
+          unreadOnly: query.unread ?? false,
+        }),
         notifications.countUnread(userId),
       ]);
+      const items = rows.slice(0, take);
       return {
         unreadCount,
+        nextCursor: rows.length > take ? items.at(-1)!.id : null,
         items: items.map((n) => ({
           id: n.id,
           kind: n.kind,
@@ -92,6 +120,19 @@ export function createNotificationService({
     async markAllRead(userId: string): Promise<void> {
       await notifications.markAllRead(userId, now());
     },
+
+    /** Email on or off per kind; every kind is on until the user turns it off. */
+    async preferences(userId: string): Promise<NotificationPreferences> {
+      return { email: emailPreferences(await notifications.emailOptOuts(userId)) };
+    },
+
+    async updatePreferences(
+      userId: string,
+      input: UpdateNotificationPreferences,
+    ): Promise<NotificationPreferences> {
+      await notifications.setEmailPreferences(userId, input.email);
+      return { email: emailPreferences(await notifications.emailOptOuts(userId)) };
+    },
   };
 }
 
@@ -113,7 +154,7 @@ export function createNotificationMailer({
   webOrigin,
   now = () => new Date(),
 }: {
-  notifications: Pick<NotificationRepository, 'findForEmail' | 'markEmailed'>;
+  notifications: Pick<NotificationRepository, 'findForEmail' | 'markEmailed' | 'emailOptOuts'>;
   mailer: Mailer;
   webOrigin: string;
   now?: () => Date;
@@ -122,6 +163,8 @@ export function createNotificationMailer({
     async sendEmail(notificationId: string): Promise<'sent' | 'skipped'> {
       const n = await notifications.findForEmail(notificationId);
       if (!n) return 'skipped';
+      // Checked at send time too: turning email off also stops emails already queued.
+      if ((await notifications.emailOptOuts(n.userId)).includes(n.kind)) return 'skipped';
       const url = n.link ? new URL(n.link, webOrigin).toString() : null;
       await mailer.send({
         to: n.user.email,

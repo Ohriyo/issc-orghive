@@ -1,14 +1,19 @@
 import { Bell } from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 import { cn } from '@/lib/utils';
+import { OriginLink } from '@/navigation/origin-link';
 import type { NotificationsModel } from '../presenters/use-notifications';
+
+const FOOTER_LINK =
+  'flex min-h-11 flex-1 cursor-pointer items-center justify-center rounded-full px-3 text-small font-semibold text-ink outline-none select-none data-[highlighted]:bg-surface';
 
 const ITEM =
   'flex cursor-pointer flex-col gap-0.5 rounded-xl px-3 py-2.5 text-left outline-none select-none data-[highlighted]:bg-surface';
 
 /**
  * The header bell: unread count on the button, the latest notifications in a menu (Radix:
- * arrow keys, Esc, focus return). Choosing one opens its page and marks it read.
+ * arrow keys, Esc, focus return). Choosing one opens its page and marks it read. The full
+ * list and the email settings are a link away at the bottom.
  */
 export function NotificationBell({
   model,
@@ -78,7 +83,7 @@ export function NotificationBell({
               </DropdownMenu.Item>
             ) : model.items.length === 0 ? (
               <p className="px-3 py-4 text-small text-ink-muted">
-                Nothing yet. Deadlines and appeals show up here.
+                Nothing yet. Deadlines, appeals and updates from your council show up here.
               </p>
             ) : (
               model.items.map((item) => (
@@ -105,6 +110,14 @@ export function NotificationBell({
                 </DropdownMenu.Item>
               ))
             )}
+          </div>
+          <div className="flex gap-1 border-t border-border p-1.5">
+            <DropdownMenu.Item asChild className={FOOTER_LINK}>
+              <OriginLink to="/dashboard/notifications">See all</OriginLink>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item asChild className={FOOTER_LINK}>
+              <OriginLink to="/dashboard/notifications/settings">Email settings</OriginLink>
+            </DropdownMenu.Item>
           </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

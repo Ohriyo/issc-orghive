@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { apiErrorBodySchema, authResponseSchema } from '@orghive/shared';
+import { apiErrorBodySchema, authResponseSchema, BACKGROUND_REQUEST_HEADER } from '@orghive/shared';
 import { authStore } from './auth-store';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
@@ -26,6 +26,11 @@ export interface RequestOptions<T> extends Omit<RequestInit, 'body'> {
   raw?: Blob;
   /** Validates the response body; use the schema from @orghive/shared. */
   schema?: z.ZodType<T>;
+  /**
+   * Polling, not something the user did. The API does not count it as activity, so an open
+   * tab cannot keep an idle super admin session alive.
+   */
+  background?: boolean;
 }
 
 let inFlightRefresh: Promise<boolean> | null = null;
@@ -114,8 +119,17 @@ async function send(path: string, init: RequestInit, json: unknown, raw?: Blob):
 
 export async function apiFetch<T = unknown>(
   path: string,
-  { json, raw, schema, ...init }: RequestOptions<T> = {},
+  { json, raw, schema, background, ...rest }: RequestOptions<T> = {},
 ): Promise<T> {
+  const init: RequestInit = background
+    ? {
+        ...rest,
+        headers: {
+          ...Object.fromEntries(new Headers(rest.headers)),
+          [BACKGROUND_REQUEST_HEADER]: '1',
+        },
+      }
+    : rest;
   let response = await send(path, init, json, raw);
 
   // An expired access token: refresh once and retry. Auth routes answer 401 for wrong

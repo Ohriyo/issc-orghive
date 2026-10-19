@@ -100,7 +100,8 @@ function IsscContent({ issc }: IsscSectionProps) {
     { label: 'Paperworks', to: `/orgs/${slug}/paperworks` },
     // The Collegiate Student Councils carousel.
     { label: 'CSC', to: '/colleges' },
-    { label: 'Updates', to: `/orgs/${slug}/updates` },
+    // Every council's updates; the page filters by council.
+    { label: 'Updates', to: '/updates' },
   ];
 
   return (

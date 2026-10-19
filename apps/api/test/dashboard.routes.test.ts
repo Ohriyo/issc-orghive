@@ -4,12 +4,13 @@ import { dashboardResponseSchema, type DashboardResponse } from '@orghive/shared
 import { createPublicUrl } from '#src/lib/public-url';
 import { createDashboardRepository } from '#src/repositories/dashboard.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createProjectRepository } from '#src/repositories/project.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createDashboardService } from '#src/services/dashboard.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createTokenService } from '#src/services/token.service';
 import { testKeys } from './auth-fixtures';
-import { buildWorld, resetDb, TERM_END, TERM_START, testDb, type World } from './db';
+import { buildWorld, resetDb, TERM_END, testDb, type World } from './db';
 import { buildTestApp, TEST_ASSET_BASE_URL } from './helpers';
 
 const db = testDb();
@@ -17,16 +18,11 @@ const tokens = createTokenService(testKeys());
 
 let world: World;
 let app: ReturnType<typeof buildTestApp>;
-const tokenOf = {} as Record<
-  'officer' | 'governor' | 'outsider' | 'admin' | 'pastOfficer' | 'adviser' | 'secretary',
-  string
->;
+const tokenOf = {} as Record<'officer' | 'governor' | 'outsider' | 'admin' | 'pastAccount', string>;
 
 async function signFor(userId: string) {
   const { token } = await tokens.sign({
     userId,
-    roles: [],
-    isAdmin: false,
     passwordChangeRequired: false,
   });
   return token;
@@ -47,46 +43,16 @@ beforeAll(async () => {
   world = await buildWorld(db);
   const { users, orgs, docs } = world;
 
-  const admin = await db.user.create({
-    data: { email: 'admin@test.local', name: 'Admin', passwordHash: 'x' },
-  });
-  await db.membership.create({
-    data: { userId: admin.id, organizationId: orgs.issc.id, role: 'admin', termStart: TERM_START },
-  });
-  const pastOfficer = await db.user.create({
-    data: { email: 'past@test.local', name: 'Past officer', passwordHash: 'x' },
-  });
-  await db.membership.create({
+  // A former JPICE account, deactivated when a new one replaced it: acts for nobody.
+  const pastAccount = await db.user.create({
     data: {
-      userId: pastOfficer.id,
+      email: 'past.jpice@test.local',
+      name: 'Past JPICE',
+      passwordHash: 'x',
       organizationId: orgs.jpice.id,
-      role: 'officer',
-      termStart: new Date('2024-08-01'),
-      termEnd: new Date('2025-07-31'),
+      disabledAt: new Date('2026-08-01'),
     },
   });
-
-  // JPICE's adviser (a member, not an officer) and a second officer who uploaded nothing.
-  const adviser = await db.user.create({
-    data: { email: 'adviser@test.local', name: 'Adviser', passwordHash: 'x' },
-  });
-  const secretary = await db.user.create({
-    data: { email: 'secretary@test.local', name: 'Secretary', passwordHash: 'x' },
-  });
-  for (const [userId, role] of [
-    [adviser.id, 'adviser'],
-    [secretary.id, 'officer'],
-  ] as const) {
-    await db.membership.create({
-      data: {
-        userId,
-        organizationId: orgs.jpice.id,
-        role,
-        termStart: TERM_START,
-        termEnd: TERM_END,
-      },
-    });
-  }
 
   // Activity: JPICE entries (one about a since-deleted document, one historical approval
   // from before reviews were removed) and one for PSME.
@@ -156,19 +122,18 @@ beforeAll(async () => {
   tokenOf.officer = await signFor(users.officer.id);
   tokenOf.governor = await signFor(users.governor.id);
   tokenOf.outsider = await signFor(users.outsider.id);
-  tokenOf.admin = await signFor(admin.id);
-  tokenOf.pastOfficer = await signFor(pastOfficer.id);
-  tokenOf.adviser = await signFor(adviser.id);
-  tokenOf.secretary = await signFor(secretary.id);
+  tokenOf.admin = await signFor(users.issc.id);
+  tokenOf.pastAccount = await signFor(pastAccount.id);
 
-  const memberships = createMembershipRepository(db);
+  const accounts = createAccountRepository(db);
   app = buildTestApp({
     tokens,
     dashboard: createDashboardService({
-      memberships,
+      accounts,
       dashboard: createDashboardRepository(db),
       documents: createDocumentRepository(db),
-      viewers: createDocumentViewerService({ memberships }),
+      viewers: createDocumentViewerService({ accounts }),
+      projects: createProjectRepository(db),
       storage: { presignGet: (key) => Promise.resolve(`https://storage.test/${key}?signed`) },
       publicUrl: createPublicUrl(TEST_ASSET_BASE_URL),
       now: () => new Date('2026-10-16T00:00:00Z'),
@@ -187,24 +152,23 @@ describe('GET /me/dashboard', () => {
     expect(res.headers['cache-control']).toBe('private, no-store');
   });
 
-  it("gives an officer their organization's counts, recent documents and own quarantined uploads", async () => {
+  it("gives the account its organization's counts, recent documents and quarantined uploads", async () => {
     const body = await dashboardOf(tokenOf.officer);
-    expect(body.memberships).toEqual([
-      {
-        organizationId: world.orgs.jpice.id,
-        role: 'officer',
-        isHead: true,
-        title: null,
-        termEnd: TERM_END.toISOString().slice(0, 10),
+    expect(body.term).toEqual({
+      officerInCharge: {
+        name: 'jpice officer',
+        position: 'President',
+        email: 'officer.jpice@test.local',
       },
-    ]);
+      termEnd: TERM_END.toISOString().slice(0, 10),
+    });
     expect(body.organizations).toHaveLength(1);
     const [jpice] = body.organizations;
     expect(jpice!.organization).toMatchObject({ id: world.orgs.jpice.id, acronym: 'JPICE' });
     // Available documents by visibility; the deleted document is not counted.
     expect(jpice!.counts).toEqual({
       public: 1,
-      members: 1,
+      governing: 1,
       private: 1,
       scanning: 1,
       quarantined: 1,
@@ -214,22 +178,8 @@ describe('GET /me/dashboard', () => {
     expect(jpice!.recentDocuments.every((d) => d.organization.slug === 'jpice')).toBe(true);
     expect(jpice!.quarantined.map((d) => d.id)).toEqual([world.docs.jpiceQuarantined.id]);
     expect(body).not.toHaveProperty('reviews');
-    expect(body.isAdmin).toBe(false);
-  });
-
-  it('counts for a member only what members see, and never another officer’s uploads in progress', async () => {
-    const [asAdviser] = (await dashboardOf(tokenOf.adviser)).organizations;
-    expect(asAdviser!.counts).toEqual({
-      public: 1,
-      members: 1,
-      private: 0,
-      scanning: 0,
-      quarantined: 0,
-      archived: 0,
-    });
-    const [asSecretary] = (await dashboardOf(tokenOf.secretary)).organizations;
-    expect(asSecretary!.counts).toMatchObject({ private: 1, scanning: 0, quarantined: 0 });
-    expect(asSecretary!.quarantined).toEqual([]);
+    // An SBO decides nothing and sees no compliance overview.
+    expect(body).toMatchObject({ isIssc: false, canSeeCompliance: false, decidesAppeals: false });
   });
 
   it('lists activity newest first, without logins, old approvals or deleted documents', async () => {
@@ -238,14 +188,7 @@ describe('GET /me/dashboard', () => {
       ['visibility_change', 'JPICE draft resolution'],
       ['upload', 'JPICE accomplishment report'],
     ]);
-    expect(jpice!.activity[0]).toMatchObject({ actorName: 'officer@test.local' });
-  });
-
-  it('hides activity about documents the viewer may not see', async () => {
-    const [asAdviser] = (await dashboardOf(tokenOf.adviser)).organizations;
-    expect(asAdviser!.activity.map((a) => a.document?.title)).toEqual([
-      'JPICE accomplishment report',
-    ]);
+    expect(jpice!.activity[0]).toMatchObject({ actorName: 'jpice' });
   });
 
   it("never shows an officer another organization's documents or activity", async () => {
@@ -256,24 +199,30 @@ describe('GET /me/dashboard', () => {
     expect(text).not.toContain(world.orgs.cscCea.id);
   });
 
-  it('gives a CSC governor their own council only: no review queue for the SBOs below', async () => {
+  it('gives a CSC account its own council only, and links to appeals and compliance', async () => {
     const body = await dashboardOf(tokenOf.governor);
     expect(body.organizations.map((o) => o.organization.acronym)).toEqual(['CSC-CEA']);
     expect(body.organizations[0]!.counts.public).toBe(1);
     expect(JSON.stringify(body)).not.toContain('JPICE');
+    expect(body).toMatchObject({ isIssc: false, canSeeCompliance: true, decidesAppeals: true });
   });
 
-  it('gives an admin the ISSC and the admin flag', async () => {
+  it('gives the ISSC account the ISSC and the admin flag', async () => {
     const body = await dashboardOf(tokenOf.admin);
-    expect(body.isAdmin).toBe(true);
+    expect(body).toMatchObject({ isIssc: true, canSeeCompliance: true, decidesAppeals: true });
     expect(body.organizations.map((o) => o.organization.acronym)).toEqual(['ISSC']);
-    expect(body.memberships[0]).toMatchObject({ role: 'admin', termEnd: null });
+    expect(body.term?.officerInCharge.name).toBe('issc officer');
   });
 
-  it('is empty for a user without roles and for an ended term', async () => {
-    for (const token of [tokenOf.outsider, tokenOf.pastOfficer]) {
-      const body = await dashboardOf(token);
-      expect(body).toEqual({ memberships: [], organizations: [], isAdmin: false });
+  it('is empty for an account without an organization and for a deactivated one', async () => {
+    for (const token of [tokenOf.outsider, tokenOf.pastAccount]) {
+      expect(await dashboardOf(token)).toEqual({
+        term: null,
+        organizations: [],
+        isIssc: false,
+        canSeeCompliance: false,
+        decidesAppeals: false,
+      });
     }
   });
 });

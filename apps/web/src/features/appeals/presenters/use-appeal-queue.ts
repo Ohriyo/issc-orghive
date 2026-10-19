@@ -63,9 +63,9 @@ export async function openAppealAttachment(appealId: string, attachmentId: strin
 }
 
 /**
- * /dashboard/appeals: the appeals waiting for the user's decision (the CSC Governor for
- * its SBOs, the ISSC President for the CSCs; appeal-rules.ts on the server decides), and
- * the ones they decided. Approve needs a new due date; reject needs remarks.
+ * /dashboard/appeals: the appeals waiting for this account's decision (a CSC account for
+ * its SBOs, the ISSC account for the CSCs; appeal-rules.ts on the server decides), and
+ * the ones it decided. Approve needs a new due date; reject needs remarks.
  */
 export function useAppealQueue(): AppealQueueModel {
   const queryClient = useQueryClient();

@@ -5,15 +5,15 @@ import { organizationTypeSchema, slugSchema } from './organization';
 import { documentTagsSchema, uploadKeySchema } from './upload';
 
 /**
- * Who may see an available document. The owning organization's officers choose it on upload
- * and may change it at any time; nobody else can (docs/DOMAIN_RULES.md):
+ * Who may see an available document. The owning organization's account chooses it on upload
+ * and may change it at any time; nobody else can (docs/DOMAIN_RULES.md, "Visibility"):
  * - public: anyone, including signed-out visitors.
- * - members: active members of the owning organization, any role.
- * - private: the owning organization's officers.
- * Before a document is available only its uploader sees it. Admins see every available or
- * archived document for support (audited) but cannot change its visibility.
+ * - governing: the organization, its college's CSC and the ISSC (the governing bodies).
+ * - private: the organization's account only. No exceptions: not its CSC, not the ISSC,
+ *   not the super admin.
+ * Before a document is available, and once archived, only the organization sees it.
  */
-export const DOCUMENT_VISIBILITIES = ['public', 'members', 'private'] as const;
+export const DOCUMENT_VISIBILITIES = ['public', 'governing', 'private'] as const;
 export const documentVisibilitySchema = z.enum(DOCUMENT_VISIBILITIES);
 export type DocumentVisibility = z.infer<typeof documentVisibilitySchema>;
 export const DEFAULT_DOCUMENT_VISIBILITY: DocumentVisibility = 'public';
@@ -84,8 +84,8 @@ export const updateDocumentRequestSchema = z
 export type UpdateDocumentRequest = z.infer<typeof updateDocumentRequestSchema>;
 
 /**
- * PATCH /documents/:documentId/visibility: the owning organization's officers only (admins
- * cannot), at any time. Audited.
+ * PATCH /documents/:documentId/visibility: the owning organization's account only, at any
+ * time. Audited.
  */
 export const updateVisibilityRequestSchema = z.strictObject({
   visibility: documentVisibilitySchema,

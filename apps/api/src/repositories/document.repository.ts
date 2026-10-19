@@ -9,7 +9,6 @@ import {
 import {
   visibleDocumentsWhere,
   visibleVersionsWhere,
-  withoutAdmin,
   type DocumentViewer,
 } from './document-visibility';
 import type { Db } from './prisma';
@@ -69,6 +68,8 @@ const processingSelect = {
   id: true,
   version: true,
   storageKey: true,
+  originalFilename: true,
+  uploadedById: true,
   mimeType: true,
   sizeBytes: true,
   scanStatus: true,
@@ -77,6 +78,7 @@ const processingSelect = {
       id: true,
       status: true,
       currentVersionId: true,
+      title: true,
       organization: { select: { id: true, slug: true } },
     },
   },
@@ -291,18 +293,6 @@ export function createDocumentRepository(db: Db) {
     },
 
     /**
-     * True when an admin can see this document only because they are an admin (for example
-     * a private file of an organization they hold no office in). Services audit such views.
-     */
-    async visibleOnlyAsAdmin(viewer: DocumentViewer, id: string): Promise<boolean> {
-      if (viewer.kind !== 'user' || !viewer.isAdmin) return false;
-      const asMember = await db.document.count({
-        where: { AND: [visibleDocumentsWhere(withoutAdmin(viewer)), { id }] },
-      });
-      return asMember === 0;
-    },
-
-    /**
      * Newest first. With `search`, results come in relevance order and only the best
      * `limit` matches are returned (no further pages).
      */
@@ -510,13 +500,20 @@ export function createDocumentRepository(db: Db) {
      */
     async markClean(
       versionId: string,
-      result: { sha256: string; thumbnailKey: string | null; contentText: string | null },
+      result: {
+        /** The scanned copy (files/…), which no upload URL can overwrite. */
+        storageKey: string;
+        sha256: string;
+        thumbnailKey: string | null;
+        contentText: string | null;
+      },
       now: Date,
     ): Promise<{ becameCurrent: boolean }> {
       return db.$transaction(async (tx) => {
         const version = await tx.documentVersion.update({
           where: { id: versionId },
           data: {
+            storageKey: result.storageKey,
             scanStatus: 'clean',
             sha256: result.sha256,
             thumbnailKey: result.thumbnailKey,

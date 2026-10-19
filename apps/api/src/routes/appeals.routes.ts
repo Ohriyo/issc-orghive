@@ -13,39 +13,42 @@ export interface AppealsRouterDeps {
 
 /**
  * Compliance and appeals (docs/PROJECT_WORKFLOW_SPEC.md, section 3). An organization's
- * members see its blocks, freezes and appeals; only its own officers appeal (admins do not
- * pass: an appeal is the organization's own decision). Deciding is checked in the service
- * against appeal-rules.ts, since the decider belongs to another organization.
+ * account and its governing bodies (its CSC, the ISSC) see its blocks, freezes and appeals;
+ * only its own account appeals. Deciding is checked in the service against appeal-rules.ts,
+ * since the deciding account belongs to another organization.
  */
 export function appealsRouter({ appeals, access, tokens }: AppealsRouterDeps): Router {
   const router = Router();
   const controller = createAppealController(appeals);
-  const { requireOrgRole, requireOwnOrgRole } = createOrgGuards(access);
+  const { requireOwnOrg, requireOrgOrGoverning } = createOrgGuards(access);
   const auth = requireAuth(tokens);
-  const member = requireOrgRole('officer', 'adviser');
-  const ownOfficer = requireOwnOrgRole('officer');
 
-  router.get('/organizations/:slug/compliance', auth, member, controller.compliance);
-  router.post('/organizations/:slug/appeals', auth, ownOfficer, controller.submit);
+  router.get('/organizations/:slug/compliance', auth, requireOrgOrGoverning, controller.compliance);
+  router.post('/organizations/:slug/appeals', auth, requireOwnOrg, controller.submit);
   router.post(
     '/organizations/:slug/appeal-attachments/upload-url',
     auth,
-    ownOfficer,
+    requireOwnOrg,
     controller.attachmentUploadUrl,
   );
   router.post(
     '/organizations/:slug/appeal-attachments',
     auth,
-    ownOfficer,
+    requireOwnOrg,
     controller.addAttachment,
   );
   router.get(
     '/organizations/:slug/appeal-attachments/:attachmentId',
     auth,
-    ownOfficer,
+    requireOwnOrg,
     controller.getAttachment,
   );
-  router.get('/projects/:projectId/appeals', auth, member, controller.listForProject);
+  router.get(
+    '/projects/:projectId/appeals',
+    auth,
+    requireOrgOrGoverning,
+    controller.listForProject,
+  );
 
   router.get('/appeals/queue', auth, controller.queue);
   router.post('/appeals/:appealId/decision', auth, controller.decide);

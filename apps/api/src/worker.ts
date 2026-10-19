@@ -14,6 +14,7 @@ import {
   createBullReportQueue,
   createQueueConnection,
   DOCUMENT_QUEUE,
+  EMAILS_PER_SECOND,
   NOTIFICATION_QUEUE,
   REPORT_QUEUE,
   type DocumentJob,
@@ -26,7 +27,7 @@ import { createLogger } from '#src/logger';
 import { createAppealRepository } from '#src/repositories/appeal.repository';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createNotificationRepository } from '#src/repositories/notification.repository';
 import { createOrgFreezeRepository } from '#src/repositories/org-freeze.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
@@ -46,6 +47,7 @@ import {
   createProcessingService,
 } from '#src/services/processing.service';
 import { createProjectSync } from '#src/services/project-sync.service';
+import { createTermReminders } from '#src/services/term-reminders.service';
 import { createRecipients } from '#src/services/recipients.service';
 import { createReportService } from '#src/services/report.service';
 
@@ -97,7 +99,7 @@ const projectSync = createProjectSync({
   compliance: createCompliance({
     freezes: createOrgFreezeRepository(db),
     recipients: createRecipients({
-      memberships: createMembershipRepository(db),
+      accounts: createAccountRepository(db),
       organizations: createOrganizationRepository(db),
     }),
     notifications,
@@ -115,6 +117,7 @@ const processing = createProcessingService({
   cache: createRedisCache(redis, logger),
   logger,
   onDocumentScanned: (documentId) => projectSync.documentScanned(documentId),
+  notifications,
 });
 const attachments = createAttachmentProcessing({
   appeals: createAppealRepository(db),
@@ -123,10 +126,15 @@ const attachments = createAttachmentProcessing({
   tools,
   audit,
   logger,
+  notifications,
 });
 const requeueStale = createPendingRequeue({
   findStalePending: (before) => documents.findStalePending(before),
   queue: jobs,
+});
+const termReminders = createTermReminders({
+  accounts: createAccountRepository(db),
+  notifications,
 });
 const mail = createNotificationMailer({
   notifications: notificationRepo,
@@ -171,8 +179,9 @@ async function handle(job: Job<DocumentJob['data'], unknown, DocumentJob['name']
     }
     case 'check-compliance': {
       const checked = await projectSync.syncAll();
-      logger.info({ checked }, 'Compliance check');
-      return { checked };
+      const termsEnding = await termReminders.run();
+      logger.info({ checked, termsEnding }, 'Compliance check');
+      return { checked, termsEnding };
     }
     default:
       throw new UnrecoverableError(`Unknown job ${String(job.name)}`);
@@ -197,6 +206,8 @@ const worker = new Worker(DOCUMENT_QUEUE, handle, { connection, concurrency: 2 }
 const mailWorker = new Worker(NOTIFICATION_QUEUE, handleNotification, {
   connection,
   concurrency: 2,
+  // An update to every member queues many emails at once; the relay gets them steadily.
+  limiter: { max: EMAILS_PER_SECOND, duration: 1000 },
 });
 // One report at a time: each runs Chromium and holds every file of a semester in memory.
 const reportWorker = new Worker(REPORT_QUEUE, handleReport, {

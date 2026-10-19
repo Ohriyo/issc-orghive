@@ -4,7 +4,7 @@ import { memoryCache } from '#src/lib/cache';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createProjectRepository } from '#src/repositories/project.repository';
 import { createAccessService } from '#src/services/access.service';
@@ -15,7 +15,7 @@ import { createUploadService } from '#src/services/upload.service';
 import type { Storage } from '#src/lib/storage';
 import { createUploadIntentRepository } from '#src/repositories/upload-intent.repository';
 import { testKeys } from './auth-fixtures';
-import { buildWorld, createTestDocument, resetDb, testDb, type World } from './db';
+import { buildWorld, createAccount, createTestDocument, resetDb, testDb, type World } from './db';
 import { buildTestApp } from './helpers';
 
 const db = testDb();
@@ -36,6 +36,7 @@ const storage: Storage = {
   },
   read: () => Promise.reject(new Error('not used')),
   put: () => Promise.resolve(),
+  copy: () => Promise.resolve(),
   move: () => Promise.resolve(),
   delete: () => Promise.resolve(),
 };
@@ -47,24 +48,23 @@ const queue = {
   },
 };
 
+/**
+ * Who asks, by shared account (docs/DOMAIN_RULES.md, "Accounts"): IECEP's own account; its
+ * governing bodies (the CSC-CEA and the ISSC, whose account is the admin); a sibling SBO
+ * (JPICE); another college's CSC; a signed-in account acting for no organization (student).
+ */
 type Role =
-  | 'anonymous'
-  | 'student'
-  | 'jpiceOfficer'
-  | 'iecepOfficer'
-  | 'iecepMember'
-  | 'ceaAdviser'
-  | 'admin';
+  'anonymous' | 'student' | 'jpiceOfficer' | 'iecepOfficer' | 'ceaGovernor' | 'cscCat' | 'admin';
 const ROLES: Role[] = [
   'anonymous',
   'student',
   'jpiceOfficer',
   'iecepOfficer',
-  'iecepMember',
-  'ceaAdviser',
+  'ceaGovernor',
+  'cscCat',
   'admin',
 ];
-type Person = Exclude<Role, 'anonymous'> | 'ceaGovernor' | 'iecepSecretary' | 'pastJpiceOfficer';
+type Person = Exclude<Role, 'anonymous'> | 'pastJpiceOfficer';
 
 let world: World;
 let iecep: { id: string; slug: string };
@@ -76,11 +76,9 @@ function daysFromNow(days: number) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
-async function signFor(userId: string, claims: { isAdmin?: boolean; roles?: never[] } = {}) {
+async function signFor(userId: string) {
   const { token } = await tokens.sign({
     userId,
-    roles: claims.roles ?? [],
-    isAdmin: claims.isAdmin ?? false,
     passwordChangeRequired: false,
   });
   return token;
@@ -100,43 +98,36 @@ beforeAll(async () => {
     },
   });
 
-  // Terms relative to today, so the matrix does not expire with the calendar.
-  const current = { termStart: daysFromNow(-60), termEnd: daysFromNow(300) };
-  const people: [Person, string | null, 'officer' | 'adviser' | 'admin', object][] = [
-    ['student', null, 'officer', {}],
-    ['jpiceOfficer', world.orgs.jpice.id, 'officer', current],
-    ['iecepOfficer', iecep.id, 'officer', current],
-    // A member of IECEP who is not an officer: sees members-only files, not private ones.
-    ['iecepMember', iecep.id, 'adviser', current],
-    ['iecepSecretary', iecep.id, 'officer', current],
-    ['ceaAdviser', world.orgs.cscCea.id, 'adviser', current],
-    ['admin', world.orgs.issc.id, 'admin', { termStart: daysFromNow(-60), termEnd: null }],
-    ['ceaGovernor', world.orgs.cscCea.id, 'officer', { ...current, isHead: true }],
-    [
-      'pastJpiceOfficer',
-      world.orgs.jpice.id,
-      'officer',
-      { termStart: daysFromNow(-400), termEnd: daysFromNow(-35) },
-    ],
-  ];
-  for (const [key, orgId, role, extra] of people) {
-    const user = await db.user.create({
-      data: { email: `${key.toLowerCase()}@matrix.test`, name: key, passwordHash: 'x' },
-    });
-    if (orgId) {
-      await db.membership.create({
-        data: { userId: user.id, organizationId: orgId, role, ...extra } as never,
-      });
-    }
-    userIds[key] = user.id;
-    tokenOf[key] = await signFor(user.id);
+  const iecepAccount = await createAccount(db, 'iecep@test.local', iecep.id);
+  // A former JPICE account, deactivated when it was replaced: it acts for nobody.
+  const pastJpice = await db.user.create({
+    data: {
+      email: 'past.jpice@test.local',
+      name: 'past',
+      passwordHash: 'x',
+      organizationId: world.orgs.jpice.id,
+      disabledAt: daysFromNow(-35),
+    },
+  });
+  const people: Record<Person, string> = {
+    student: world.users.outsider.id,
+    jpiceOfficer: world.users.officer.id,
+    iecepOfficer: iecepAccount.id,
+    ceaGovernor: world.users.governor.id,
+    cscCat: world.users.cscCat.id,
+    admin: world.users.issc.id,
+    pastJpiceOfficer: pastJpice.id,
+  };
+  for (const [key, userId] of Object.entries(people) as [Person, string][]) {
+    userIds[key] = userId;
+    tokenOf[key] = await signFor(userId);
   }
 
-  const memberships = createMembershipRepository(db);
+  const accounts = createAccountRepository(db);
   const organizations = createOrganizationRepository(db);
   const documents = createDocumentRepository(db);
   const audit = createAuditLogRepository(db);
-  const viewers = createDocumentViewerService({ memberships });
+  const viewers = createDocumentViewerService({ accounts });
   const uploads = createUploadService({ intents: createUploadIntentRepository(db), storage });
   app = buildTestApp({
     tokens,
@@ -153,22 +144,21 @@ beforeAll(async () => {
       cache: memoryCache(),
     }),
     access: createAccessService({
-      memberships,
+      accounts,
       organizations,
       documents,
       projects: createProjectRepository(db),
-      audit,
     }),
   });
 });
 
-type Target = 'public' | 'members' | 'private' | 'scanning' | 'archived';
+type Target = 'public' | 'governing' | 'private' | 'scanning' | 'archived';
 
 /** A fresh IECEP document uploaded by its officer, so cases never depend on each other. */
 async function iecepDocument(target: Target, orgId = iecep.id) {
   const status =
     target === 'scanning' ? 'scanning' : target === 'archived' ? 'archived' : 'available';
-  const visibility = target === 'members' || target === 'private' ? target : 'public';
+  const visibility = target === 'governing' || target === 'private' ? target : 'public';
   return createTestDocument(db, {
     organizationId: orgId,
     typeId: world.types.proposal.id,
@@ -232,28 +222,28 @@ const NOT_FOUND_EXCEPT = (seen: Partial<Record<Role, number>>): Record<Role, num
   student: 404,
   jpiceOfficer: 404,
   iecepOfficer: 404,
-  iecepMember: 404,
-  ceaAdviser: 404,
+  ceaGovernor: 404,
+  cscCat: 404,
   admin: 404,
   ...seen,
 });
 
-/** Writes: 401 signed out, 403 without the role; IECEP's officer and (by override) admins pass. */
-const OFFICER_WRITE = (ok: number): Record<Role, number> => ({
+/** Writes: 401 signed out, 403 for every account but IECEP's own (the ISSC included). */
+const OWN_WRITE = (ok: number): Record<Role, number> => ({
   anonymous: 401,
   student: 403,
   jpiceOfficer: 403,
   iecepOfficer: ok,
-  iecepMember: 403,
-  ceaAdviser: 403,
-  admin: ok,
+  ceaGovernor: 403,
+  cscCat: 403,
+  admin: 403,
 });
 
 /**
- * Every document action on IECEP's Paperworks. Reads of a document the user may not see
- * are 404 (its existence is not revealed); writes are 401 signed out and 403 without the
- * role. The JPICE officer is a sibling SBO's officer and must get nowhere; the CEA adviser
- * belongs to the parent council, which reviews nothing.
+ * Every document action on IECEP's Paperworks. Reads of a document the account may not see
+ * are 404 (its existence is not revealed); writes are 401 signed out and 403 for any other
+ * account. Governing bodies (CSC-CEA, ISSC) read `governing` files only; nobody else's
+ * account reads a private, scanning or archived one.
  */
 const ACTIONS: Action[] = [
   {
@@ -268,19 +258,19 @@ const ACTIONS: Action[] = [
     expected: NOT_FOUND_EXCEPT(Object.fromEntries(ROLES.map((r) => [r, 200]))),
   },
   {
-    name: 'read a members-only document',
-    target: 'members',
+    name: 'read a governing-bodies document',
+    target: 'governing',
     run: (t, id) => call('get', `/documents/${id}`, t),
-    expected: NOT_FOUND_EXCEPT({ iecepOfficer: 200, iecepMember: 200, admin: 200 }),
+    expected: NOT_FOUND_EXCEPT({ iecepOfficer: 200, ceaGovernor: 200, admin: 200 }),
   },
   {
-    name: 'read a private document',
+    name: 'read a private document (the organization only, no exceptions)',
     target: 'private',
     run: (t, id) => call('get', `/documents/${id}`, t),
-    expected: NOT_FOUND_EXCEPT({ iecepOfficer: 200, admin: 200 }),
+    expected: NOT_FOUND_EXCEPT({ iecepOfficer: 200 }),
   },
   {
-    name: 'read a document still being scanned (uploader only)',
+    name: 'read a document still being scanned (the organization only)',
     target: 'scanning',
     run: (t, id) => call('get', `/documents/${id}`, t),
     expected: NOT_FOUND_EXCEPT({ iecepOfficer: 200 }),
@@ -289,43 +279,43 @@ const ACTIONS: Action[] = [
     name: 'read an archived document',
     target: 'archived',
     run: (t, id) => call('get', `/documents/${id}`, t),
-    expected: NOT_FOUND_EXCEPT({ iecepOfficer: 200, admin: 200 }),
+    expected: NOT_FOUND_EXCEPT({ iecepOfficer: 200 }),
   },
   {
     name: 'create a document',
     run: async (t, _id, role) =>
       call('post', '/organizations/iecep/documents', t, await createBodyFor(role)),
-    expected: OFFICER_WRITE(201),
+    expected: OWN_WRITE(201),
   },
   {
     name: 'edit details',
     target: 'private',
     run: (t, id) => call('patch', `/documents/${id}`, t, { title: 'Edited title' }),
-    expected: OFFICER_WRITE(200),
+    expected: OWN_WRITE(200),
   },
   {
-    name: 'change visibility (the organization only, never admins)',
+    name: 'change visibility (the organization only)',
     target: 'private',
     run: (t, id) => call('patch', `/documents/${id}/visibility`, t, { visibility: 'public' }),
-    expected: { ...OFFICER_WRITE(200), admin: 403 },
+    expected: OWN_WRITE(200),
   },
   {
     name: 'archive an available document',
     target: 'public',
     run: (t, id) => call('post', `/documents/${id}/archive`, t),
-    expected: OFFICER_WRITE(200),
+    expected: OWN_WRITE(200),
   },
   {
     name: 'restore an archived document',
     target: 'archived',
     run: (t, id) => call('post', `/documents/${id}/restore`, t),
-    expected: OFFICER_WRITE(200),
+    expected: OWN_WRITE(200),
   },
   {
     name: 'delete a document',
     target: 'public',
     run: (t, id) => call('delete', `/documents/${id}`, t),
-    expected: OFFICER_WRITE(204),
+    expected: OWN_WRITE(204),
   },
 ];
 
@@ -343,12 +333,12 @@ describe('document authorization matrix (IECEP documents)', () => {
 });
 
 describe('visibility, enforced by the repository for every reader', () => {
-  let docs: Record<'public' | 'members' | 'private', { id: string }>;
+  let docs: Record<'public' | 'governing' | 'private', { id: string }>;
 
   beforeAll(async () => {
     docs = {
       public: await iecepDocument('public'),
-      members: await iecepDocument('members'),
+      governing: await iecepDocument('governing'),
       private: await iecepDocument('private'),
     };
   });
@@ -373,40 +363,25 @@ describe('visibility, enforced by the repository for every reader', () => {
     expect(await seenBy()).toEqual(['public']);
   });
 
-  it('shows a member of the organization public and members-only files', async () => {
-    expect(await seenBy(tokenOf.iecepMember)).toEqual(['public', 'members']);
+  it('shows the organization’s own account all three', async () => {
+    expect(await seenBy(tokenOf.iecepOfficer)).toEqual(['public', 'governing', 'private']);
   });
 
-  it('shows an officer of the organization all three', async () => {
-    expect(await seenBy(tokenOf.iecepOfficer)).toEqual(['public', 'members', 'private']);
+  it('shows its governing bodies (its CSC, the ISSC) the governing file, never the private one', async () => {
+    expect(await seenBy(tokenOf.ceaGovernor)).toEqual(['public', 'governing']);
+    expect(await seenBy(tokenOf.admin)).toEqual(['public', 'governing']);
   });
 
-  it('shows another organization’s officer only public files', async () => {
-    expect(await seenBy(tokenOf.jpiceOfficer)).toEqual(['public']);
+  it('shows a sibling SBO, another college’s CSC and an account without an organization only public files', async () => {
+    for (const who of ['jpiceOfficer', 'cscCat', 'student'] as const) {
+      expect(await seenBy(tokenOf[who]), who).toEqual(['public']);
+    }
   });
 
-  it('gives the parent council’s head no review access (no organization reviews another)', async () => {
-    expect(await seenBy(tokenOf.ceaGovernor)).toEqual(['public']);
-  });
-
-  it('shows a signed-in user with no membership only public files', async () => {
-    expect(await seenBy(tokenOf.student)).toEqual(['public']);
-  });
-
-  it('shows an admin all three, auditing each view of one they see only as an admin', async () => {
-    const before = await db.auditLog.count({
-      where: { action: 'admin_override', actorId: userIds.admin, entityType: 'document' },
-    });
-    expect(await seenBy(tokenOf.admin)).toEqual(['public', 'members', 'private']);
-    const entries = await db.auditLog.findMany({
-      where: { action: 'admin_override', actorId: userIds.admin, entityType: 'document' },
-      orderBy: { createdAt: 'asc' },
-    });
-    expect(entries.length - before).toBe(2);
-    expect(entries.map((e) => e.entityId)).toEqual(
-      expect.arrayContaining([docs.members.id, docs.private.id]),
-    );
-    expect(entries.at(-1)!.metadata).toEqual({ access: 'view', visibility: 'private' });
+  it('writes no admin override: nobody sees a file past its visibility', async () => {
+    expect(
+      await db.auditLog.count({ where: { action: 'admin_override', entityType: 'document' } }),
+    ).toBe(0);
   });
 });
 
@@ -438,7 +413,7 @@ describe('PATCH /documents/:documentId/visibility', () => {
     );
   });
 
-  it('refuses an admin without changing the document or writing an override entry', async () => {
+  it('refuses the ISSC account without changing the document or writing an override entry', async () => {
     const doc = await iecepDocument('private');
     await call('patch', url(doc.id), tokenOf.admin, { visibility: 'public' }).expect(403);
     expect((await db.document.findUniqueOrThrow({ where: { id: doc.id } })).visibility).toBe(
@@ -455,14 +430,14 @@ describe('PATCH /documents/:documentId/visibility', () => {
     ).toBe(0);
   });
 
-  it('401s signed out and 403s members, advisers and other organizations', async () => {
-    const doc = await iecepDocument('members');
+  it('401s signed out and 403s every other account, governing bodies included', async () => {
+    const doc = await iecepDocument('governing');
     await call('patch', url(doc.id), undefined, { visibility: 'public' }).expect(401);
-    for (const who of ['iecepMember', 'ceaAdviser', 'ceaGovernor', 'jpiceOfficer'] as const) {
+    for (const who of ['ceaGovernor', 'cscCat', 'admin', 'jpiceOfficer'] as const) {
       await call('patch', url(doc.id), tokenOf[who], { visibility: 'public' }).expect(403);
     }
     expect((await db.document.findUniqueOrThrow({ where: { id: doc.id } })).visibility).toBe(
-      'members',
+      'governing',
     );
   });
 
@@ -509,13 +484,13 @@ describe('document authorization: cross-organization and term checks', () => {
   });
 
   it('archives a document and restores it to available, auditing both', async () => {
-    const doc = await iecepDocument('members', world.orgs.jpice.id);
+    const doc = await iecepDocument('governing', world.orgs.jpice.id);
     const t = tokenOf.jpiceOfficer;
     const archived = await call('post', `/documents/${doc.id}/archive`, t).expect(200);
-    expect(archived.body).toMatchObject({ status: 'archived', visibility: 'members' });
+    expect(archived.body).toMatchObject({ status: 'archived', visibility: 'governing' });
     await call('post', `/documents/${doc.id}/archive`, t).expect(409);
     const restored = await call('post', `/documents/${doc.id}/restore`, t).expect(200);
-    expect(restored.body).toMatchObject({ status: 'available', visibility: 'members' });
+    expect(restored.body).toMatchObject({ status: 'available', visibility: 'governing' });
     const actions = await db.auditLog.findMany({
       where: { entityId: doc.id },
       orderBy: { createdAt: 'asc' },
@@ -535,13 +510,13 @@ describe('document authorization: cross-organization and term checks', () => {
     }).expect(400);
   });
 
-  it('ignores roles claimed in the token: memberships come from the database', async () => {
-    const forged = await signFor(userIds.jpiceOfficer, { isAdmin: true });
+  it('reads the account from the database, never from the token', async () => {
+    const token = await signFor(userIds.jpiceOfficer);
     const doc = await iecepDocument('private');
-    await call('patch', `/documents/${doc.id}`, forged, { title: 'Claimed admin' }).expect(403);
+    await call('patch', `/documents/${doc.id}`, token, { title: 'Claimed admin' }).expect(403);
   });
 
-  it('grants nothing to a membership whose term has ended', async () => {
+  it('grants nothing to a deactivated former account', async () => {
     const doc = await iecepDocument('private', world.orgs.jpice.id);
     await call('patch', `/documents/${doc.id}`, tokenOf.pastJpiceOfficer, {
       title: 'Old officer',
@@ -549,30 +524,13 @@ describe('document authorization: cross-organization and term checks', () => {
     await call('get', `/documents/${doc.id}`, tokenOf.pastJpiceOfficer).expect(404);
   });
 
-  it('audits an admin override on a write, but not an officer acting in their own right', async () => {
+  it('lets the ISSC account write nothing of another organization’s, and audits no override', async () => {
     const doc = await iecepDocument('public');
-    await call('patch', `/documents/${doc.id}`, tokenOf.admin, { title: 'Admin edit' }).expect(200);
-    const overrides = await db.auditLog.findMany({
-      where: {
-        action: 'admin_override',
-        actorId: userIds.admin,
-        organizationId: iecep.id,
-        entityType: 'organization',
-      },
-    });
-    expect(overrides.length).toBeGreaterThan(0);
-    expect(overrides.at(-1)!.metadata).toEqual({
-      required: 'role:officer',
-      method: 'PATCH',
-      route: '/api/v1/documents/:documentId',
-    });
-
-    await call('patch', `/documents/${doc.id}`, tokenOf.iecepOfficer, { title: 'Own' }).expect(200);
+    await call('patch', `/documents/${doc.id}`, tokenOf.admin, { title: 'Admin edit' }).expect(403);
     expect(
-      await db.auditLog.count({
-        where: { action: 'admin_override', actorId: userIds.iecepOfficer },
-      }),
+      await db.auditLog.count({ where: { action: 'admin_override', actorId: userIds.admin } }),
     ).toBe(0);
+    await call('patch', `/documents/${doc.id}`, tokenOf.iecepOfficer, { title: 'Own' }).expect(200);
   });
 
   it('404s writes on unknown or deleted documents for authorized users too', async () => {
@@ -614,12 +572,13 @@ describe('GET /document-types', () => {
 describe('uploads', () => {
   const pdf = { filename: 'proposal.pdf', contentType: 'application/pdf', sizeBytes: 1000 };
 
-  it('issues a pre-signed PUT only to the organization officers', async () => {
+  it('issues a pre-signed PUT only to the organization’s own account', async () => {
     const url = '/organizations/iecep/documents/upload-url';
     await call('post', url, undefined, pdf).expect(401);
     await call('post', url, tokenOf.student, pdf).expect(403);
     await call('post', url, tokenOf.jpiceOfficer, pdf).expect(403);
-    await call('post', url, tokenOf.iecepMember, pdf).expect(403);
+    await call('post', url, tokenOf.ceaGovernor, pdf).expect(403);
+    await call('post', url, tokenOf.admin, pdf).expect(403);
     const res = await call('post', url, tokenOf.iecepOfficer, pdf).expect(201);
     const body = res.body as { uploadKey: string; url: string; method: string };
     expect(body.uploadKey).toMatch(new RegExp(`^uploads/${iecep.id}/[0-9a-f-]{36}$`));
@@ -642,7 +601,7 @@ describe('uploads', () => {
     try {
       const res = await call('post', url, tokenOf.iecepOfficer, pdf).expect(403);
       expect((res.body as { error: { code: string } }).error.code).toBe('ORGANIZATION_INACTIVE');
-      // Admins acting for it are refused too.
+      // Nobody else can act for it either.
       await call('post', url, tokenOf.admin, pdf).expect(403);
     } finally {
       await db.organization.update({ where: { id: iecep.id }, data: { deactivatedAt: null } });
@@ -664,7 +623,7 @@ describe('uploads', () => {
     await call('post', url, t, { ...pdf, filename: '../../etc/passwd.pdf' }).expect(400);
   });
 
-  it('creates a scanning document, visible only to its uploader, and queues the scan', async () => {
+  it('creates a scanning document, visible only to its organization, and queues the scan', async () => {
     const key = await uploadFor(userIds.iecepOfficer, iecep.id);
     const res = await call('post', '/organizations/iecep/documents', tokenOf.iecepOfficer, {
       ...createBody(key),
@@ -692,9 +651,9 @@ describe('uploads', () => {
       }),
     ).toBe(1);
 
-    // Public once scanned, but not before: only the uploader sees it until then.
+    // Public once scanned, but not before: only the organization sees it until then.
     await call('get', `/documents/${body.id}`, tokenOf.iecepOfficer).expect(200);
-    for (const who of [undefined, tokenOf.iecepSecretary, tokenOf.iecepMember, tokenOf.admin]) {
+    for (const who of [undefined, tokenOf.ceaGovernor, tokenOf.admin]) {
       await call('get', `/documents/${body.id}`, who).expect(404);
     }
   });
@@ -740,13 +699,13 @@ describe('uploads', () => {
     ).expect(400);
   });
 
-  it('adds a version only for the organization officers, without making it current', async () => {
+  it('adds a version only for the organization’s own account, without making it current', async () => {
     const doc = await iecepDocument('public');
     const url = `/documents/${doc.id}/versions`;
     const key = async (userId: string) => ({ uploadKey: await uploadFor(userId, iecep.id) });
     await call('post', url, undefined, await key(userIds.iecepOfficer)).expect(401);
     await call('post', url, tokenOf.jpiceOfficer, await key(userIds.jpiceOfficer)).expect(403);
-    await call('post', url, tokenOf.iecepMember, await key(userIds.iecepMember)).expect(403);
+    await call('post', url, tokenOf.ceaGovernor, await key(userIds.ceaGovernor)).expect(403);
     const res = await call(
       'post',
       url,
@@ -759,7 +718,7 @@ describe('uploads', () => {
     expect(after.status).toBe('available');
   });
 
-  it('lists versions: a file being scanned is listed only for its uploader', async () => {
+  it('lists versions: a file being scanned is listed only for its organization', async () => {
     const doc = await iecepDocument('public');
     await call('post', `/documents/${doc.id}/versions`, tokenOf.iecepOfficer, {
       uploadKey: await uploadFor(userIds.iecepOfficer, iecep.id),
@@ -771,7 +730,7 @@ describe('uploads', () => {
         }
       ).versions.map((v) => v.version);
     expect(await versions(tokenOf.iecepOfficer)).toEqual([2, 1]);
-    expect(await versions(tokenOf.iecepSecretary)).toEqual([1]);
+    expect(await versions(tokenOf.ceaGovernor)).toEqual([1]);
     expect(await versions(tokenOf.admin)).toEqual([1]);
     expect(await versions()).toEqual([1]);
   });
@@ -794,19 +753,17 @@ describe('uploads', () => {
       call('get', `/documents/${priv.id}/versions/${pv}/download-url`, token);
     await download().expect(404);
     await download(tokenOf.jpiceOfficer).expect(404);
-    await download(tokenOf.iecepMember).expect(404);
+    await download(tokenOf.ceaGovernor).expect(404);
+    // Private means private: not the ISSC either.
+    await download(tokenOf.admin).expect(404);
     await download(tokenOf.iecepOfficer).expect(200);
-    await download(tokenOf.admin).expect(200);
-    expect(
-      await db.auditLog.count({
-        where: { action: 'admin_override', actorId: userIds.admin, entityId: priv.id },
-      }),
-    ).toBe(1);
 
     // A version from another document is not reachable through this one.
-    await call('get', `/documents/${pub.id}/versions/${pv}/download-url`, tokenOf.admin).expect(
-      404,
-    );
+    await call(
+      'get',
+      `/documents/${pub.id}/versions/${pv}/download-url`,
+      tokenOf.iecepOfficer,
+    ).expect(404);
 
     // A refused file is never served: its uploader learns why, everyone else does not see it.
     await db.documentVersion.update({ where: { id: v1 }, data: { scanStatus: 'infected' } });

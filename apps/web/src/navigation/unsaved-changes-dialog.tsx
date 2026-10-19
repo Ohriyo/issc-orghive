@@ -9,6 +9,10 @@ export interface ConfirmLeaveDialogProps {
   onLeave: () => void;
   title?: string;
   description?: string;
+  /** The button that goes ahead, e.g. "Delete update". */
+  leaveLabel?: string;
+  /** The safe button, focused first. */
+  stayLabel?: string;
 }
 
 /**
@@ -21,6 +25,8 @@ export function ConfirmLeaveDialog({
   onLeave,
   title = 'Leave without saving?',
   description = 'Your changes on this page have not been saved. If you leave now they will be lost.',
+  leaveLabel = 'Leave',
+  stayLabel = 'Stay on this page',
 }: ConfirmLeaveDialogProps) {
   return (
     <AlertDialog.Root open={open} onOpenChange={(next) => (next ? undefined : onStay())}>
@@ -34,12 +40,12 @@ export function ConfirmLeaveDialog({
           <div className="mt-6 flex flex-wrap justify-end gap-3">
             <AlertDialog.Action asChild>
               <PillButton variant="light" size="md" onClick={onLeave}>
-                Leave
+                {leaveLabel}
               </PillButton>
             </AlertDialog.Action>
             <AlertDialog.Cancel asChild>
               <PillButton size="md" onClick={onStay}>
-                Stay on this page
+                {stayLabel}
               </PillButton>
             </AlertDialog.Cancel>
           </div>

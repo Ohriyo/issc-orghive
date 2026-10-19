@@ -1,9 +1,8 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { SemestralReport } from '@orghive/shared';
-import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createProjectRepository } from '#src/repositories/project.repository';
 import { createAccessService } from '#src/services/access.service';
@@ -25,18 +24,15 @@ beforeAll(async () => {
   const w = await buildComplianceWorld(db);
   s = buildReportService(db);
   for (const [who, userId] of Object.entries(w.ids)) {
-    tokenOf[who as Person] = (
-      await tokens.sign({ userId, roles: [], isAdmin: false, passwordChangeRequired: false })
-    ).token;
+    tokenOf[who as Person] = (await tokens.sign({ userId, passwordChangeRequired: false })).token;
   }
   app = buildTestApp({
     tokens,
     access: createAccessService({
-      memberships: createMembershipRepository(db),
+      accounts: createAccountRepository(db),
       organizations: createOrganizationRepository(db),
       documents: createDocumentRepository(db),
       projects: createProjectRepository(db),
-      audit: createAuditLogRepository(db),
     }),
     reports: s.service,
   });
@@ -54,16 +50,17 @@ describe('/organizations/:slug/semestral-reports', () => {
     await call('post', undefined, BODY).expect(401);
   });
 
-  it('403s anyone but the organization’s own officers asking for one (admins too)', async () => {
-    for (const who of ['adviser', 'psmeOfficer', 'admin', 'governor'] as const) {
+  it('403s anyone but the organization’s own account asking for one (the ISSC too)', async () => {
+    for (const who of ['psmeOfficer', 'admin', 'governor'] as const) {
       await call('post', who, BODY).expect(403);
     }
   });
 
-  it('403s the list to advisers and other organizations; admins see it (audited)', async () => {
-    await call('get', 'adviser').expect(403);
-    await call('get', 'psmeOfficer').expect(403);
-    await call('get', 'admin').expect(200);
+  it('403s the list to every other account, the ISSC included', async () => {
+    for (const who of ['psmeOfficer', 'governor', 'admin'] as const) {
+      await call('get', who).expect(403);
+    }
+    await call('get', 'officer').expect(200);
   });
 
   it('400s an invalid semester or academic year', async () => {

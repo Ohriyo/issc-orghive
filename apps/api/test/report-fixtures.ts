@@ -122,7 +122,13 @@ export async function seedReportProject(
     createdAt,
   };
   const plan = planProject(
-    { ...fields, proposalDueOverride: null, postEventDueOverride: null, filed: new Set() },
+    {
+      ...fields,
+      proposalDueOverride: null,
+      postEventDueOverride: null,
+      filed: new Set(),
+      exemptFromCompliance: false,
+    },
     createdAt,
   );
   const project = await projects.create(fields, plan);
@@ -139,7 +145,7 @@ export async function seedReportProject(
         title: `${input.name} ${task}`,
         academicYear: '2026-2027',
         status: 'available',
-        visibility: 'members',
+        visibility: 'private',
         createdById: input.createdById,
       },
     });

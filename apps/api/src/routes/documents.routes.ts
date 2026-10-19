@@ -27,7 +27,7 @@ export function documentsRouter({
 }: DocumentsRouterDeps): Router {
   const router = Router();
   const controller = createDocumentController(documents, uploads);
-  const { requireOrgRole, requireOwnOrgRole, requireActiveOrg } = createOrgGuards(access);
+  const { requireOwnOrg, requireActiveOrg } = createOrgGuards(access);
   const auth = requireAuth(tokens);
 
   router.get('/organizations/:slug/documents', optionalAuth(tokens), viewerCache, controller.list);
@@ -35,7 +35,7 @@ export function documentsRouter({
   router.post(
     '/organizations/:slug/documents/upload-url',
     auth,
-    requireOrgRole('officer'),
+    requireOwnOrg,
     requireActiveOrg,
     controller.uploadUrl,
   );
@@ -43,40 +43,25 @@ export function documentsRouter({
   router.post(
     '/organizations/:slug/documents',
     auth,
-    requireOrgRole('officer'),
+    requireOwnOrg,
     requireActiveOrg,
     controller.create,
   );
 
   router.get('/document-types', publicCache, controller.listTypes);
   router.get('/documents/:documentId', optionalAuth(tokens), viewerCache, controller.get);
-  router.patch('/documents/:documentId', auth, requireOrgRole('officer'), controller.update);
-  // Who can see a document is the organization's own decision: admins cannot change it.
-  router.patch(
-    '/documents/:documentId/visibility',
-    auth,
-    requireOwnOrgRole('officer'),
-    controller.setVisibility,
-  );
-  router.delete('/documents/:documentId', auth, requireOrgRole('officer'), controller.remove);
-  router.post(
-    '/documents/:documentId/archive',
-    auth,
-    requireOrgRole('officer'),
-    controller.archive,
-  );
-  router.post(
-    '/documents/:documentId/restore',
-    auth,
-    requireOrgRole('officer'),
-    controller.restore,
-  );
+  router.patch('/documents/:documentId', auth, requireOwnOrg, controller.update);
+  // Who can see a document is the organization's own decision (docs/DOMAIN_RULES.md).
+  router.patch('/documents/:documentId/visibility', auth, requireOwnOrg, controller.setVisibility);
+  router.delete('/documents/:documentId', auth, requireOwnOrg, controller.remove);
+  router.post('/documents/:documentId/archive', auth, requireOwnOrg, controller.archive);
+  router.post('/documents/:documentId/restore', auth, requireOwnOrg, controller.restore);
 
   router.get('/documents/:documentId/versions', optionalAuth(tokens), controller.listVersions);
   router.post(
     '/documents/:documentId/versions',
     auth,
-    requireOrgRole('officer'),
+    requireOwnOrg,
     requireActiveOrg,
     controller.addVersion,
   );

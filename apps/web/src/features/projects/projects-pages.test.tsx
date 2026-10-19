@@ -8,11 +8,11 @@ import {
   manilaDate,
   type AuthResponse,
   type DashboardResponse,
-  type MembershipRole,
   type ProjectDetail,
 } from '@orghive/shared';
 import { routes } from '@/app/router';
 import { authStore } from '@/lib/auth-store';
+import { accountSession, NO_COUNTS, TEST_ORGS, type TestAccount } from '@/test/accounts';
 import { deadlineLabel, lockedHint } from './presenters/project-format';
 
 const JPICE_ID = '0195f3c0-0000-7000-8000-0000000000a1';
@@ -21,53 +21,42 @@ const DOC_ID = '0195f3c0-0000-7000-8000-0000000000d1';
 const UPLOAD_KEY = `uploads/${JPICE_ID}/0195f3c0-0000-7000-8000-0000000000e9`;
 const today = manilaDate(new Date());
 
-function session(role: MembershipRole): AuthResponse {
-  return {
-    accessToken: 'test-token',
-    expiresIn: 900,
-    user: {
-      id: '0195f3c0-0000-7000-8000-000000000001',
-      name: 'Juan Dela Cruz',
-      email: 'juan@nwssu.test',
-      mustChangePassword: false,
-      roles: [{ orgId: JPICE_ID, role, isHead: false }],
-      memberships: [
-        {
-          orgId: JPICE_ID,
-          orgSlug: 'jpice',
-          orgAcronym: 'JPICE',
-          role,
-          isHead: false,
-          title: null,
-        },
-      ],
-    },
-  };
+const JPICE_ORG = { ...TEST_ORGS.jpice, id: JPICE_ID };
+
+/** `own`: JPICE's account. `governing`: CSC-CEA's account, which reads but never manages. */
+function session(role: TestAccount): AuthResponse {
+  return accountSession(role, JPICE_ORG);
 }
 
-function dashboard(role: MembershipRole): DashboardResponse {
+function dashboard(role: TestAccount): DashboardResponse {
+  const own = role === 'own';
+  const org = own ? JPICE_ORG : TEST_ORGS.cscCea;
   return {
-    memberships: [
-      { organizationId: JPICE_ID, role, isHead: false, title: null, termEnd: '2027-07-31' },
-    ],
+    term: {
+      officerInCharge: { name: 'Juan Dela Cruz', position: 'President', email: 'juan@nwssu.test' },
+      termEnd: '2027-07-31',
+    },
     organizations: [
       {
         organization: {
-          id: JPICE_ID,
-          type: 'SBO',
-          slug: 'jpice',
-          acronym: 'JPICE',
-          name: 'Junior Philippine Institute of Civil Engineers',
+          id: org.id,
+          type: org.type,
+          slug: org.slug,
+          acronym: org.acronym,
+          name: own ? 'Junior Philippine Institute of Civil Engineers' : org.name,
           logoUrl: null,
           logoSrcSet: null,
         },
-        counts: { public: 1, members: 0, private: 0, scanning: 0, quarantined: 0, archived: 0 },
+        counts: { ...NO_COUNTS, public: 1 },
         recentDocuments: [],
         quarantined: [],
         activity: [],
+        semester: null,
       },
     ],
-    isAdmin: false,
+    isIssc: false,
+    canSeeCompliance: !own,
+    decidesAppeals: !own,
   };
 }
 
@@ -112,7 +101,7 @@ const fetchMock = vi.fn<typeof fetch>();
 const calls: { url: string; method: string; body?: unknown }[] = [];
 const puts: string[] = [];
 let stored: ProjectDetail[] = [];
-let role: MembershipRole = 'officer';
+let role: TestAccount = 'own';
 
 /** Storage PUTs go through XMLHttpRequest (for progress): a fake that succeeds at once. */
 class FakeXhr {
@@ -145,7 +134,7 @@ function json(body: unknown, status = 200) {
 }
 
 beforeEach(() => {
-  role = 'officer';
+  role = 'own';
   stored = [project()];
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('XMLHttpRequest', FakeXhr);
@@ -177,7 +166,7 @@ beforeEach(() => {
       );
     }
     if (url.endsWith('/tasks/PROPOSAL/documents')) {
-      const visibility = (body as { visibility: 'members' }).visibility;
+      const visibility = (body as { visibility: 'governing' }).visibility;
       stored = [
         project({
           tasks: project().tasks.map((t) =>
@@ -272,18 +261,6 @@ describe('/dashboard projects section', () => {
       );
     },
   );
-
-  it('offers no New project to an adviser', async () => {
-    role = 'adviser';
-    renderAt('/dashboard');
-    const heading = await screen.findByRole(
-      'heading',
-      { name: 'Projects', level: 2 },
-      { timeout: 5000 },
-    );
-    await within(heading.closest('section')!).findByText('Inter-Year Bridge Design Competition');
-    expect(screen.queryByRole('link', { name: 'New project' })).not.toBeInTheDocument();
-  });
 });
 
 describe('/dashboard/projects', () => {
@@ -361,12 +338,13 @@ describe('/dashboard/projects/new', () => {
     });
   });
 
-  it('tells an adviser that only officers create projects', async () => {
-    role = 'adviser';
+  it('opens the form for the account’s own organization, whatever ?org= names', async () => {
+    role = 'governing';
     renderAt('/dashboard/projects/new?org=jpice');
     expect(
-      await screen.findByText(/Only JPICE's officers create its projects/, {}, { timeout: 5000 }),
+      await screen.findByRole('link', { name: 'CSC-CEA projects' }, { timeout: 5000 }),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/own account creates its projects/)).not.toBeInTheDocument();
   });
 });
 
@@ -408,8 +386,8 @@ describe('/projects/:id', () => {
     const select = within(proposal).getByRole('combobox', {
       name: 'Who can see it: Project Proposal',
     });
-    expect(select).toHaveValue('members'); // proposals default to members
-    fireEvent.change(select, { target: { value: 'private' } });
+    expect(select).toHaveValue('private'); // proposals stay with the organization by default
+    fireEvent.change(select, { target: { value: 'governing' } });
 
     const input = proposal.querySelector<HTMLInputElement>('input[type="file"]')!;
     const file = new File(['%PDF-1.7'], 'proposal.pdf', { type: 'application/pdf' });
@@ -418,7 +396,7 @@ describe('/projects/:id', () => {
     await waitFor(() =>
       expect(calls.find((c) => c.url.endsWith('/tasks/PROPOSAL/documents'))?.body).toEqual({
         uploadKey: UPLOAD_KEY,
-        visibility: 'private',
+        visibility: 'governing',
       }),
     );
     expect(puts).toEqual(['https://storage.test/put']);
@@ -445,8 +423,8 @@ describe('/projects/:id', () => {
     expect(calls.some((c) => c.url.includes('/upload-url'))).toBe(false);
   });
 
-  it('shows an adviser the checklist without upload controls', async () => {
-    role = 'adviser';
+  it('shows a governing body (its CSC) the checklist without upload controls', async () => {
+    role = 'governing';
     renderAt(`/projects/${PROJECT_ID}`);
     const proposal = await screen.findByRole(
       'region',

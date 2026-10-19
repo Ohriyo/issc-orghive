@@ -76,6 +76,18 @@ function pages(): RouteObject[] {
       }),
     },
     {
+      path: 'updates',
+      lazy: async () => ({
+        Component: (await import('@/features/updates/updates-pages')).UpdatesPage,
+      }),
+    },
+    {
+      path: 'updates/:id',
+      lazy: async () => ({
+        Component: (await import('@/features/updates/updates-pages')).UpdatePage,
+      }),
+    },
+    {
       path: 'organizations/:slug/*',
       lazy: async () => ({
         Component: (await import('@/features/organizations/organization-page'))
@@ -106,6 +118,7 @@ function authRoutes(): RouteObject[] {
       path: 'change-password',
       lazy: async () => ({ Component: (await authPages()).ChangePasswordPage }),
     },
+    { path: 'mfa-setup', lazy: async () => ({ Component: (await authPages()).MfaSetupPage }) },
     // The old signed-in landing page; its actions now live in the header's user menu.
     { path: 'account', element: <Navigate to="/dashboard" replace /> },
   ];
@@ -150,6 +163,25 @@ function dashboardRoutes(): RouteObject[] {
       }),
     },
     {
+      path: 'dashboard/notifications',
+      lazy: async () => ({
+        Component: (await import('@/features/notifications/notifications-pages')).NotificationsPage,
+      }),
+    },
+    {
+      path: 'dashboard/notifications/settings',
+      lazy: async () => ({
+        Component: (await import('@/features/notifications/notifications-pages'))
+          .NotificationSettingsPage,
+      }),
+    },
+    {
+      path: 'dashboard/compliance',
+      lazy: async () => ({
+        Component: (await import('@/features/compliance/compliance-page')).ComplianceOverviewPage,
+      }),
+    },
+    {
       path: 'projects/:id',
       lazy: async () => ({
         Component: (await import('@/features/projects/project-page')).ProjectPage,
@@ -166,6 +198,36 @@ function dashboardRoutes(): RouteObject[] {
       lazy: async () => ({
         Component: (await import('@/features/admin/admin-pages')).AdminOrganizationsPage,
       }),
+    },
+    ...systemRoutes(),
+  ];
+}
+
+const systemPages = () => import('@/features/system/system-pages');
+
+/** /system: the super admin console. */
+function systemRoutes(): RouteObject[] {
+  return [
+    { path: 'system', element: <Navigate to="/system/overview" replace /> },
+    {
+      path: 'system/overview',
+      lazy: async () => ({ Component: (await systemPages()).SystemOverviewPage }),
+    },
+    {
+      path: 'system/users',
+      lazy: async () => ({ Component: (await systemPages()).SystemUsersPage }),
+    },
+    {
+      path: 'system/super-admins',
+      lazy: async () => ({ Component: (await systemPages()).SystemSuperAdminsPage }),
+    },
+    {
+      path: 'system/audit',
+      lazy: async () => ({ Component: (await systemPages()).SystemAuditPage }),
+    },
+    {
+      path: 'system/security',
+      lazy: async () => ({ Component: (await systemPages()).SystemSecurityPage }),
     },
   ];
 }

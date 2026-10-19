@@ -5,7 +5,7 @@ import { createAppealRepository } from '#src/repositories/appeal.repository';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createNotificationRepository } from '#src/repositories/notification.repository';
 import { createOrgFreezeRepository } from '#src/repositories/org-freeze.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
@@ -26,23 +26,23 @@ import { createUploadService } from '#src/services/upload.service';
 import { memoryCache } from '#src/lib/cache';
 import {
   buildWorld,
+  createAccount,
   createTaskDocumentTypes,
   createTestDocument,
   resetDb,
-  TERM_END,
-  TERM_START,
 } from './db';
 
+/**
+ * Who acts, by the organization whose shared account they use. `isscPresident` and `admin` are
+ * the same account: the ISSC's. `outsider` acts for no organization.
+ */
 export type Person =
   | 'officer'
-  | 'adviser'
   | 'governor'
-  | 'cscOfficer'
   | 'catGovernor'
   | 'catSboOfficer'
   | 'psmeOfficer'
   | 'isscPresident'
-  | 'isscAdviser'
   | 'admin'
   | 'outsider';
 
@@ -66,43 +66,17 @@ export async function buildComplianceWorld(db: Db) {
     },
   });
   const orgs = { ...world.orgs, catSbo };
-  const ids = {
+  const catSboAccount = await createAccount(db, 'cat-sbo@test.local', catSbo.id);
+  const ids: Record<Person, string> = {
     officer: world.users.officer.id,
     governor: world.users.governor.id,
+    catGovernor: world.users.cscCat.id,
+    catSboOfficer: catSboAccount.id,
+    psmeOfficer: world.users.psme.id,
+    isscPresident: world.users.issc.id,
+    admin: world.users.issc.id,
     outsider: world.users.outsider.id,
-  } as Record<Person, string>;
-
-  const people: [
-    Exclude<Person, 'officer' | 'governor' | 'outsider'>,
-    string,
-    'officer' | 'adviser' | 'admin',
-    boolean,
-  ][] = [
-    ['adviser', orgs.jpice.id, 'adviser', false],
-    ['cscOfficer', orgs.cscCea.id, 'officer', false],
-    ['catGovernor', orgs.cscCat.id, 'officer', true],
-    ['catSboOfficer', orgs.catSbo.id, 'officer', true],
-    ['psmeOfficer', orgs.psme.id, 'officer', true],
-    ['isscPresident', orgs.issc.id, 'officer', true],
-    ['isscAdviser', orgs.issc.id, 'adviser', false],
-    ['admin', orgs.issc.id, 'admin', false],
-  ];
-  for (const [key, organizationId, role, isHead] of people) {
-    const user = await db.user.create({
-      data: { email: `${key}@appeals.test`, name: key, passwordHash: 'x' },
-    });
-    await db.membership.create({
-      data: {
-        userId: user.id,
-        organizationId,
-        role,
-        isHead,
-        termStart: TERM_START,
-        termEnd: role === 'admin' ? null : TERM_END,
-      },
-    });
-    ids[key] = user.id;
-  }
+  };
   return { world, orgs, ids };
 }
 
@@ -116,10 +90,13 @@ export function fakeStorage(db: Db): Storage {
       return intent ? { sizeBytes: intent.sizeBytes, contentType: intent.contentType } : null;
     },
     read: async (key) => {
-      const a = await db.appealAttachment.findUnique({ where: { storageKey: key } });
+      // The worker reads its scanned copy (files/…); it holds what the upload (uploads/…) held.
+      const keys = [key, key.replace(/^files\//, 'uploads/')];
+      const a = await db.appealAttachment.findFirst({ where: { storageKey: { in: keys } } });
       return Buffer.alloc(a?.sizeBytes ?? 0);
     },
     put: () => Promise.resolve(),
+    copy: () => Promise.resolve(),
     move: () => Promise.resolve(),
     delete: () => Promise.resolve(),
   };
@@ -130,14 +107,14 @@ export function buildComplianceServices(db: Db) {
   const queued = { emails: [] as string[], scans: [] as string[], versions: [] as string[] };
   const storage = fakeStorage(db);
   const audit = createAuditLogRepository(db);
-  const memberships = createMembershipRepository(db);
+  const accounts = createAccountRepository(db);
   const organizations = createOrganizationRepository(db);
   const projects = createProjectRepository(db);
   const freezes = createOrgFreezeRepository(db);
   const appealRepo = createAppealRepository(db);
   const documentRepo = createDocumentRepository(db);
   const documentTypes = createDocumentTypeRepository(db);
-  const viewers = createDocumentViewerService({ memberships });
+  const viewers = createDocumentViewerService({ accounts });
   const uploads = createUploadService({ intents: createUploadIntentRepository(db), storage });
   const notifications = createNotificationService({
     notifications: createNotificationRepository(db),
@@ -149,7 +126,7 @@ export function buildComplianceServices(db: Db) {
     },
     logger: pino({ level: 'silent' }),
   });
-  const recipients = createRecipients({ memberships, organizations });
+  const recipients = createRecipients({ accounts, organizations });
   const sync = createProjectSync({
     projects,
     compliance: createCompliance({ freezes, recipients, notifications, audit }),
@@ -186,7 +163,7 @@ export function buildComplianceServices(db: Db) {
     projects,
     freezes,
     sync,
-    memberships,
+    accounts,
     recipients,
     notifications,
     uploads,
@@ -221,7 +198,7 @@ export function buildComplianceServices(db: Db) {
     notifications,
     attachments,
     verdict,
-    repos: { projects, freezes, appealRepo, memberships },
+    repos: { projects, freezes, appealRepo, accounts },
   };
 }
 
@@ -254,7 +231,13 @@ export async function seedProject(
     createdAt: input.createdAt,
   };
   const plan = planProject(
-    { ...fields, proposalDueOverride: null, postEventDueOverride: null, filed: new Set() },
+    {
+      ...fields,
+      proposalDueOverride: null,
+      postEventDueOverride: null,
+      filed: new Set(),
+      exemptFromCompliance: false,
+    },
     input.createdAt,
   );
   const project = await projects.create(fields, plan);

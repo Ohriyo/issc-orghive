@@ -2,15 +2,21 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   dashboardResponseSchema,
+  daysBetween,
+  manilaDate,
+  PROJECT_STATUSES,
+  PROJECT_TASK_LABELS,
+  SEMESTER_LABELS,
   TERM_ENDING_SOON_DAYS,
+  type ProjectStatus,
+  type SemesterSummary,
   type DashboardActivity,
-  type DashboardMembership,
   type DashboardOrganization,
   type DashboardResponse,
+  type DashboardTerm,
   type DocumentStatus,
   type DocumentSummary,
   type DocumentVisibility,
-  type MembershipRole,
 } from '@orghive/shared';
 import { useAuth } from '@/features/auth/presenters/use-auth';
 import {
@@ -24,23 +30,22 @@ const ONE_MINUTE = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium' });
+/** Deadlines are Manila calendar days, whatever the viewer's time zone. */
+const deadlineFormat = new Intl.DateTimeFormat('en-PH', {
+  dateStyle: 'medium',
+  timeZone: 'Asia/Manila',
+});
 const relative = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
-
-export const ROLE_LABELS: Record<MembershipRole, string> = {
-  officer: 'Officer',
-  adviser: 'Adviser',
-  admin: 'Admin',
-};
 
 /**
  * The four tiles: who can see the organization's available documents, then uploads the
  * virus scan blocked. Nothing waits for a review.
  */
-export const TILE_KEYS = ['public', 'members', 'private', 'quarantined'] as const;
+export const TILE_KEYS = ['public', 'governing', 'private', 'quarantined'] as const;
 export type TileKey = (typeof TILE_KEYS)[number];
 export const TILE_LABELS: Record<TileKey, string> = {
   public: 'Public',
-  members: 'Members only',
+  governing: 'Governing bodies',
   private: 'Private',
   quarantined: 'Blocked by scan',
 };
@@ -93,7 +98,34 @@ export interface RecentDocument {
 }
 
 /** An extension point: each role that has extra work adds a panel here. */
-export type RolePanel = { kind: 'admin' | 'appeals'; href: string };
+export type RolePanel = { kind: 'admin' | 'appeals' | 'overview'; href: string };
+
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  active: 'Active',
+  blocked: 'Blocked',
+  completed: 'Completed',
+};
+
+/** "This semester": the organization's projects by status and its next deadlines. */
+export interface SemesterView {
+  /** "1st semester, 2026-2027". */
+  label: string;
+  counts: { status: ProjectStatus; label: string; count: number; href: string }[];
+  deadlines: {
+    key: string;
+    task: string;
+    projectName: string;
+    href: string;
+    dueAt: string;
+    /** "Oct 24, 2026". */
+    dueLabel: string;
+    /** "today", "tomorrow", "in 8 days". */
+    when: string;
+    /** Within three days: the view marks it. */
+    soon: boolean;
+  }[];
+  projectsHref: string;
+}
 
 export interface TermInfo {
   label: string;
@@ -117,6 +149,8 @@ export interface SelectedOrganization {
   activity: ActivityItem[];
   /** Shown when there is no recorded activity yet. */
   recentDocuments: RecentDocument[];
+  /** Set for the organization's officers only. */
+  semester: SemesterView | null;
 }
 
 export type DashboardModel =
@@ -147,15 +181,11 @@ export function daysUntil(isoDay: string, today: Date): number {
   return Math.round((end - start) / DAY_MS);
 }
 
-/** The latest term end among the user's memberships in one organization; null if open-ended. */
-export function termOf(memberships: DashboardMembership[], today: Date): TermInfo | null {
-  if (memberships.length === 0 || memberships.some((m) => m.termEnd === null)) return null;
-  const last = memberships
-    .map((m) => m.termEnd!)
-    .sort()
-    .at(-1)!;
-  const [y, m, d] = last.split('-').map(Number) as [number, number, number];
-  const daysLeft = daysUntil(last, today);
+/** The account's current officer term; null when there is none or it is open-ended. */
+export function termOf(term: DashboardTerm | null, today: Date): TermInfo | null {
+  if (!term?.termEnd) return null;
+  const [y, m, d] = term.termEnd.split('-').map(Number) as [number, number, number];
+  const daysLeft = daysUntil(term.termEnd, today);
   return {
     label: `Term ends ${dateFormat.format(new Date(y, m - 1, d))}`,
     daysLeft,
@@ -248,26 +278,46 @@ function toRecent(doc: DocumentSummary): RecentDocument {
   };
 }
 
-/**
- * Whether the user may decide appeals (the server's appeal-rules.ts has the exact rule):
- * the head of a CSC or of the ISSC, the ISSC adviser, or an ISSC admin (vacant seats).
- */
+/** Whether the account decides appeals: a CSC or the ISSC (the server's appeal-rules.ts). */
 export function decidesAppeals(data: DashboardResponse): boolean {
-  if (data.isAdmin) return true;
-  const typeOf = new Map(data.organizations.map((o) => [o.organization.id, o.organization.type]));
-  return data.memberships.some((m) => {
-    const type = typeOf.get(m.organizationId);
-    return (
-      (m.isHead && (type === 'CSC' || type === 'ISSC')) || (m.role === 'adviser' && type === 'ISSC')
-    );
-  });
+  return data.decidesAppeals;
 }
 
 export function rolePanels(data: DashboardResponse): RolePanel[] {
   const panels: RolePanel[] = [];
   if (decidesAppeals(data)) panels.push({ kind: 'appeals', href: '/dashboard/appeals' });
-  if (data.isAdmin) panels.push({ kind: 'admin', href: '/admin' });
+  if (data.canSeeCompliance) panels.push({ kind: 'overview', href: '/dashboard/compliance' });
+  if (data.isIssc) panels.push({ kind: 'admin', href: '/admin' });
   return panels;
+}
+
+/** Shapes "This semester" for the view; deadlines are counted in Manila calendar days. */
+export function toSemesterView(summary: SemesterSummary, orgSlug: string, now: Date): SemesterView {
+  const today = manilaDate(now);
+  const projectsHref = `/dashboard/projects?org=${orgSlug}`;
+  return {
+    label: `${SEMESTER_LABELS[summary.semester]}, ${summary.academicYear}`,
+    counts: PROJECT_STATUSES.map((status) => ({
+      status,
+      label: PROJECT_STATUS_LABELS[status],
+      count: summary.counts[status] ?? 0,
+      href: projectsHref,
+    })),
+    deadlines: summary.nextDeadlines.map((d) => {
+      const days = daysBetween(today, manilaDate(new Date(d.dueAt)));
+      return {
+        key: `${d.projectId}:${d.task}`,
+        task: PROJECT_TASK_LABELS[d.task],
+        projectName: d.projectName,
+        href: `/projects/${d.projectId}`,
+        dueAt: d.dueAt,
+        dueLabel: deadlineFormat.format(new Date(d.dueAt)),
+        when: days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`,
+        soon: days <= 3,
+      };
+    }),
+    projectsHref,
+  };
 }
 
 /** Shapes one organization of the response for the view. */
@@ -280,14 +330,15 @@ export function selectOrganization(
   const found = data.organizations.find((o) => o.organization.id === orgId);
   if (!found) return null;
   const { organization: org, counts } = found;
-  const mine = data.memberships.filter((m) => m.organizationId === org.id);
-  const isOfficer = data.isAdmin || mine.some((m) => m.role === 'officer');
+  // The dashboard lists the account's own organization only: it manages it.
+  const isOfficer = true;
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const officer = data.term?.officerInCharge;
 
   return {
     org,
-    roles: mine.map((m) => ({ label: ROLE_LABELS[m.role], title: m.title })),
-    term: termOf(mine, now),
+    roles: officer ? [{ label: officer.name, title: officer.position }] : [],
+    term: termOf(data.term, now),
     tiles: TILE_KEYS.map((key) => ({
       key,
       label: TILE_LABELS[key],
@@ -317,6 +368,7 @@ export function selectOrganization(
       ago: timeAgo(entry.at, now),
     })),
     recentDocuments: found.recentDocuments.map(toRecent),
+    semester: found.semester ? toSemesterView(found.semester, org.slug, now) : null,
   };
 }
 

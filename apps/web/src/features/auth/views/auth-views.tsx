@@ -27,8 +27,8 @@ export function LoginView({
       heading="Sign in"
       intro={
         <p>
-          For organization officers, advisers and ISSC admins. Students can browse Paperworks
-          without an account.
+          For organization accounts: each council and student body organization signs in with its
+          own. Students can browse Paperworks without an account.
         </p>
       }
     >
@@ -82,8 +82,8 @@ export function ForgotPasswordView({
             link is on its way. It works once and expires in 30 minutes.
           </p>
           <p className="text-body text-ink-muted">
-            Nothing after a few minutes? Check your spam folder, or ask your organization&rsquo;s
-            adviser which email your account uses.
+            Nothing after a few minutes? Check your spam folder, or ask the ISSC which email your
+            organization&rsquo;s account uses.
           </p>
           <Link to="/login" className={TEXT_LINK}>
             Back to sign in

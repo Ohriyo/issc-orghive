@@ -33,6 +33,21 @@ function configErrorFrom(env: NodeJS.ProcessEnv): ConfigError {
 }
 
 describe('loadConfig', () => {
+  it('needs MFA_ENCRYPTION_KEY (32 bytes) in production only', () => {
+    const key = Buffer.alloc(32, 7).toString('base64');
+    expect(loadConfig(validEnv).MFA_ENCRYPTION_KEY).toBeUndefined();
+    expect(configErrorFrom({ ...validEnv, NODE_ENV: 'production' }).issues).toEqual([
+      expect.stringMatching(/^MFA_ENCRYPTION_KEY: is required in production/),
+    ]);
+    expect(configErrorFrom({ ...validEnv, MFA_ENCRYPTION_KEY: 'c2hvcnQ=' }).message).toContain(
+      'MFA_ENCRYPTION_KEY',
+    );
+    expect(
+      loadConfig({ ...validEnv, NODE_ENV: 'production', MFA_ENCRYPTION_KEY: key })
+        .MFA_ENCRYPTION_KEY,
+    ).toBe(key);
+  });
+
   it('parses a valid env and applies defaults', () => {
     const config = loadConfig(validEnv);
     expect(config.PORT).toBe(4000);

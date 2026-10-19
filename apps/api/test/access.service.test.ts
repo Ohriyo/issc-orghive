@@ -1,127 +1,78 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ActiveMembership } from '#src/repositories/membership.repository';
+import type { Account, AccountOrganization } from '#src/repositories/account.repository';
 import { createAccessService, type OrgRef } from '#src/services/access.service';
 
-const ISSC = { id: 'issc', type: 'ISSC', parentId: null } as const;
-const JPICE = { id: 'jpice', type: 'SBO', parentId: 'csc-cea' } as const;
-const IECEP = { id: 'iecep', type: 'SBO', parentId: 'csc-cea' } as const;
-const JPICE_REF: OrgRef = { id: 'jpice', slug: 'jpice' };
-const CTX = { method: 'PATCH', route: '/api/v1/documents/:documentId', ip: '10.0.0.1' };
+const org = (id: string, type: 'ISSC' | 'CSC' | 'SBO', parentId: string | null) =>
+  ({
+    id,
+    type,
+    parentId,
+    slug: id,
+    acronym: id.toUpperCase(),
+    name: id,
+    logoKey: null,
+    logoWidths: [],
+  }) satisfies AccountOrganization;
 
-function membership(
-  organization: ActiveMembership['organization'],
-  role: ActiveMembership['role'] = 'officer',
-): ActiveMembership {
-  return { id: crypto.randomUUID(), role, isHead: false, title: null, organization };
-}
+const ISSC = org('issc', 'ISSC', null);
+const CSC_CEA = org('csc-cea', 'CSC', 'issc');
+const CSC_CAT = org('csc-cat', 'CSC', 'issc');
+const JPICE = org('jpice', 'SBO', 'csc-cea');
+const IECEP = org('iecep', 'SBO', 'csc-cea');
+const JPICE_REF: OrgRef = { id: 'jpice', slug: 'jpice' };
+const ORGS = new Map([ISSC, CSC_CEA, CSC_CAT, JPICE, IECEP].map((o) => [o.slug, o]));
 
 function serviceWith({
-  active = [] as ActiveMembership[],
+  account = null as AccountOrganization | null,
   deactivatedAt = null as Date | null,
 } = {}) {
-  const record = vi.fn(() => Promise.resolve());
-  const findActiveForUser = vi.fn(() => Promise.resolve(active));
-  const now = new Date('2026-10-16T00:00:00Z');
+  const findAccount = vi.fn(() =>
+    Promise.resolve(account ? ({ userId: 'u1', organization: account } satisfies Account) : null),
+  );
   const service = createAccessService({
-    memberships: { findActiveForUser },
+    accounts: { findAccount },
     organizations: {
-      findBySlug: (slug: string) =>
-        Promise.resolve(
-          slug === 'jpice' ? ({ id: 'jpice', slug: 'jpice', deactivatedAt } as never) : null,
-        ),
+      findBySlug: (slug: string) => {
+        const found = ORGS.get(slug);
+        return Promise.resolve(found ? ({ ...found, deactivatedAt } as never) : null);
+      },
     },
     documents: { organizationOf: (id: string) => Promise.resolve(id === 'd1' ? JPICE_REF : null) },
     projects: { organizationOf: (id: string) => Promise.resolve(id === 'p1' ? JPICE_REF : null) },
-    audit: { record },
-    now: () => now,
   });
-  return { service, record, findActiveForUser, now };
+  return { service, findAccount };
 }
 
-describe('accessService.requireRole', () => {
-  it('grants a matching active membership in that organization, without auditing', async () => {
-    const { service, record, findActiveForUser, now } = serviceWith({
-      active: [membership(JPICE)],
-    });
-    await expect(service.requireRole('u1', JPICE_REF, ['officer'], CTX)).resolves.toBe(
-      'membership',
-    );
-    expect(findActiveForUser).toHaveBeenCalledWith('u1', now);
-    expect(record).not.toHaveBeenCalled();
+describe('accessService.requireOrgAccess (shared organization accounts)', () => {
+  it('lets the organization’s own account through, for both scopes', async () => {
+    const { service, findAccount } = serviceWith({ account: JPICE });
+    await expect(service.requireOrgAccess('u1', JPICE_REF, 'own')).resolves.toBeUndefined();
+    await expect(service.requireOrgAccess('u1', JPICE_REF, 'governing')).resolves.toBeUndefined();
+    expect(findAccount).toHaveBeenCalledWith('u1');
   });
 
-  it('refuses the same role held in a sibling organization (JPICE officer on IECEP)', async () => {
-    const { service } = serviceWith({ active: [membership(JPICE)] });
-    await expect(
-      service.requireRole('u1', { id: 'iecep', slug: 'iecep' }, ['officer'], CTX),
-    ).rejects.toMatchObject({ status: 403 });
+  it('lets a governing body through only where the governing scope applies', async () => {
+    for (const governing of [CSC_CEA, ISSC]) {
+      const { service } = serviceWith({ account: governing });
+      await expect(service.requireOrgAccess('u1', JPICE_REF, 'governing')).resolves.toBeUndefined();
+      await expect(service.requireOrgAccess('u1', JPICE_REF, 'own')).rejects.toMatchObject({
+        status: 403,
+      });
+    }
   });
 
-  it('refuses a different role in the right organization', async () => {
-    const { service } = serviceWith({ active: [membership(IECEP, 'adviser')] });
-    await expect(
-      service.requireRole('u1', { id: 'iecep', slug: 'iecep' }, ['officer'], CTX),
-    ).rejects.toMatchObject({ status: 403 });
-  });
-
-  it('refuses a user with no active memberships (ended terms are not returned)', async () => {
-    const { service } = serviceWith();
-    await expect(service.requireRole('u1', JPICE_REF, ['officer'], CTX)).rejects.toMatchObject({
-      status: 403,
-    });
-  });
-
-  it('lets an ISSC admin through and audits the override', async () => {
-    const { service, record } = serviceWith({ active: [membership(ISSC, 'admin')] });
-    await expect(service.requireRole('admin1', JPICE_REF, ['officer'], CTX)).resolves.toBe(
-      'admin_override',
-    );
-    expect(record).toHaveBeenCalledWith({
-      action: 'admin_override',
-      actorId: 'admin1',
-      entityType: 'organization',
-      entityId: 'jpice',
-      organizationId: 'jpice',
-      metadata: { required: 'role:officer', method: 'PATCH', route: CTX.route },
-      ip: '10.0.0.1',
-    });
-  });
-
-  it('does not treat admin on a non-ISSC organization as system-wide', async () => {
-    const { service } = serviceWith({ active: [membership(IECEP, 'admin')] });
-    await expect(service.requireRole('u1', JPICE_REF, ['officer'], CTX)).rejects.toMatchObject({
-      status: 403,
-    });
-  });
-
-  it("does not audit an admin acting through their own organization's role", async () => {
-    const { service, record } = serviceWith({ active: [membership(ISSC, 'admin')] });
-    await service.requireRole('admin1', { id: 'issc', slug: 'issc' }, ['admin'], CTX);
-    expect(record).not.toHaveBeenCalled();
-  });
-});
-
-describe('accessService.requireRole without the admin override', () => {
-  const OWN_ONLY = { adminOverride: false };
-
-  it('still grants the organization’s own officer', async () => {
-    const { service } = serviceWith({ active: [membership(JPICE)] });
-    await expect(service.requireRole('u1', JPICE_REF, ['officer'], CTX, OWN_ONLY)).resolves.toBe(
-      'membership',
-    );
-  });
-
-  it('refuses an ISSC admin and writes no override entry', async () => {
-    const { service, record } = serviceWith({ active: [membership(ISSC, 'admin')] });
-    await expect(
-      service.requireRole('admin1', JPICE_REF, ['officer'], CTX, OWN_ONLY),
-    ).rejects.toMatchObject({ status: 403 });
-    expect(record).not.toHaveBeenCalled();
+  it('refuses a sibling SBO, another college’s CSC, and an account acting for nobody', async () => {
+    for (const account of [IECEP, CSC_CAT, null]) {
+      const { service } = serviceWith({ account });
+      await expect(service.requireOrgAccess('u1', JPICE_REF, 'governing')).rejects.toMatchObject({
+        status: 403,
+      });
+    }
   });
 });
 
 describe('accessService resolution', () => {
-  it('resolves organizations by slug and by document', async () => {
+  it('resolves organizations by slug, by document and by project', async () => {
     const { service } = serviceWith();
     expect(await service.resolveBySlug('jpice')).toEqual(JPICE_REF);
     expect(await service.resolveBySlug('nope')).toBeNull();
@@ -133,18 +84,15 @@ describe('accessService resolution', () => {
 });
 
 describe('accessService.requireAdmin', () => {
-  it('passes an active ISSC admin', async () => {
-    const { service } = serviceWith({ active: [membership(ISSC, 'admin')] });
-    await expect(service.requireAdmin('u1')).resolves.toBeUndefined();
-  });
-
-  it('refuses officers, and admins of any other organization', async () => {
+  it('passes the ISSC account only', async () => {
     await expect(
-      serviceWith({ active: [membership(JPICE)] }).service.requireAdmin('u1'),
-    ).rejects.toMatchObject({ status: 403 });
-    await expect(
-      serviceWith({ active: [membership(JPICE, 'admin')] }).service.requireAdmin('u1'),
-    ).rejects.toMatchObject({ status: 403 });
+      serviceWith({ account: ISSC }).service.requireAdmin('u1'),
+    ).resolves.toBeUndefined();
+    for (const account of [CSC_CEA, JPICE, null]) {
+      await expect(serviceWith({ account }).service.requireAdmin('u1')).rejects.toMatchObject({
+        status: 403,
+      });
+    }
   });
 });
 

@@ -40,8 +40,9 @@ services:
     environment:
       MINIO_ROOT_USER: orghive
       MINIO_ROOT_PASSWORD: orghive-dev-password
-      # Browsers upload straight to storage with pre-signed PUTs; allow the web app's origin.
-      MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:5173
+      # Browsers upload straight to storage with pre-signed PUTs; allow the web app's origins:
+      # the dev server, and the full-stack e2e suite's own port (apps/web/e2e-full/env.mjs).
+      MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:5173,http://localhost:5174
     ports:
       - '9000:9000' # S3 API
       - '9001:9001' # web console

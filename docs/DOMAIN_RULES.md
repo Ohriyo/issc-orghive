@@ -2,6 +2,20 @@
 
 The school's rules that Orghive enforces. Only rules confirmed by the school go in "Confirmed". Rules the project owner chose go in "Provisional" with the date. Anything not yet answered stays in "Open questions" and must not be coded as if decided. `docs/PROJECT_WORKFLOW_SPEC.md` is the source of truth for the project workflow.
 
+## Accounts (decided by the project owner on 2026-10-19)
+
+Replaces per-person memberships (officer, adviser, admin roles), which were dropped with the migration `20261019120000_shared_org_accounts`.
+
+- **One shared account per organization.** Every organization, the ISSC included, signs in with exactly one account (`users.organization_id`). A partial unique index allows one active account per organization. Its officers share it and may be signed in at the same time. The account's organization alone decides what it may do.
+- **The only personal account** is the developer's `SUPER_ADMIN` (see CLAUDE.md, "System roles"). It has no organization (a check constraint) and passes no organization guard.
+- **Officer in charge:** each account keeps its current officer term in `officer_terms` (name, position, contact email, term start and end). Only one term is open per account. It is shown on the dashboard and in the account menu, and term-ending reminders go to the account.
+- **Governing bodies:** an SBO is governed by its college's CSC and by the ISSC; a CSC by the ISSC; nobody governs the ISSC. The rule lives in one pure function, `apps/api/src/services/account-rules.ts`.
+- **Councils** (the ISSC and the CSCs) post updates, decide appeals and see the compliance overview: a CSC for its college's SBOs, the ISSC for every CSC and SBO.
+- **The ISSC account is the admin:** `/admin` and its API routes (`requireAdmin`). It sees no document it would not see as a governing body.
+- **Guards** (`apps/api/src/middleware/require-auth.ts`): `requireOwnOrg` (the organization's own account: uploads, visibility, projects, appeals, reports), `requireOrgOrGoverning` (also its governing bodies: reading projects and compliance), `requireActiveOrg`, `requireAdmin`. They read the database on every request, never claims in the token.
+- **Deactivated and locked accounts** cannot sign in. The reason ("This account has been deactivated. Please contact the ISSC admin." or "temporarily locked, try again later or contact the ISSC admin") is shown only after the correct password; a wrong password still gets the generic "Invalid email or password". Refreshing ends the session of an account that was locked or deactivated meanwhile.
+- **Being built next (phases A2 to D, approved 2026-10-19):** a required "Acting as" name on uploads, deletions and archives; account creation, resets and support actions in `/system/users`; account requests from the ISSC; bulk CSV creation; the end of term.
+
 ## Documents are never reviewed
 
 Decided by the project owner on 2026-10-17 (`docs/PROJECT_WORKFLOW_SPEC.md`, section 0). **This replaces the document approval chain below. Do not bring approval back.**
@@ -16,7 +30,7 @@ Decided by the project owner on 2026-10-17 (`docs/PROJECT_WORKFLOW_SPEC.md`, sec
 - `uploading` happens in the browser before the document exists; it is not stored.
 - A new document is `scanning` until the worker's virus and file-type check passes, then `available`. A refused first file makes it `quarantined` (moved to `quarantine/`, audited); uploading a clean copy makes it `scanning` again.
 - A re-upload of an available document becomes the current version once it is clean. Nothing needs approving again. A refused re-upload leaves the last clean version current.
-- Officers archive `available` documents and restore them to `available`, with the visibility they had. Archive and restore are audited.
+- The organization archives `available` documents and restores them to `available`, with the visibility they had. Archive and restore are audited.
 - Details (title, type, year, semester, description, tags) can change at any time before archiving.
 
 ### Visibility
@@ -26,62 +40,64 @@ Enforced in one place: `apps/api/src/repositories/document-visibility.ts`. Servi
 | Visibility | Who sees an available document |
 |---|---|
 | `public` | Anyone, including signed-out visitors |
-| `members` | Active members of the owning organization (any role, advisers included) |
-| `private` | Active officers of the owning organization |
+| `governing` | The owning organization and its governing bodies: its college's CSC and the ISSC (an SBO's file); the ISSC (a CSC's file) |
+| `private` | The owning organization's account only. No exception for its CSC, the ISSC or the super admin |
 
-- **Before a document is available** (scanning or quarantined), only its uploader sees it. A version still being scanned, or refused, is listed only for its uploader.
-- **Archived** documents: the owning organization's officers.
-- **Other organizations see only public files.** This includes the parent CSC and the ISSC: no organization reviews another's documents.
-- **Admins** (an active `admin` membership on the ISSC) see every available or archived document for support. Every time an admin opens, lists the files of or downloads a document they can see only because they are an admin, it is audited as `admin_override` (`metadata.access`: `view`, `versions` or `download`). Lists are not audited per row.
-- **Setting it:** the organization's officers choose the visibility on upload and can change it at any time, in any state, from My documents or the document page: `PATCH /documents/:id/visibility` with `requireOwnOrgRole('officer')`. Admins get a 403 there (no override). Each change is audited as `visibility_change` with `from` and `to`.
-- **Default for new uploads:** `public` (chosen by the project owner, 2026-10-17). The upload form shows the choice.
-- **Existing documents** were mapped by the migration `20261017090000_documents_without_approval`: approved documents kept their visibility; draft, pending and rejected ones became `private`, so nothing unapproved became visible.
+(Decided 2026-10-19; replaces `members`.)
+
+- **The owning organization's account** sees all its documents in every state: scanning, quarantined, available and archived.
+- **Every other account and visitor** sees available documents only, by the table above. Other organizations that do not govern the owner see only `public` files.
+- **The super admin** cannot browse an organization's `private` files from the console; only audited support actions (phase B).
+- **Setting it:** the organization's own account chooses the visibility on upload and can change it at any time, in any state, from My documents or the document page: `PATCH /documents/:id/visibility` with `requireOwnOrg`. Each change is audited as `visibility_change` with `from` and `to`.
+- **Default for new uploads:** `private` (from 2026-10-19). The upload form shows the choice.
+- **Existing documents** were mapped by the migration `20261017090000_documents_without_approval`: approved documents kept their visibility; draft, pending and rejected ones became `private`, so nothing unapproved became visible. The migration `20261019120000_shared_org_accounts` turned every `members` document into `private` and marked it `is_test_data` (to be deleted in bulk by the super admin, after a preview; never automatically).
 
 ### Dashboard
 
-`/dashboard` shows each user only the organizations of their active memberships. Its tiles count available documents by visibility, plus uploads the scan blocked. "Needs your attention" lists the user's own quarantined uploads. There is no "Pending reviews" panel.
+`/dashboard` shows the account's own organization, its officer in charge and term. Its tiles count available documents by visibility, plus uploads the scan blocked. "Needs your attention" lists the organization's quarantined uploads. There is no "Pending reviews" panel.
 
 ## Projects and their checklist (built 2026-10-17)
 
 `docs/PROJECT_WORKFLOW_SPEC.md` sections 2A and 2B. All unlock rules live in one pure function, `apps/api/src/services/project-rules.ts`; the worker re-applies them every 15 minutes and whenever a task's file passes the scan.
 
-- An organization's **officers** create and edit its projects and file its tasks; its **members** (advisers included) can read them. Admins pass as usual (audited override). Creating and editing a project are audited (`project_create`, `project_update`).
+- An organization's own account creates and edits its projects and files its tasks; its governing bodies can read them. Creating and editing a project are audited (`project_create`, `project_update`).
 - A project needs all five fields: name, target date, location, target beneficiaries, brief description. The **target date cannot be in the past** (Manila calendar).
 - **Deadlines:** 14 calendar days in Asia/Manila, ending 23:59:59 Manila time on day 14 (day 0 = the creation date for the proposal, the target date for the post-event reports).
 - **Proposal:** open from creation, due 14 days after it.
 - **NOM and MOM:** exist only when the organization marks them as needed; locked until the proposal is submitted; no deadline. One that already has a file cannot be dropped.
 - **ACR and Financial Report:** locked until the target date (Manila), then due 14 days after it. *Changed from the earlier provisional answer* ("once the proposal is complete and the target date has arrived"): the project owner's F10b brief unlocks them on the target date alone, so a late proposal does not hold back the reports.
-- A task is **submitted** once its file passed the virus scan. Nobody reviews it. Its file is an ordinary Paperworks document (types `project-proposal`, `notice-of-meeting`, `minutes-of-meeting`, `activity-completion-report`, `financial-report`) with the visibility the officer chose; re-uploads are new versions. The proposal and the financial report default to `members`, the others to `public`.
+- A task is **submitted** once its file passed the virus scan. Nobody reviews it. Its file is an ordinary Paperworks document (types `project-proposal`, `notice-of-meeting`, `minutes-of-meeting`, `activity-completion-report`, `financial-report`) with the visibility the organization chose; re-uploads are new versions. The proposal and the financial report default to `private`, the others to `public`.
 - Task files must be **PDF, JPG or PNG** (the Semestral End Report merges them).
 - A project is **completed** once every task it needs is submitted. `blocked` is set by the compliance rules (below): a blocked project's tasks are locked and refuse uploads.
-- While another officer's file for a task is still being scanned, a second officer cannot replace it (only the uploader sees a file before the scan passes).
+- While a task's file is still being scanned, it cannot be replaced.
 
 ## Compliance and appeals (built 2026-10-17)
 
 `docs/PROJECT_WORKFLOW_SPEC.md` section 3. The deadline rules live in `planProject` (`apps/api/src/services/project-rules.ts`) next to the unlock rules; who decides lives in one function, `apps/api/src/services/appeal-rules.ts`.
 
-- **Blocked (3A):** the proposal is not submitted by its deadline (23:59:59 Manila on day 14, or the date an approved appeal set). Every task not yet submitted locks. Audited `project_block`; the officers are notified.
-- **Frozen (3B):** a project's ACR or Financial Report is not submitted by its post-event deadline. An `OrgFreeze` row links the organization to that project (at most one open per project). While any freeze is open the organization cannot create projects (403 `ORGANIZATION_FROZEN`); existing projects stay workable. Audited `org_freeze`; the officers are notified. A late upload does not lift it.
+- **The ISSC is exempt** (2026-10-19): its projects never block and it never freezes, since nobody would decide its appeals (`exemptFromCompliance` in `planProject`).
+- **Blocked (3A):** the proposal is not submitted by its deadline (23:59:59 Manila on day 14, or the date an approved appeal set). Every task not yet submitted locks. Audited `project_block`; the organization's account is notified.
+- **Frozen (3B):** a project's ACR or Financial Report is not submitted by its post-event deadline. An `OrgFreeze` row links the organization to that project (at most one open per project). While any freeze is open the organization cannot create projects (403 `ORGANIZATION_FROZEN`); existing projects stay workable. Audited `org_freeze`; the organization's account is notified. A late upload does not lift it.
 - **When it is checked:** an hourly BullMQ job (`check-compliance`, which replaced the 15-minute `sync-projects`), and on read: listing or opening projects, the dashboard banner, and before creating a project. Both are idempotent: a status change and a freeze are acted on only by the check that made them, and notifications carry a dedupe key.
-- **Reminders:** officers are notified once when an open task's deadline is within 3 Manila calendar days. A deadline an appeal moved is announced again.
-- **Appeals:** an organization's own officers appeal (admins do not, it is the organization's decision) with a written reason of at least 20 characters and up to 5 supporting files. At most one pending appeal per blocked project and per freeze. Audited `appeal_submit`; the deciders are notified.
-- **Who decides:** an SBO's appeal by the head of its college's CSC (the Governor); a CSC's by the ISSC head (the President); the ISSC's by the ISSC adviser. While that seat is vacant, an ISSC admin decides (audited `admin_override`). Nobody decides an appeal they submitted.
+- **Reminders:** the organization's account is notified once when an open task's deadline is within 3 Manila calendar days. A deadline an appeal moved is announced again.
+- **Appeals:** an organization's own account appeals (nobody else; it is the organization's decision) with a written reason of at least 20 characters and up to 5 supporting files. At most one pending appeal per blocked project and per freeze. Audited `appeal_submit`; the deciders are notified.
+- **Who decides** (2026-10-19): the parent organization's account. An SBO's appeal is decided by its college's CSC account, a CSC's by the ISSC account. While the deciding CSC account is vacant (missing, locked or deactivated), the ISSC account decides, audited as `admin_override`. Nobody decides an appeal they submitted.
 - **Approve:** sets a new due date (a Manila date after today; due 23:59:59 that day). For a block it becomes the proposal deadline, and the post-event deadline too if that would otherwise come first. For a freeze it becomes the post-event deadline and the freeze is lifted (`org_unfreeze`). If the new deadline also passes, the project blocks or freezes again. Audited `approve`.
 - **Reject:** remarks are required (at least 10 characters). The block or freeze stays, the remarks are shown on the banner and in the history, and the organization can appeal again. Audited `reject`.
-- **Supporting files** are not Paperworks documents. They upload straight to storage, are virus-scanned like documents (refused files go to `quarantine/`), and must be clean before the appeal is sent. Only the appealing organization's officers and the deciders can download them (5-minute links, each audited `appeal_attachment_view`; an ISSC admin's download is also audited as an override).
-- **Notifications** (in-app and email, sent by the worker): deadline in 3 days, deadline missed (blocked or frozen), appeal submitted (to the deciders), appeal decided (to the officers and the submitter).
+- **Supporting files** are not Paperworks documents. They upload straight to storage, are virus-scanned like documents (refused files go to `quarantine/`), and must be clean before the appeal is sent. Only the appealing organization's account and the deciders can download them (5-minute links, each audited `appeal_attachment_view`; the ISSC's download while it stands in for a vacant CSC is audited as an override).
+- **Notifications** (in-app and email, sent by the worker): deadline in 3 days, deadline missed (blocked or frozen), appeal submitted (to the deciders), appeal decided (to the appealing organization's account).
 
 ## Semestral End Report (built 2026-10-17)
 
 `docs/PROJECT_WORKFLOW_SPEC.md` section 4. The order lives in one pure function, `planReport` (`apps/api/src/services/report-rules.ts`).
 
-- **Who:** the organization's own officers ask for it from the dashboard (admins do not; they may see the list, audited). Audited `report_generate`. At most one report per organization and semester runs at a time.
+- **Who:** the organization's own account asks for it from the dashboard. Audited `report_generate`. At most one report per organization and semester runs at a time.
 - **Which projects:** undeleted projects whose target date falls in the chosen semester (see "Semesters" below), by target date, then name.
 - **Order:** cover (organization, level, college, semester, academic year, generated date, project count), table of contents with page numbers, then per project a divider (name, event date, location, beneficiaries) and Proposal → NOM → MOM → ACR → Financial Report. NOM and MOM appear only when the project needs them. Every page after the cover is numbered.
 - **Files:** a task's current clean version. PDFs keep their pages and page size; JPG and PNG become one A4 page each, scaled to fit. A missing file gets a "Not submitted" page; a file that cannot be read (damaged or encrypted) gets a "Could not be included" page instead of failing the report. Task files are only PDF, JPG or PNG, so there is no DOCX conversion.
 - **Template:** one HTML template (Poppins, NwSSU greens, hexagon mark) rendered by headless Chromium (`playwright-core`, offline), merged with the files by `pdf-lib`.
 - **Result:** a Paperworks document of the organization, type "Semestral End Report", `available` and `private` (chosen 2026-10-17), filed by the requester. It is generated from files that already passed the scan, so it is not scanned again. Audited `upload`. The requester is notified (in-app and email), ready or failed.
-- **Progress:** the dashboard shows each report's state and progress (polled while it runs), the reason when it failed, and Download / Open when ready. A failed report is not retried by itself: the officer generates it again.
+- **Progress:** the dashboard shows each report's state and progress (polled while it runs), the reason when it failed, and Download / Open when ready. A failed report is not retried by itself: the organization generates it again.
 
 ## Superseded: document approval chain
 
@@ -91,7 +107,7 @@ Confirmed by the school on 2026-10-15 and **removed on 2026-10-17** when the pro
 |---|---|---|
 | SBO (e.g. JPICE under CEA) | The CSC Governor of the SBO's college | Its college's CSC |
 | CSC (e.g. CEA CSC) | The ISSC | The ISSC only |
-| ISSC | The ISSC adviser | Not covered by the spec (see below) |
+| ISSC | The ISSC adviser | Nobody: the ISSC is exempt from blocks and freezes (2026-10-19) |
 
 Existing `approve`/`reject` audit entries stay (the log is append-only); F11 reuses those actions for appeal decisions.
 
@@ -108,11 +124,23 @@ Answers to `docs/PROJECT_WORKFLOW_SPEC.md` section 5 and F11's open points. Revi
 
 ## Administration (chosen by the project owner on 2026-10-18)
 
-- **Who:** `/admin` and every `/admin` API route are for active ISSC admins only.
-- **Deactivating an organization** hides it from browsing: carousels, college pages and the search filters. Its officers cannot upload or create projects while it is inactive. Its existing documents keep their visibility and stay reachable by link and search. Reactivating restores everything. This is separate from deleting (`deletedAt`), which hides the organization and its documents from everyone.
+- **Who:** `/admin` and every `/admin` API route are for the ISSC account only (from 2026-10-19).
+- **Deactivating an organization** hides it from browsing: carousels, college pages and the search filters. Its account cannot upload or create projects while it is inactive. Its existing documents keep their visibility and stay reachable by link and search. Reactivating restores everything. This is separate from deleting (`deletedAt`), which hides the organization and its documents from everyone.
 - **Carousel order:** admins set the position of each college, and of each SBO within its college. Lists follow that order instead of names.
-- **New academic year:** the wizard ends the terms of every current **officer** (heads included); advisers and ISSC admins are untouched. The admin picks the incoming term's start and end (default August 1 to July 31); outgoing officer terms end the day before the new start. Incoming officers and advisers come from a CSV import, previewed before anything is saved and committed in one transaction, each membership audited as `role_change`.
-- **Unknown emails in the CSV** get an account with a temporary password and an emailed sign-in link; they must choose their own password on first sign-in.
+- **End of term** (replaces the earlier, unbuilt "new academic year" wizard; phase D, decided 2026-10-19): the super admin ends every organization account's current term (step-up) and signs them all out, then imports the incoming officers in charge from a CSV (organization, officer name, position, contact email) with a preview and row-level validation. Each imported organization gets a new temporary password, delivered to the ISSC account's one-time Reveal as one handover list; organizations missing from the CSV stay locked until assigned.
+
+## Updates and compliance overview (chosen by the project owner on 2026-10-18)
+
+- **Updates** (announcements) are posted by the ISSC and CSC accounts; SBOs do not post. Anyone can read them, signed in or not. Posting publishes at once; the posting council's account can edit or delete (soft) an update later. There are no drafts. The body is plain text.
+- **Compliance overview** (read-only, from the F11 project data; no new required-document rules): a CSC's account sees its college's SBOs; the ISSC account sees every CSC and SBO. For each organization: active projects, next deadline, overdue tasks, blocked projects, freeze status and open appeals. Projects count toward a semester when their target date falls in it (`semesterRange`); freezes and open appeals are shown whatever the semester. "Most overdue" sorts by the oldest overdue task first, then by the number of overdue tasks.
+- **"This semester"** on the dashboard: the account's organization's projects in the current semester by status, and its next three task deadlines.
+
+## Notifications (chosen by the project owner on 2026-10-18)
+
+- **New update (announcement):** a CSC's update notifies the accounts of that CSC and of its college's SBOs; an ISSC update notifies every organization account. The super admin is not notified; anyone reads updates on /updates.
+- **Email preferences:** every type emails by default, and an account can turn email off for any type. In-app notifications are always on.
+- **Term ending:** each account whose current officer term ends within 14 Manila calendar days is told once per term end date.
+- **Virus scan:** when an upload fails the scan (a document, a task file or an appeal attachment), only its uploader is told, matching who can see a file before its scan passes.
 
 ## Open questions
 

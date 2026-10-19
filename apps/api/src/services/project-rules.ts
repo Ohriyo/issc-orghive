@@ -21,6 +21,11 @@ export interface ProjectFacts {
   postEventDueOverride: Date | null;
   /** Task types whose file is uploaded and passed the virus scan. */
   filed: ReadonlySet<ProjectTaskType>;
+  /**
+   * The ISSC's projects: never blocked and never overdue, since nobody decides the ISSC's
+   * appeals (appeal-rules.ts). Deadlines still show.
+   */
+  exemptFromCompliance: boolean;
 }
 
 export interface PlannedTask {
@@ -58,13 +63,14 @@ const POST_EVENT: readonly ProjectTaskType[] = ['ACR', 'FINANCIAL_REPORT'];
  *   submitted is locked until an appeal moves the deadline.
  * - Overdue reports (3B): the ACR or Financial Report is not submitted by its deadline.
  * - Completed once every task the project needs is submitted.
+ * - The ISSC is exempt: its projects never block and its reports never freeze it.
  */
 export function planProject(facts: ProjectFacts, now: Date): ProjectPlan {
   const proposalDueAt = facts.proposalDueOverride ?? deadlineAfter(facts.createdAt);
   const postEventDueAt = facts.postEventDueOverride ?? deadlineAfter(facts.targetDate);
   const eventReached = manilaDate(now) >= facts.targetDate;
   const proposalFiled = facts.filed.has('PROPOSAL');
-  const blocked = !proposalFiled && now > proposalDueAt;
+  const blocked = !facts.exemptFromCompliance && !proposalFiled && now > proposalDueAt;
 
   const task = (type: ProjectTaskType, unlocked: boolean, dueAt: Date | null): PlannedTask => ({
     type,
@@ -83,7 +89,9 @@ export function planProject(facts: ProjectFacts, now: Date): ProjectPlan {
   const allSubmitted = tasks.every((t) => t.status === 'submitted');
   const status: ProjectStatus = blocked ? 'blocked' : allSubmitted ? 'completed' : 'active';
   const overdueReports =
-    blocked || now <= postEventDueAt ? [] : POST_EVENT.filter((type) => !facts.filed.has(type));
+    facts.exemptFromCompliance || blocked || now <= postEventDueAt
+      ? []
+      : POST_EVENT.filter((type) => !facts.filed.has(type));
 
   return { status, proposalDueAt, postEventDueAt, tasks, overdueReports };
 }

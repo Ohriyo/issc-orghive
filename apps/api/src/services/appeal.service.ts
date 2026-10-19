@@ -22,10 +22,7 @@ import type {
   AttachmentRecord,
 } from '#src/repositories/appeal.repository';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
-import type {
-  ActiveMembership,
-  MembershipRepository,
-} from '#src/repositories/membership.repository';
+import type { Account, AccountRepository } from '#src/repositories/account.repository';
 import type { OrgFreezeRepository } from '#src/repositories/org-freeze.repository';
 import type { ProjectRepository } from '#src/repositories/project.repository';
 import type { OrgRef } from './access.service';
@@ -42,7 +39,7 @@ export interface AppealServiceDeps {
   projects: Pick<ProjectRepository, 'findById' | 'listByOrganization'>;
   freezes: Pick<OrgFreezeRepository, 'findById' | 'listOpen'>;
   sync: Pick<ProjectSync, 'sync' | 'syncOrganization'>;
-  memberships: Pick<MembershipRepository, 'findActiveForUser'>;
+  accounts: Pick<AccountRepository, 'findAccount'>;
   recipients: Pick<Recipients, 'officersOf' | 'decidersOf'>;
   notifications: Pick<NotificationService, 'notify'>;
   uploads: Pick<UploadService, 'issueUrl' | 'claim'>;
@@ -58,17 +55,16 @@ const appellantOf = (org: AppellantRecord): AppellantOrg => ({
   parentId: org.parentId,
 });
 
-/** The organization that decides: the ISSC decides its own appeals (through its adviser). */
+/** The organization whose account decides: the parent (appeal-rules.ts). */
 function deciderBrief(org: AppellantRecord) {
-  const decider = org.type === 'ISSC' || !org.parent ? org : org.parent;
+  const decider = org.parent ?? org;
   return { type: decider.type, slug: decider.slug, acronym: decider.acronym, name: decider.name };
 }
 
-/** Who to name in a 403, e.g. "the Governor of CSC-CEA". */
+/** Who to name in a 403, e.g. "the CSC-CEA account". */
 function seatName(org: AppellantRecord): string {
-  if (org.type === 'ISSC') return 'the ISSC adviser';
-  if (org.type === 'CSC') return 'the ISSC President';
-  return `the Governor of ${org.parent?.acronym ?? 'its college council'}`;
+  if (org.type === 'ISSC') return 'nobody (the ISSC does not appeal)';
+  return `the ${org.parent?.acronym ?? 'parent council'} account`;
 }
 
 function toAttachment(a: AttachmentRecord): AppealAttachment {
@@ -93,7 +89,7 @@ export function createAppealService({
   projects,
   freezes,
   sync,
-  memberships,
+  accounts,
   recipients,
   notifications,
   uploads,
@@ -102,23 +98,24 @@ export function createAppealService({
   audit,
   now = () => new Date(),
 }: AppealServiceDeps) {
-  /** The actor's authority over one appellant's appeals; the seat check is lazy. */
+  /** The actor's authority over one appellant's appeals; the vacancy check is lazy. */
   async function authorityOver(
-    active: ActiveMembership[],
+    actor: Account | null,
     org: AppellantRecord,
     seatCache?: Map<string, boolean>,
   ): Promise<DecisionAuthority | null> {
     const appellant = appellantOf(org);
-    // Only an ISSC admin's authority depends on whether the seat is filled.
-    const seated = decisionAuthority(appellant, active, true);
+    const actorOrg = actor?.organization ?? null;
+    // Only the ISSC account's override depends on whether the deciding seat is vacant.
+    const seated = decisionAuthority(appellant, actorOrg, false);
     if (seated) return seated;
-    if (!active.some((m) => m.role === 'admin' && m.organization.type === 'ISSC')) return null;
+    if (actorOrg?.type !== 'ISSC') return null;
     let filled = seatCache?.get(org.id);
     if (filled === undefined) {
       filled = (await recipients.decidersOf(appellant)).seatFilled;
       seatCache?.set(org.id, filled);
     }
-    return decisionAuthority(appellant, active, filled);
+    return decisionAuthority(appellant, actorOrg, !filled);
   }
 
   function toAppeal(rec: AppealRecord, canDecide: boolean): Appeal {
@@ -232,7 +229,7 @@ export function createAppealService({
         throw AppError.notFound('Project not found');
       const [records, active] = await Promise.all([
         appeals.listByOrganization(org.id, projectId),
-        memberships.findActiveForUser(actor.userId, now()),
+        accounts.findAccount(actor.userId),
       ]);
       const cache = new Map<string, boolean>();
       const items: Appeal[] = [];
@@ -244,7 +241,7 @@ export function createAppealService({
     },
 
     /**
-     * An officer appeals a blocked project or an open freeze of their organization, with a
+     * The organization's account appeals one of its blocked projects or an open freeze, with a
      * reason and optional clean attachments. One pending appeal per block or freeze.
      */
     async submit(actor: Actor, org: OrgRef, input: SubmitAppeal): Promise<Appeal> {
@@ -323,7 +320,7 @@ export function createAppealService({
       }
       const [pending, active] = await Promise.all([
         appeals.listPending(),
-        memberships.findActiveForUser(actor.userId, now()),
+        accounts.findAccount(actor.userId),
       ]);
       const cache = new Map<string, boolean>();
       const items: Appeal[] = [];
@@ -336,13 +333,13 @@ export function createAppealService({
 
     /**
      * Approve (new due date: unblock or unfreeze) or reject (remarks; stays blocked). Only
-     * the seat appeal-rules.ts names may decide, or an ISSC admin while it is vacant
+     * the account appeal-rules.ts names may decide, or the ISSC account while it is vacant
      * (audited). Never one's own appeal.
      */
     async decide(actor: Actor, appealId: string, input: DecideAppealRequest): Promise<Appeal> {
       const rec = await appeals.findById(appealId);
       if (!rec) throw AppError.notFound('Appeal not found');
-      const active = await memberships.findActiveForUser(actor.userId, now());
+      const active = await accounts.findAccount(actor.userId);
       const authority = await authorityOver(active, rec.organization);
       if (!authority) {
         throw AppError.forbidden(`Only ${seatName(rec.organization)} decides this appeal.`);
@@ -469,8 +466,8 @@ export function createAppealService({
 
     /**
      * A 5-minute download link for a clean attachment, for the appealing organization's
-     * officers and whoever may decide the appeal (an ISSC admin otherwise: audited
-     * override). Everyone else gets a 404. Every download is audited.
+     * account and the account that decides the appeal (the ISSC while that seat is vacant:
+     * audited override). Everyone else gets a 404. Every download is audited.
      */
     async attachmentDownload(
       actor: Actor,
@@ -480,16 +477,15 @@ export function createAppealService({
       const rec = await appeals.findById(appealId);
       const attachment = rec?.attachments.find((a) => a.id === attachmentId);
       if (!rec || !attachment) throw AppError.notFound('Attachment not found');
-      const active = await memberships.findActiveForUser(actor.userId, now());
+      const active = await accounts.findAccount(actor.userId);
       const orgId = rec.organization.id;
-      const isOfficer = active.some((m) => m.organization.id === orgId && m.role === 'officer');
-      const authority = isOfficer ? null : await authorityOver(active, rec.organization);
-      const isAdmin = active.some((m) => m.role === 'admin' && m.organization.type === 'ISSC');
-      const access = isOfficer
-        ? 'officer'
+      const isOwn = active?.organization.id === orgId;
+      const authority = isOwn ? null : await authorityOver(active, rec.organization);
+      const access = isOwn
+        ? 'organization'
         : authority === 'seat'
           ? 'decider'
-          : authority === 'admin_override' || isAdmin
+          : authority === 'admin_override'
             ? 'admin_override'
             : null;
       if (!access) throw AppError.notFound('Attachment not found');

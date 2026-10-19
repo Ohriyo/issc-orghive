@@ -133,8 +133,9 @@ function IntroSkeleton() {
           <Skeleton className="h-(--text-title) w-[70%]" />
         </div>
         <div className="mt-10 max-w-[34rem] space-y-3">
-          {['w-full', 'w-[94%]', 'w-full', 'w-[88%]', 'w-[60%]'].map((width) => (
-            <Skeleton key={width} className={`h-4 ${width}`} />
+          {/* Fixed placeholder lines: position is their identity (two share a width). */}
+          {['w-full', 'w-[94%]', 'w-full', 'w-[88%]', 'w-[60%]'].map((width, line) => (
+            <Skeleton key={line} className={`h-4 ${width}`} />
           ))}
         </div>
       </div>

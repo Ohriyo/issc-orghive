@@ -1,40 +1,31 @@
 import type { OrganizationType, Prisma } from '#src/generated/prisma/client';
-import { dayOf } from './membership.repository';
 import type { Db } from './prisma';
 
 /** What the admin screens show of an organization, with its live counts. */
-function adminOrgSelect(now: Date) {
-  const day = dayOf(now);
-  return {
-    id: true,
-    type: true,
-    slug: true,
-    acronym: true,
-    name: true,
-    description: true,
-    logoKey: true,
-    logoWidths: true,
-    position: true,
-    collegeId: true,
-    parentId: true,
-    deactivatedAt: true,
-    _count: {
-      select: {
-        documents: { where: { deletedAt: null } },
-        memberships: {
-          where: {
-            user: { disabledAt: null },
-            termStart: { lte: day },
-            OR: [{ termEnd: null }, { termEnd: { gte: day } }],
-          },
-        },
-      },
+const ADMIN_ORG_SELECT = {
+  id: true,
+  type: true,
+  slug: true,
+  acronym: true,
+  name: true,
+  description: true,
+  logoKey: true,
+  logoWidths: true,
+  position: true,
+  collegeId: true,
+  parentId: true,
+  deactivatedAt: true,
+  _count: {
+    select: {
+      documents: { where: { deletedAt: null } },
+      /** Its shared account, unless deactivated (at most one: a unique index). */
+      accounts: { where: { disabledAt: null } },
     },
-  } satisfies Prisma.OrganizationSelect;
-}
+  },
+} satisfies Prisma.OrganizationSelect;
 
 export type AdminOrgRecord = Prisma.OrganizationGetPayload<{
-  select: ReturnType<typeof adminOrgSelect>;
+  select: typeof ADMIN_ORG_SELECT;
 }>;
 
 const collegeFields = {
@@ -71,7 +62,7 @@ export interface NewOrganization {
  */
 export function createAdminOrganizationRepository(db: Db) {
   return {
-    async tree(now: Date): Promise<{
+    async tree(): Promise<{
       issc: AdminOrgRecord | null;
       colleges: AdminCollegeRecord[];
       organizations: AdminOrgRecord[];
@@ -81,7 +72,7 @@ export function createAdminOrganizationRepository(db: Db) {
         db.organization.findMany({
           where: { deletedAt: null },
           orderBy: ORDER,
-          select: adminOrgSelect(now),
+          select: ADMIN_ORG_SELECT,
         }),
       ]);
       return {
@@ -131,10 +122,10 @@ export function createAdminOrganizationRepository(db: Db) {
       );
     },
 
-    findOrganization(slug: string, now: Date): Promise<AdminOrgRecord | null> {
+    findOrganization(slug: string): Promise<AdminOrgRecord | null> {
       return db.organization.findFirst({
         where: { slug, deletedAt: null },
-        select: adminOrgSelect(now),
+        select: ADMIN_ORG_SELECT,
       });
     },
 
@@ -158,23 +149,19 @@ export function createAdminOrganizationRepository(db: Db) {
       });
     },
 
-    async createOrganization(input: NewOrganization, now: Date): Promise<AdminOrgRecord> {
+    async createOrganization(input: NewOrganization): Promise<AdminOrgRecord> {
       const last = await db.organization.aggregate({
         where: { parentId: input.parentId, deletedAt: null },
         _max: { position: true },
       });
       return db.organization.create({
         data: { ...input, position: (last._max.position ?? -1) + 1 },
-        select: adminOrgSelect(now),
+        select: ADMIN_ORG_SELECT,
       });
     },
 
-    updateOrganization(
-      id: string,
-      patch: Prisma.OrganizationUpdateInput,
-      now: Date,
-    ): Promise<AdminOrgRecord> {
-      return db.organization.update({ where: { id }, data: patch, select: adminOrgSelect(now) });
+    updateOrganization(id: string, patch: Prisma.OrganizationUpdateInput): Promise<AdminOrgRecord> {
+      return db.organization.update({ where: { id }, data: patch, select: ADMIN_ORG_SELECT });
     },
 
     async sboSlugs(parentId: string): Promise<string[]> {

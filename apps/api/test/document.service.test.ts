@@ -11,11 +11,10 @@ const ACTOR = { userId: 'u1', ip: '10.0.0.1' };
 const READER = { userId: 'u1', ip: '10.0.0.1' };
 const SIGNED_OUT = {};
 const VIEWER: DocumentViewer = {
-  kind: 'user',
+  kind: 'account',
   userId: 'u1',
-  isAdmin: false,
-  memberOrgIds: ['jpice'],
-  officerOrgIds: ['jpice'],
+  organizationId: 'jpice',
+  organizationType: 'SBO',
 };
 
 function record(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
@@ -27,7 +26,7 @@ function record(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
     academicYear: '2026-2027',
     semester: null,
     status: 'available',
-    visibility: 'members',
+    visibility: 'governing',
     tags: [],
     createdAt: at,
     updatedAt: at,
@@ -65,7 +64,6 @@ function setup(doc: DocumentRecord | null = record(), viewer: DocumentViewer = V
   const cache = memoryCache();
   const documents = {
     findById: vi.fn((_viewer: DocumentViewer, _id: string) => Promise.resolve(doc)),
-    visibleOnlyAsAdmin: vi.fn(() => Promise.resolve(false)),
     list: vi.fn(() => Promise.resolve({ items: doc ? [doc] : [], nextCursor: null })),
     create: vi.fn(() => Promise.resolve(record({ status: 'scanning' }))),
     update: vi.fn(() => Promise.resolve(doc)),
@@ -127,14 +125,6 @@ function setup(doc: DocumentRecord | null = record(), viewer: DocumentViewer = V
   return { service, documents, audit, cache, jpiceListCached, uploads, queue, storage };
 }
 
-const ADMIN: DocumentViewer = {
-  kind: 'user',
-  userId: 'admin1',
-  isAdmin: true,
-  memberOrgIds: ['issc'],
-  officerOrgIds: [],
-};
-
 describe('documentService.list', () => {
   it('caches signed-out lists and reuses them', async () => {
     const { service, documents } = setup();
@@ -177,35 +167,17 @@ describe('documentService.get', () => {
   it('returns the summary, or 404 when the viewer may not see it', async () => {
     expect(await setup().service.get(READER, 'd1')).toMatchObject({
       id: 'd1',
-      visibility: 'members',
+      visibility: 'governing',
     });
     await expect(setup(null).service.get(SIGNED_OUT, 'd1')).rejects.toMatchObject({
       status: 404,
     });
   });
 
-  it('does not audit a member reading their own organization’s document', async () => {
-    const { service, documents, audit } = setup();
+  it('writes no audit entry for a read: nobody sees a document past its visibility', async () => {
+    const { service, audit } = setup();
     await service.get(READER, 'd1');
-    expect(documents.visibleOnlyAsAdmin).toHaveBeenCalledWith(VIEWER, 'd1');
     expect(audit.record).not.toHaveBeenCalled();
-  });
-
-  it('audits every view an admin gets only because they are an admin', async () => {
-    const { service, documents, audit } = setup(record({ visibility: 'private' }), ADMIN);
-    documents.visibleOnlyAsAdmin.mockResolvedValue(true);
-    await service.get({ userId: 'admin1', ip: '10.0.0.9' }, 'd1');
-    await service.get({ userId: 'admin1', ip: '10.0.0.9' }, 'd1');
-    expect(audit.record).toHaveBeenCalledTimes(2);
-    expect(audit.record).toHaveBeenCalledWith({
-      action: 'admin_override',
-      actorId: 'admin1',
-      entityType: 'document',
-      entityId: 'd1',
-      organizationId: 'jpice',
-      metadata: { access: 'view', visibility: 'private' },
-      ip: '10.0.0.9',
-    });
   });
 });
 
@@ -214,7 +186,7 @@ describe('documentService.create', () => {
     typeId: TYPE.id,
     title: 'New',
     academicYear: '2026-2027',
-    visibility: 'members' as const,
+    visibility: 'governing' as const,
     tags: ['bridge'],
     uploadKey: 'uploads/jpice/k1',
   };
@@ -227,7 +199,7 @@ describe('documentService.create', () => {
       expect.objectContaining({
         organizationId: 'jpice',
         status: 'scanning',
-        visibility: 'members',
+        visibility: 'governing',
         tags: ['bridge'],
         createdById: 'u1',
         firstVersion: expect.objectContaining({
@@ -297,19 +269,6 @@ describe('documentService.listVersions', () => {
     documents.listVersions.mockResolvedValueOnce(null);
     await expect(service.listVersions(SIGNED_OUT, 'd1')).rejects.toMatchObject({ status: 404 });
   });
-
-  it('audits an admin listing the files of a document only admins could see', async () => {
-    const { service, documents, audit } = setup(record(), ADMIN);
-    documents.visibleOnlyAsAdmin.mockResolvedValue(true);
-    await service.listVersions({ userId: 'admin1' }, 'd1');
-    expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'admin_override',
-        entityId: 'd1',
-        metadata: { access: 'versions', visibility: 'private' },
-      }),
-    );
-  });
 });
 
 describe('documentService.downloadUrl', () => {
@@ -335,19 +294,6 @@ describe('documentService.downloadUrl', () => {
     await expect(service.downloadUrl(SIGNED_OUT, 'd1', 'v1')).rejects.toMatchObject({
       status: 404,
     });
-  });
-
-  it('audits an admin download of a file only admins could see', async () => {
-    const { service, documents, audit } = setup(record(), ADMIN);
-    documents.visibleOnlyAsAdmin.mockResolvedValue(true);
-    await service.downloadUrl({ userId: 'admin1' }, 'd1', 'v1');
-    expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'admin_override',
-        organizationId: 'jpice',
-        metadata: { access: 'download', visibility: 'private' },
-      }),
-    );
   });
 });
 
@@ -412,7 +358,7 @@ describe('documentService.setVisibility', () => {
       entityType: 'document',
       entityId: 'd1',
       organizationId: 'jpice',
-      metadata: { from: 'members', to: 'public' },
+      metadata: { from: 'governing', to: 'public' },
       ip: '10.0.0.1',
     });
     expect(jpiceListCached()).toBe(false);
@@ -426,7 +372,9 @@ describe('documentService.setVisibility', () => {
 
   it('writes and audits nothing when the visibility is unchanged', async () => {
     const { service, documents, audit, jpiceListCached } = setup();
-    expect((await service.setVisibility(ACTOR, JPICE, 'd1', 'members')).visibility).toBe('members');
+    expect((await service.setVisibility(ACTOR, JPICE, 'd1', 'governing')).visibility).toBe(
+      'governing',
+    );
     expect(documents.setVisibility).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
     expect(jpiceListCached()).toBe(true);

@@ -42,8 +42,8 @@ export function UploadView(props: UploadViewProps) {
           <>
             <h1 className="text-h1 font-bold text-ink">Upload Paperworks</h1>
             <p className="mt-4 max-w-prose text-body-lg text-ink">
-              Only {props.org.acronym} officers can upload documents here. If you are one, ask an
-              admin to add you to the organization.
+              Only {props.org.acronym}&rsquo;s own account can upload documents here. Its officers
+              sign in with that account; ask the ISSC for its login if you are one.
             </p>
           </>
         ) : props.status === 'error' ? (

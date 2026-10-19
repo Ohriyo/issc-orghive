@@ -60,7 +60,7 @@ export function createAdminOrganizationService({
       logoUrl: publicUrl(org.logoKey),
       active: org.deactivatedAt === null,
       documentCount: org._count.documents,
-      memberCount: org._count.memberships,
+      hasAccount: org._count.accounts > 0,
     };
   }
 
@@ -111,13 +111,13 @@ export function createAdminOrganizationService({
   }
 
   async function loadOrg(slug: string): Promise<AdminOrgRecord> {
-    const org = await admin.findOrganization(slug, now());
+    const org = await admin.findOrganization(slug);
     if (!org) throw AppError.notFound('Organization not found');
     return org;
   }
 
   async function collegeView(id: string): Promise<AdminCollege> {
-    const { colleges, organizations } = await admin.tree(now());
+    const { colleges, organizations } = await admin.tree();
     return toCollege(
       colleges.find((c) => c.id === id)!,
       organizations,
@@ -125,7 +125,7 @@ export function createAdminOrganizationService({
   }
 
   async function treeView(): Promise<AdminOrganizationTree> {
-    const { issc, colleges, organizations } = await admin.tree(now());
+    const { issc, colleges, organizations } = await admin.tree();
     return {
       issc: issc ? toOrg(issc) : null,
       colleges: colleges.map((college) => toCollege(college, organizations)),
@@ -204,18 +204,15 @@ export function createAdminOrganizationService({
         if (!csc) throw AppError.conflict(`Create the CSC of ${college.code} first`);
         parentId = csc.id;
       }
-      const org = await admin.createOrganization(
-        {
-          type: input.type,
-          slug: input.slug,
-          acronym: input.acronym,
-          name: input.name,
-          description: input.description,
-          collegeId: college.id,
-          parentId,
-        },
-        now(),
-      );
+      const org = await admin.createOrganization({
+        type: input.type,
+        slug: input.slug,
+        acronym: input.acronym,
+        name: input.name,
+        description: input.description,
+        collegeId: college.id,
+        parentId,
+      });
       await auditChange(actor, 'organization', org.id, 'create', { type: org.type });
       await invalidate(org.slug);
       return toOrg(org);
@@ -227,7 +224,7 @@ export function createAdminOrganizationService({
       patch: UpdateOrganizationRequest,
     ): Promise<AdminOrganization> {
       const org = await loadOrg(slug);
-      const updated = await admin.updateOrganization(org.id, patch, now());
+      const updated = await admin.updateOrganization(org.id, patch);
       await auditChange(actor, 'organization', org.id, 'update', { fields: Object.keys(patch) });
       await invalidate(org.slug);
       return toOrg(updated);
@@ -241,11 +238,9 @@ export function createAdminOrganizationService({
       const org = await loadOrg(slug);
       if (org.type === 'ISSC' && !active) throw AppError.conflict('The ISSC cannot be deactivated');
       if ((org.deactivatedAt === null) === active) return toOrg(org);
-      const updated = await admin.updateOrganization(
-        org.id,
-        { deactivatedAt: active ? null : now() },
-        now(),
-      );
+      const updated = await admin.updateOrganization(org.id, {
+        deactivatedAt: active ? null : now(),
+      });
       await auditChange(actor, 'organization', org.id, active ? 'activate' : 'deactivate');
       await invalidate(org.slug);
       return toOrg(updated);
@@ -267,11 +262,10 @@ export function createAdminOrganizationService({
       for (const file of logo.files) {
         await storage.put(file.key, file.body, 'image/webp', LOGO_CACHE_CONTROL);
       }
-      const updated = await admin.updateOrganization(
-        org.id,
-        { logoKey: logo.key, logoWidths: logo.widths },
-        now(),
-      );
+      const updated = await admin.updateOrganization(org.id, {
+        logoKey: logo.key,
+        logoWidths: logo.widths,
+      });
       await auditChange(actor, 'organization', org.id, 'logo', { key: logo.key });
       await invalidate(org.slug);
       return toOrg(updated);

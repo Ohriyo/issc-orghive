@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminOrganization, AdminOrganizationTree, AuthResponse } from '@orghive/shared';
 import { routes } from '@/app/router';
 import { authStore } from '@/lib/auth-store';
+import { accountSession } from '@/test/accounts';
 import { moved, toRows } from './presenters/use-admin-organizations';
 
 const org = (slug: string, acronym: string, type: AdminOrganization['type'], active = true) => ({
@@ -16,7 +17,7 @@ const org = (slug: string, acronym: string, type: AdminOrganization['type'], act
   logoUrl: null,
   active,
   documentCount: 4,
-  memberCount: 2,
+  hasAccount: true,
 });
 
 const TREE: AdminOrganizationTree = {
@@ -43,29 +44,9 @@ const TREE: AdminOrganizationTree = {
   ],
 };
 
+/** The ISSC account administers; any other organization's account does not. */
 function session(admin: boolean): AuthResponse {
-  const id = '0195f3c0-0000-7000-8000-0000000000a1';
-  return {
-    accessToken: 'token',
-    expiresIn: 900,
-    user: {
-      id: '0195f3c0-0000-7000-8000-000000000001',
-      name: 'Carmela Bautista',
-      email: 'admin@orghive.test',
-      mustChangePassword: false,
-      roles: [{ orgId: id, role: admin ? 'admin' : 'officer', isHead: false }],
-      memberships: [
-        {
-          orgId: id,
-          orgSlug: 'issc',
-          orgAcronym: 'ISSC',
-          role: admin ? 'admin' : 'officer',
-          isHead: false,
-          title: null,
-        },
-      ],
-    },
-  };
+  return accountSession(admin ? 'issc' : 'own');
 }
 
 const fetchMock = vi.fn<typeof fetch>();

@@ -23,6 +23,7 @@ const signedIn: AccountMenuModel = {
   email: 'juan@nwssu.test',
   initials: 'JD',
   roles: ['JPICE, Officer (President)'],
+  systemConsole: false,
   signOut: vi.fn(),
   isSigningOut: false,
 };

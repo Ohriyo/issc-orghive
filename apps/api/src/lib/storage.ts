@@ -38,6 +38,8 @@ export interface Storage {
   head(key: string): Promise<StoredObject | null>;
   read(key: string): Promise<Buffer>;
   put(key: string, body: Buffer, contentType: string, cacheControl?: string): Promise<void>;
+  /** Server-side copy: `to` holds the bytes `from` had at that moment. */
+  copy(from: string, to: string): Promise<void>;
   /** Copies then deletes (S3 has no rename). */
   move(from: string, to: string): Promise<void>;
   delete(key: string): Promise<void>;
@@ -74,6 +76,16 @@ export function createS3Storage(config: StorageConfig): Storage {
     endpoint: config.S3_PUBLIC_ENDPOINT ?? config.S3_ENDPOINT,
   });
   const Bucket = config.S3_BUCKET;
+
+  async function copy(from: string, to: string) {
+    await s3.send(
+      new CopyObjectCommand({
+        Bucket,
+        Key: to,
+        CopySource: `${Bucket}/${encodeURIComponent(from)}`,
+      }),
+    );
+  }
 
   return {
     async presignPut(key, file, expiresIn) {
@@ -130,14 +142,10 @@ export function createS3Storage(config: StorageConfig): Storage {
       );
     },
 
+    copy,
+
     async move(from, to) {
-      await s3.send(
-        new CopyObjectCommand({
-          Bucket,
-          Key: to,
-          CopySource: `${Bucket}/${encodeURIComponent(from)}`,
-        }),
-      );
+      await copy(from, to);
       await s3.send(new DeleteObjectCommand({ Bucket, Key: from }));
     },
 

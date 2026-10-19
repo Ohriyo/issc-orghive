@@ -1,6 +1,6 @@
 # Orghive
 
-Orghive is NwSSU's official digital archive for student-organization documents (proposals, reports, resolutions, accomplishment reports). Students browse and download; organization officers upload and decide who can see each file; ISSC admins manage everything. The project workflow (projects, deadlines, appeals, semestral reports) is specified in `docs/PROJECT_WORKFLOW_SPEC.md`.
+Orghive is NwSSU's official digital archive for student-organization documents (proposals, reports, resolutions, accomplishment reports). Students browse and download; each organization's shared account uploads and decides who can see each file; the ISSC account administers colleges and organizations. The project workflow (projects, deadlines, appeals, semestral reports) is specified in `docs/PROJECT_WORKFLOW_SPEC.md`.
 
 The full plan is in `docs/PLAN.md` (exported from the planning doc). The design prototype PNGs are in `design/`. Build prompts for each feature are in `docs/BUILD_PROMPTS.md`.
 
@@ -14,27 +14,34 @@ There are three organization levels. Store all three in one `organizations` tabl
 
 "Paperworks" is the user-facing name for an organization's document archive. Use it in the UI. Use `documents` in code.
 
-Roles are **per organization**, stored in `memberships(user_id, organization_id, role, is_head, title, term_start, term_end)`:
-- `officer`: upload and edit that organization's documents, and set who can see each one.
-- `adviser`: advises the organization. A member: sees its `members` files, cannot upload.
-- `admin`: system-wide when held on the ISSC. Sees every document for support (audited), but never changes a document's visibility.
-- `is_head` marks the organization's head (CSC Governor, SBO or ISSC President). Heads decide **appeals** (F11), not documents.
+**Accounts** (`docs/DOMAIN_RULES.md`, "Accounts"): every organization, the ISSC included, has exactly **one shared account** (`users.organization_id`, one active account per organization by a partial unique index). Its officers share it; concurrent sessions are allowed. There are no per-person roles, memberships or advisers. The account's organization decides everything:
+- its **own account** uploads and edits its documents, sets their visibility, and runs its projects, appeals and reports (`requireOwnOrg`);
+- its **governing bodies** read its projects, compliance and `governing` files (`requireOrgOrGoverning`): an SBO's are its college's CSC and the ISSC, a CSC's is the ISSC. One pure function, `apps/api/src/services/account-rules.ts`; never re-implement it;
+- **councils** (ISSC, CSCs) post updates and decide appeals; the **ISSC account** is the admin (`requireAdmin`, `/admin`).
 
-A membership past `term_end` grants nothing.
+The current officer in charge (name, position, contact email, term) lives in `officer_terms`, one open term per account. Guards read the database each request, never token claims.
 
 Document lifecycle: `uploading → scanning → available | quarantined → archived` (`uploading` is browser-side only). Deletes are soft (`deleted_at`). Re-uploads create a new row in `document_versions`. Never overwrite a file.
 
-**Documents are never reviewed or approved** (`docs/PROJECT_WORKFLOW_SPEC.md` section 0). Do not add review statuses, approve/reject endpoints, a review queue or reviewer dashboards for documents. Who sees a document is its `visibility` alone, set by the owning organization's officers on upload and changeable any time (`PATCH /documents/:id/visibility`, `requireOwnOrgRole('officer')`, audited):
-- `public`: anyone, signed in or not. `members`: active members of that organization. `private`: its officers.
-- Until the virus scan passes, only the uploader sees a file. Archived documents: that organization's officers.
-- Admins see every available or archived document; each view they get only as an admin is audited (`admin_override`).
+**Documents are never reviewed or approved** (`docs/PROJECT_WORKFLOW_SPEC.md` section 0). Do not add review statuses, approve/reject endpoints, a review queue or reviewer dashboards for documents. Who sees a document is its `visibility` alone, set by the owning organization's account on upload (default `private`) and changeable any time (`PATCH /documents/:id/visibility`, `requireOwnOrg`, audited):
+- `public`: anyone, signed in or not. `governing`: the organization and its governing bodies. `private`: the organization's account only, with no exception for its CSC, the ISSC or the super admin.
+- The owning account sees its documents in every state (scanning, quarantined, archived); everyone else sees available ones only.
 - The only approvals in Orghive are **appeals** to unblock a project or an organization (F11).
 
 **Projects** (spec 2A/2B) each have a milestone checklist (`ProjectTask`). Every unlock and deadline rule lives in one pure function, `apps/api/src/services/project-rules.ts`; never re-implement it elsewhere. Deadlines are 14 Manila calendar days (`packages/shared/src/manila-time.ts`). A task's file goes through the normal document pipeline, and the task is submitted once that file passes the scan.
 
-**Compliance and appeals** (spec 3, `docs/DOMAIN_RULES.md`): `planProject` also decides when a project is blocked (proposal late) and which reports are overdue (the organization freezes, `OrgFreeze`). Who decides an appeal lives in one pure function, `apps/api/src/services/appeal-rules.ts`; never re-implement it. Checks run hourly (`check-compliance` job) and on read, and must stay idempotent: act on a block only when `applyPlan` reports the status change, and give every notification a dedupe key.
+**Compliance and appeals** (spec 3, `docs/DOMAIN_RULES.md`): `planProject` also decides when a project is blocked (proposal late) and which reports are overdue (the organization freezes, `OrgFreeze`). Who decides an appeal (the parent organization's account; the ISSC when a deciding CSC account is vacant, audited `admin_override`) lives in one pure function, `apps/api/src/services/appeal-rules.ts`; never re-implement it. The ISSC is exempt: its projects never block or freeze. Checks run hourly (`check-compliance` job) and on read, and must stay idempotent: act on a block only when `applyPlan` reports the status change, and give every notification a dedupe key.
 
 **Semestral End Report** (spec 4): the page order lives in one pure function, `planReport` (`apps/api/src/services/report-rules.ts`); semesters are fixed date ranges (`semesterRange` in `packages/shared/src/report.ts`). The worker renders the template with headless Chromium (`playwright-core`) and merges with `pdf-lib`; the result is an `available`, `private` document.
+
+## System roles
+
+`users.system_role` is `NONE` or `SUPER_ADMIN` (the developer's console account). It is separate from the organization accounts, including the ISSC's, and grants nothing inside organizations: a super admin has no organization (a check constraint) and passes no org guard and no `requireAdmin`.
+- **Created only** by `pnpm --filter api create-super-admin --email <email>` (its email must not belong to any account; `--reset-mfa` for a lost phone, `--confirm` when `NODE_ENV=production`). Never in seed data, a signup screen or the console. The password needs 14+ characters, not breached, not the name or email (`lib/password-policy.ts`).
+- **MFA is required.** Sign-in is password, then a TOTP code or a one-time recovery code (`POST /auth/mfa/verify`). Until the authenticator is confirmed at `/mfa-setup`, the token carries `mfa_setup` and only setup and `/auth/me` answer. TOTP secrets are AES-256-GCM encrypted (`MFA_ENCRYPTION_KEY`); recovery codes are Argon2id hashes.
+- **Sessions** end after 15 idle minutes or 8 hours (`super-admin.service.ts` `checkSession`, run by `requireAuth` on every request). Polling sends `X-Orghive-Background: 1` and does not count as activity. Failed passwords and codes lock the account and the IP after 5 in 15 minutes, and email every super admin.
+- **`/system` routes** use `requireSuperAdmin` (re-checked in the database each request) and are audited with actor, IP and user agent. Destructive ones add `requireStepUp`: a TOTP code from the last 5 minutes (`403 STEP_UP_REQUIRED`).
+- **At least one active super admin always remains.** Self-deactivation and removing the last one are refused by one pure function, `services/super-admin-rules.ts`, run under a row lock. Never re-implement it.
 
 ## Architecture: hybrid Model-View-Presenter
 
@@ -64,12 +71,16 @@ Layer rules. These are the ones most often broken, so check every change against
 ```bash
 pnpm install
 docker compose up -d                 # postgres, redis, minio, mailpit, clamav (first start: a few minutes)
-pnpm --filter api keys:generate >> apps/api/.env   # once: Ed25519 JWT signing keys
+pnpm --filter api keys:generate >> apps/api/.env   # once: JWT signing keys + MFA_ENCRYPTION_KEY
 pnpm --filter api prisma migrate dev
 pnpm --filter api db:seed            # 7 colleges, ISSC, CSCs, sample SBOs
+pnpm --filter api create-super-admin --email <email>   # the developer's /system account (prompts)
 pnpm dev                             # web :5173, api :4000, worker
 pnpm test                            # all unit + API tests
-pnpm --filter web test:e2e           # Playwright
+pnpm --filter api test:coverage      # API tests with coverage; services must stay ≥ 80% (each file)
+pnpm --filter web test:e2e           # Playwright, API stubbed: overflow, 44px targets, axe at 4 widths
+pnpm --filter web test:visual        # visual baselines, in the Playwright Docker image (…:update to accept)
+pnpm --filter web test:e2e:full      # full stack on its own orghive_e2e DB (resets it); needs docker compose up
 pnpm lint && pnpm typecheck          # run before every commit
 ```
 
@@ -77,12 +88,14 @@ pnpm lint && pnpm typecheck          # run before every commit
 
 - Access token: JWT, 15 min, EdDSA or RS256 via `jose`. Held in **memory only**, never in `localStorage` or `sessionStorage`.
 - Refresh token: random 256-bit string, stored **hashed**, sent as an `httpOnly; Secure; SameSite=Strict; Path=/api/v1/auth` cookie, rotated on every use. If a revoked token is reused, revoke the whole family.
-- Every mutating route has `requireAuth` plus `requireOrgRole(role)` scoped to the target organization. Decisions that belong to the organization alone (visibility) use `requireOwnOrgRole(role)`, which admins do not pass.
+- Every mutating route has `requireAuth` plus `requireOwnOrg` scoped to the target organization (reads its governing bodies may make use `requireOrgOrGoverning`; `/admin` uses `requireAdmin`).
 - Validate every body, query and param with Zod. Never trust `req.body` unvalidated.
-- Uploads: allow-list PDF, DOCX, XLSX, PPTX, JPG and PNG. Check magic bytes. Max 25 MB. Each upload stays `scanning` (visible to its uploader only) until the ClamAV scan passes.
+- Uploads: allow-list PDF, DOCX, XLSX, PPTX, JPG and PNG. Check magic bytes. Max 25 MB. Each upload stays `scanning` (visible to its own organization only) until the ClamAV scan passes.
+- The worker scans a server-side copy of each upload (`uploads/…` → `files/…`) and only that copy is ever served; the `uploads/` object is deleted. A pre-signed PUT stays valid for minutes, so scanning or serving the `uploads/` key would let a clean file be swapped for an unscanned one.
 - Downloads use signed URLs that expire in 5 minutes. The bucket is private.
+- Whatever serves the web app (`apps/web/dist`) sends `securityHeaders()` from `apps/web/security-headers.mjs` (CSP with `frame-ancestors 'none'`, HSTS, nosniff…), with `storageOrigin` set to the public storage endpoint. `vite preview` already does; the visual suite fails on any CSP violation.
 - Never log tokens, passwords or full request bodies. Secrets come from env only; keep `.env.example` current.
-- Write an audit log entry for login, upload, visibility change, archive/restore, delete, role changes, appeal decisions (approve/reject), and every admin view of a document they see only as an admin.
+- Write an audit log entry for login, upload, visibility change, archive/restore, delete, account changes, appeal decisions (approve/reject, including the ISSC's `admin_override` for a vacant seat), and every super admin action.
 
 ## Caching
 
@@ -127,7 +140,7 @@ Every UI change follows these; the `orghive-responsive` skill has the full check
 
 - Before a feature touching more than 3 files, propose a plan and wait for approval.
 - Work in this order: shared Zod schema → Prisma/repository → service → route → presenter hook → view → tests.
-- Every service method gets a unit test. Every route gets a Supertest test that covers its 401/403 paths.
+- Every service method gets a unit test. Every route gets a Supertest test that covers its 401/403 paths. `apps/api/test/route-auth.test.ts` finds every route by itself and fails any non-public one that answers without a session; a new public route goes on its PUBLIC list with a reason.
 - Run `pnpm lint && pnpm typecheck && pnpm test` before saying a task is done, and report the result.
 - Don't add a dependency without saying why. Prefer the libraries listed above.
 - Use Conventional Commits: `feat(documents): …`, `fix(auth): …`.

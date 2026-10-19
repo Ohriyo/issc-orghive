@@ -5,7 +5,7 @@ import type { SearchResponse } from '@orghive/shared';
 import { memoryCache } from '#src/lib/cache';
 import { pdfText } from '#src/lib/file-processing';
 import { createDocumentRepository } from '#src/repositories/document.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createSearchService } from '#src/services/search.service';
 import { createTokenService } from '#src/services/token.service';
@@ -21,7 +21,8 @@ const SEEDED_PDF = 'prisma/seed/assets/jpice-barangay-water-survey-report.pdf';
 /** Appears only in that file's text, never in a seeded title or description. */
 const PDF_ONLY_PHRASE = 'hydraulic ram pump';
 
-type Person = 'student' | 'jpiceMember' | 'jpiceOfficer' | 'psmeOfficer' | 'admin';
+/** Accounts: JPICE's own, its CSC, a sibling SBO, the ISSC (admin), and none (student). */
+type Person = 'student' | 'ceaGovernor' | 'jpiceOfficer' | 'psmeOfficer' | 'admin';
 
 let world: World;
 let app: ReturnType<typeof buildTestApp>;
@@ -29,12 +30,8 @@ const tokenOf = {} as Record<Person, string>;
 const userIdOf = {} as Record<Person, string>;
 /** A word unique to this run, so results never depend on other tests' rows. */
 const WORD = `qx${crypto.randomUUID().slice(0, 8)}`;
-let docs: Record<'public' | 'members' | 'private' | 'archived' | 'scanning' | 'psme', string>;
+let docs: Record<'public' | 'governing' | 'private' | 'archived' | 'scanning' | 'psme', string>;
 let pdfDocId: string;
-
-function days(n: number) {
-  return new Date(Date.now() + n * 24 * 60 * 60 * 1000);
-}
 
 function call(path: string, token?: string) {
   const req = request(app).get(`/api/v1${path}`);
@@ -50,31 +47,16 @@ beforeAll(async () => {
   await resetDb(db);
   world = await buildWorld(db);
 
-  const term = { termStart: days(-60), termEnd: days(300) };
-  const people: [Person, string | null, 'officer' | 'adviser' | 'admin'][] = [
-    ['student', null, 'officer'],
-    ['jpiceMember', world.orgs.jpice.id, 'adviser'],
-    ['jpiceOfficer', world.orgs.jpice.id, 'officer'],
-    ['psmeOfficer', world.orgs.psme.id, 'officer'],
-    ['admin', world.orgs.issc.id, 'admin'],
-  ];
-  for (const [key, orgId, role] of people) {
-    const user = await db.user.create({
-      data: { email: `${key.toLowerCase()}@search.test`, name: key, passwordHash: 'x' },
-    });
-    if (orgId) {
-      await db.membership.create({
-        data: { userId: user.id, organizationId: orgId, role, ...term },
-      });
-    }
-    userIdOf[key] = user.id;
-    const signed = await tokens.sign({
-      userId: user.id,
-      roles: [],
-      isAdmin: role === 'admin',
-      passwordChangeRequired: false,
-    });
-    tokenOf[key] = signed.token;
+  const people: Record<Person, string> = {
+    student: world.users.outsider.id,
+    ceaGovernor: world.users.governor.id,
+    jpiceOfficer: world.users.officer.id,
+    psmeOfficer: world.users.psme.id,
+    admin: world.users.issc.id,
+  };
+  for (const [key, userId] of Object.entries(people) as [Person, string][]) {
+    userIdOf[key] = userId;
+    tokenOf[key] = (await tokens.sign({ userId, passwordChangeRequired: false })).token;
   }
 
   const make = async (
@@ -93,7 +75,7 @@ beforeAll(async () => {
     ).id;
   docs = {
     public: await make('public proposal'),
-    members: await make('members proposal', { visibility: 'members' }),
+    governing: await make('governing proposal', { visibility: 'governing' }),
     private: await make('private proposal', { visibility: 'private' }),
     archived: await make('archived proposal', { status: 'archived' }),
     scanning: await make('scanning proposal', { status: 'scanning' }),
@@ -121,12 +103,12 @@ beforeAll(async () => {
   });
   pdfDocId = pdf.id;
 
-  const memberships = createMembershipRepository(db);
+  const accounts = createAccountRepository(db);
   app = buildTestApp({
     tokens,
     search: createSearchService({
       documents: createDocumentRepository(db),
-      viewers: createDocumentViewerService({ memberships }),
+      viewers: createDocumentViewerService({ accounts }),
       storage: { presignGet: (key) => Promise.resolve(`https://storage.test/${key}`) },
       cache: memoryCache(),
     }),
@@ -159,21 +141,21 @@ describe('GET /search visibility (the repository filter decides)', () => {
     expect(await ids(`/search?q=${WORD}`)).toEqual([docs.public, docs.psme].sort());
   });
 
-  it('shows a signed-in user with no membership the same as a visitor', async () => {
+  it('shows an account acting for no organization the same as a visitor', async () => {
     expect(await ids(`/search?q=${WORD}`, tokenOf.student)).toEqual(
       [docs.public, docs.psme].sort(),
     );
   });
 
-  it('adds members-only files for a member of the organization', async () => {
-    expect(await ids(`/search?q=${WORD}`, tokenOf.jpiceMember)).toEqual(
-      [docs.public, docs.members, docs.psme].sort(),
+  it('adds governing files for a governing body (the college CSC)', async () => {
+    expect(await ids(`/search?q=${WORD}`, tokenOf.ceaGovernor)).toEqual(
+      [docs.public, docs.governing, docs.psme].sort(),
     );
   });
 
-  it('adds private files for its officers, but never archived or unscanned ones', async () => {
+  it('adds private files for the organization itself, but never archived or unscanned ones', async () => {
     expect(await ids(`/search?q=${WORD}`, tokenOf.jpiceOfficer)).toEqual(
-      [docs.public, docs.members, docs.private, docs.psme].sort(),
+      [docs.public, docs.governing, docs.private, docs.psme].sort(),
     );
   });
 
@@ -183,9 +165,9 @@ describe('GET /search visibility (the repository filter decides)', () => {
     );
   });
 
-  it('shows an admin every available file', async () => {
+  it('shows the ISSC governing files too, but never a private one', async () => {
     expect(await ids(`/search?q=${WORD}`, tokenOf.admin)).toEqual(
-      [docs.public, docs.members, docs.private, docs.psme].sort(),
+      [docs.public, docs.governing, docs.psme].sort(),
     );
   });
 });

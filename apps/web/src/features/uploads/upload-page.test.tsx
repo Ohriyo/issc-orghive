@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthResponse, DocumentSummary, OrganizationDetail } from '@orghive/shared';
 import { routes } from '@/app/router';
 import { authStore } from '@/lib/auth-store';
+import { accountSession, TEST_ORGS } from '@/test/accounts';
 import { checkFile, textToTags, titleFromFilename } from './presenters/use-upload-documents';
 
 const JPICE: OrganizationDetail = {
@@ -28,28 +29,9 @@ const DOC_ID = '0195f3c0-0000-7000-8000-0000000000d1';
 const VERSION_ID = '0195f3c0-0000-7000-8000-0000000000f1';
 const KEY = `uploads/${JPICE.id}/0195f3c0-0000-7000-8000-0000000000c9`;
 
-function session(role: 'officer' | 'adviser'): AuthResponse {
-  return {
-    accessToken: 'test-token',
-    expiresIn: 900,
-    user: {
-      id: '0195f3c0-0000-7000-8000-000000000001',
-      name: 'Juan',
-      email: 'juan@test.local',
-      mustChangePassword: false,
-      roles: [{ orgId: JPICE.id, role, isHead: false }],
-      memberships: [
-        {
-          orgId: JPICE.id,
-          orgSlug: 'jpice',
-          orgAcronym: 'JPICE',
-          role,
-          isHead: false,
-          title: null,
-        },
-      ],
-    },
-  };
+/** `own`: JPICE's account; `governing`: its CSC, which reads but never uploads. */
+function session(role: 'own' | 'governing'): AuthResponse {
+  return accountSession(role, { ...TEST_ORGS.jpice, id: JPICE.id });
 }
 
 const created: DocumentSummary = {
@@ -59,7 +41,7 @@ const created: DocumentSummary = {
   academicYear: '2026-2027',
   semester: null,
   status: 'scanning',
-  visibility: 'members',
+  visibility: 'governing',
   tags: [],
   createdAt: '2026-10-16T00:00:00.000Z',
   updatedAt: '2026-10-16T00:00:00.000Z',
@@ -210,7 +192,7 @@ describe('/orgs/:slug/paperworks/upload', () => {
     'uploads each file to storage with progress, then creates the document',
     { timeout: 15_000 },
     async () => {
-      authStore.setSession(session('officer'));
+      authStore.setSession(session('own'));
       const router = renderAt('/orgs/jpice/paperworks/upload');
       expect(
         await screen.findByRole(
@@ -269,17 +251,18 @@ describe('/orgs/:slug/paperworks/upload', () => {
         uploadKey: KEY,
         typeId: TYPE.id,
         tags: ['bridge', 'ce week'],
-        visibility: 'members',
+        // A new file stays with the organization unless the officer chooses otherwise.
+        visibility: 'private',
       });
     },
   );
 
-  it('tells non-officers they cannot upload here', async () => {
-    authStore.setSession(session('adviser'));
+  it('tells any other account it cannot upload here', async () => {
+    authStore.setSession(session('governing'));
     renderAt('/orgs/jpice/paperworks/upload');
     expect(
       await screen.findByText(
-        /Only JPICE officers can upload documents here/,
+        /Only JPICE’s own account can upload documents here/,
         {},
         { timeout: 5000 },
       ),
@@ -293,7 +276,7 @@ describe('/documents/:id files', () => {
     'lists versions, downloads with a signed link and lets officers upload a new version',
     { timeout: 15_000 },
     async () => {
-      authStore.setSession(session('officer'));
+      authStore.setSession(session('own'));
       const assign = vi.fn();
       vi.stubGlobal('location', { ...window.location, assign });
       renderAt(`/documents/${DOC_ID}`);

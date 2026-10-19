@@ -37,7 +37,7 @@ export function AdminLayout({ title, children }: { title: string; children: Reac
   );
 }
 
-/** For signed-in users who are not ISSC admins. */
+/** For any signed-in account other than the ISSC's. */
 export function AdminForbidden() {
   return (
     <div className="min-h-page bg-surface">
@@ -45,7 +45,8 @@ export function AdminForbidden() {
       <Container as="main" className="pt-4 pb-section lg:pt-6">
         <h1 className="text-h2 font-bold text-ink">Admins only</h1>
         <p className="mt-3 max-w-prose text-body-lg text-ink">
-          These tools are for ISSC admins. If you should have access, ask an ISSC admin to add you.
+          These tools are for the ISSC account. Sign in with it to manage colleges and
+          organizations.
         </p>
       </Container>
     </div>

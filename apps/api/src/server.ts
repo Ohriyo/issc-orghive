@@ -25,7 +25,7 @@ import { createDocumentRepository } from '#src/repositories/document.repository'
 import { createDashboardRepository } from '#src/repositories/dashboard.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
 import { createProjectRepository } from '#src/repositories/project.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createPasswordResetTokenRepository } from '#src/repositories/password-reset-token.repository';
 import { createDb } from '#src/repositories/prisma';
@@ -43,6 +43,10 @@ import { createCollegeService } from '#src/services/college.service';
 import { createDashboardService } from '#src/services/dashboard.service';
 import { createDocumentService } from '#src/services/document.service';
 import { createSearchService } from '#src/services/search.service';
+import { createAnnouncementService } from '#src/services/announcement.service';
+import { createAnnouncementRepository } from '#src/repositories/announcement.repository';
+import { createComplianceOverviewService } from '#src/services/compliance-overview.service';
+import { createComplianceOverviewRepository } from '#src/repositories/compliance-overview.repository';
 import { createAdminOrganizationService } from '#src/services/admin-organization.service';
 import { createAdminOrganizationRepository } from '#src/repositories/admin-organization.repository';
 import { createProjectService } from '#src/services/project.service';
@@ -51,6 +55,13 @@ import { createUploadService } from '#src/services/upload.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createOrganizationService } from '#src/services/organization.service';
 import { createTokenService } from '#src/services/token.service';
+import { createSecretBox } from '#src/lib/secret-box';
+import { createRedisSuperAdminStore } from '#src/lib/super-admin-store';
+import { createTotp } from '#src/lib/totp';
+import { createRecoveryCodeRepository } from '#src/repositories/recovery-code.repository';
+import { createSystemRepository } from '#src/repositories/system.repository';
+import { createSuperAdminService } from '#src/services/super-admin.service';
+import { createSystemService } from '#src/services/system.service';
 
 let config: Config;
 try {
@@ -71,11 +82,11 @@ redis.on('error', (err) => logger.warn({ err }, 'Redis connection error'));
 const cache = createRedisCache(redis, logger);
 const publicUrl = createPublicUrl(config.PUBLIC_ASSET_BASE_URL);
 const organizations = createOrganizationRepository(db);
-const memberships = createMembershipRepository(db);
+const accounts = createAccountRepository(db);
 const documents = createDocumentRepository(db);
 const dashboardReads = createDashboardRepository(db);
 const audit = createAuditLogRepository(db);
-const viewers = createDocumentViewerService({ memberships });
+const viewers = createDocumentViewerService({ accounts });
 const storage = createS3Storage(config);
 const queueConnection = createQueueConnection(config.REDIS_URL);
 const jobs = createBullQueue(queueConnection);
@@ -89,7 +100,7 @@ const notifications = createNotificationService({
   queue: notificationQueue,
   logger,
 });
-const recipients = createRecipients({ memberships, organizations });
+const recipients = createRecipients({ accounts, organizations });
 const projectSync = createProjectSync({
   projects,
   compliance: createCompliance({ freezes, recipients, notifications, audit }),
@@ -106,6 +117,20 @@ const documentService = createDocumentService({
   cache,
 });
 const search = createSearchService({ documents, viewers, storage, cache });
+const announcementRepository = createAnnouncementRepository(db);
+const announcements = createAnnouncementService({
+  announcements: announcementRepository,
+  organizations,
+  accounts,
+  audit,
+  cache,
+  notifications,
+  logger,
+});
+const complianceOverview = createComplianceOverviewService({
+  overview: createComplianceOverviewRepository(db),
+  accounts,
+});
 const adminOrganizations = createAdminOrganizationService({
   admin: createAdminOrganizationRepository(db),
   audit,
@@ -133,23 +158,75 @@ const tokens = createTokenService({
   publicKeyPem: config.JWT_PUBLIC_KEY,
 });
 
+const users = createUserRepository(db);
+const refreshTokens = createRefreshTokenRepository(db);
+const passwords = createArgon2Hasher();
+const mailer = createSmtpMailer(config);
+const systemReads = createSystemRepository(db);
+if (!config.MFA_ENCRYPTION_KEY) {
+  logger.warn('MFA_ENCRYPTION_KEY is not set: super admins cannot sign in');
+}
+const superAdmins = createSuperAdminService({
+  users,
+  recoveryCodes: createRecoveryCodeRepository(db),
+  system: systemReads,
+  refreshTokens,
+  store: createRedisSuperAdminStore(redis),
+  totp: createTotp(),
+  secrets: config.MFA_ENCRYPTION_KEY ? createSecretBox(config.MFA_ENCRYPTION_KEY) : null,
+  passwords,
+  audit,
+  mailer,
+  logger,
+});
+const queues = [
+  { name: 'documents', queue: jobs.queue },
+  { name: 'notifications', queue: notificationQueue.queue },
+  { name: 'reports', queue: reportQueue.queue },
+];
+
 const app = createApp({
   config,
   logger,
   rateLimitStore: redisRateLimitStore(redis),
   services: {
-    tokens,
+    tokens: {
+      verify: (token) => tokens.verify(token),
+      checkSession: (claims, activity) =>
+        claims.sessionId ? superAdmins.checkSession(claims.sessionId, activity) : Promise.resolve(),
+    },
     auth: createAuthService({
-      users: createUserRepository(db),
-      memberships,
-      refreshTokens: createRefreshTokenRepository(db),
+      users,
+      accounts,
+      refreshTokens,
       resetTokens: createPasswordResetTokenRepository(db),
       audit,
       tokens,
-      passwords: createArgon2Hasher(),
-      mailer: createSmtpMailer(config),
+      superAdmins,
+      passwords,
+      mailer,
       logger,
       webOrigin: config.WEB_ORIGIN,
+    }),
+    superAdmins,
+    system: createSystemService({
+      system: systemReads,
+      refreshTokens,
+      audit,
+      queues: () =>
+        Promise.all(
+          queues.map(async ({ name, queue }) => {
+            const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
+            return {
+              name,
+              waiting: counts.waiting ?? 0,
+              active: counts.active ?? 0,
+              delayed: counts.delayed ?? 0,
+              failed: counts.failed ?? 0,
+            };
+          }),
+        ),
+      logger,
     }),
     colleges: createCollegeService({
       colleges: createCollegeRepository(db),
@@ -160,12 +237,19 @@ const app = createApp({
     organizations: createOrganizationService({ organizations, cache, publicUrl }),
     documents: documentService,
     uploads,
-    access: createAccessService({ memberships, organizations, documents, projects, audit }),
+    access: createAccessService({
+      accounts,
+      organizations,
+      documents,
+      projects,
+      announcements: announcementRepository,
+    }),
     dashboard: createDashboardService({
-      memberships,
+      accounts,
       dashboard: dashboardReads,
       documents,
       viewers,
+      projects,
       storage,
       publicUrl,
     }),
@@ -185,7 +269,7 @@ const app = createApp({
       projects,
       freezes,
       sync: projectSync,
-      memberships,
+      accounts,
       recipients,
       notifications,
       uploads,
@@ -197,6 +281,8 @@ const app = createApp({
     reports,
     search,
     adminOrganizations,
+    announcements,
+    complianceOverview,
   },
 });
 

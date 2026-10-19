@@ -14,7 +14,13 @@ import type { SemestralReportsModel } from '@/features/reports/presenters/use-se
 import { SemestralReportsPanel } from '@/features/reports/views/semestral-reports-panel';
 import { ProjectsOverview } from '@/features/projects/views/projects-overview';
 import type { DashboardModel, SelectedOrganization } from '../presenters/use-dashboard';
-import { NeedsAttention, RecentActivity, RolePanels, StatTiles } from './dashboard-sections';
+import {
+  NeedsAttention,
+  RecentActivity,
+  RolePanels,
+  StatTiles,
+  ThisSemester,
+} from './dashboard-sections';
 import { OrgSwitcher } from './org-switcher';
 
 export interface DashboardViewProps {
@@ -152,10 +158,10 @@ function OrganizationDashboard({
           <AlertTriangle aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
           <span>
             {term.daysLeft <= 0
-              ? 'Your term ends today.'
-              : `Your term ends in ${term.daysLeft} ${term.daysLeft === 1 ? 'day' : 'days'}.`}{' '}
-            After that this organization no longer appears here. Ask the ISSC admin if it is being
-            renewed.
+              ? 'This officer term ends today.'
+              : `This officer term ends in ${term.daysLeft} ${term.daysLeft === 1 ? 'day' : 'days'}.`}{' '}
+            At the end of term the ISSC issues new passwords to the incoming officers. Prepare the
+            handover of your projects and files.
           </span>
         </p>
       ) : null}
@@ -189,6 +195,7 @@ function OrganizationDashboard({
       ) : (
         <div className="mt-8 flex flex-col gap-12">
           <StatTiles tiles={org.tiles} />
+          {org.semester ? <ThisSemester semester={org.semester} /> : null}
           {projects}
           {reports}
           {panels}
@@ -204,6 +211,7 @@ function OrganizationDashboard({
       )}
       {org.isEmpty ? (
         <div className="mt-8 flex flex-col gap-12">
+          {org.semester ? <ThisSemester semester={org.semester} /> : null}
           {projects}
           {reports}
           {panels}
@@ -280,11 +288,11 @@ function NoOrganization({ panels }: { panels: React.ReactNode }) {
         className="mt-6 flex flex-col items-start gap-4 rounded-3xl bg-white p-6 shadow-pool ring-1 ring-ink/10 md:p-10"
       >
         <h1 id="no-org-heading" className="text-h1 font-bold text-ink">
-          You’re not in an organization yet
+          This account has no organization
         </h1>
         <p className="max-w-prose text-body-lg text-ink">
-          The ISSC admin adds officers and advisers to their organization; its workspace then
-          appears here. Until then, every organization’s Paperworks are open to browse.
+          Each organization signs in with its own shared account, and its workspace appears here.
+          Every organization’s public Paperworks are open to browse meanwhile.
         </p>
         <PillButton asChild size="lg">
           <OriginLink to="/colleges">

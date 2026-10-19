@@ -18,11 +18,17 @@ export type DocumentJob =
   /**
    * Hourly: re-applies every project's rules (docs/PROJECT_WORKFLOW_SPEC.md, sections 2B
    * and 3): unlocks post-event reports, blocks projects, freezes organizations, and sends
-   * deadline reminders. Idempotent, so running it twice changes nothing.
+   * deadline reminders; also tells officers and advisers whose term ends soon (term-reminders).
+   * Idempotent, so running it twice changes nothing.
    */
   | { name: 'check-compliance'; data: Record<string, never> };
 
 export type NotificationJob = { name: 'send-email'; data: { notificationId: string } };
+
+/** Notification emails are queued this many per addBulk call. */
+export const EMAIL_ENQUEUE_CHUNK = 500;
+/** The mail worker sends at most this many emails per second, to spare the SMTP relay. */
+export const EMAILS_PER_SECOND = 10;
 
 export type ReportJob = { name: 'generate-report'; data: { reportId: string } };
 
@@ -85,15 +91,18 @@ export function createBullNotificationQueue(
   return {
     queue,
     async enqueueEmails(notificationIds) {
-      if (notificationIds.length === 0) return;
-      // One job per notification: a notification is emailed at most once.
-      await queue.addBulk(
-        notificationIds.map((notificationId) => ({
-          name: 'send-email',
-          data: { notificationId },
-          opts: { jobId: `email-${notificationId}`, ...RETRIES },
-        })),
-      );
+      // One job per notification: its jobId makes a repeat add a no-op, and sendEmail skips
+      // anything already emailed even after the job itself is removed. An ISSC update can
+      // reach every member, so the adds go in chunks rather than one huge Redis call.
+      for (let i = 0; i < notificationIds.length; i += EMAIL_ENQUEUE_CHUNK) {
+        await queue.addBulk(
+          notificationIds.slice(i, i + EMAIL_ENQUEUE_CHUNK).map((notificationId) => ({
+            name: 'send-email',
+            data: { notificationId },
+            opts: { jobId: `email-${notificationId}`, ...RETRIES },
+          })),
+        );
+      }
     },
   };
 }

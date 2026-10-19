@@ -1,4 +1,4 @@
-import type { AuthMembership } from '@orghive/shared';
+import type { AuthUser } from '@orghive/shared';
 import { initialsOf } from '@/lib/initials';
 import { useAuth } from './use-auth';
 import { useSignOut } from './use-auth-forms';
@@ -12,23 +12,21 @@ export type AccountMenuModel =
       email: string;
       /** Up to two letters for the avatar, e.g. "JD". */
       initials: string;
-      /** One line per active membership: "JPICE, Officer (President)". */
+      /** The shared account's organization and officer-in-charge, e.g. "JPICE account". */
       roles: string[];
+      /** Super admins get a link to /system. */
+      systemConsole: boolean;
       signOut: () => void;
       isSigningOut: boolean;
     };
 
-const ROLE_LABEL: Record<AuthMembership['role'], string> = {
-  officer: 'Officer',
-  adviser: 'Adviser',
-  admin: 'Admin',
-};
-
-export function roleLine(m: AuthMembership): string {
-  const role = ROLE_LABEL[m.role];
-  return m.title && m.title !== role
-    ? `${m.orgAcronym}, ${role} (${m.title})`
-    : `${m.orgAcronym}, ${role}`;
+/** "JPICE account", then who answers for it this term. */
+export function accountLines(user: AuthUser): string[] {
+  if (!user.organization) return [];
+  const lines = [`${user.organization.acronym} account`];
+  const officer = user.officerInCharge;
+  if (officer) lines.push(`Officer in charge: ${officer.name} (${officer.position})`);
+  return lines;
 }
 
 export function useAccountMenu(): AccountMenuModel {
@@ -40,7 +38,8 @@ export function useAccountMenu(): AccountMenuModel {
     name: user.name,
     email: user.email,
     initials: initialsOf(user.name).slice(0, 2) || '?',
-    roles: (user.memberships ?? []).map(roleLine),
+    roles: accountLines(user),
+    systemConsole: user.systemRole === 'SUPER_ADMIN',
     signOut,
     isSigningOut,
   };

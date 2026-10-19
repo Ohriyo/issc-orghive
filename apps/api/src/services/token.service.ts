@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { errors, importPKCS8, importSPKI, jwtVerify, SignJWT } from 'jose';
 import { z } from 'zod';
-import { authRoleSchema, type AuthRole } from '@orghive/shared';
+import type { SystemRole } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 
 /** Access tokens live 15 minutes (CLAUDE.md). The refresh cookie renews them. */
@@ -16,19 +16,25 @@ const TYP = 'at+jwt';
 const claimsSchema = z.object({
   sub: z.uuid(),
   jti: z.uuid(),
-  roles: z.array(authRoleSchema),
-  /** Admin on the ISSC: system-wide. */
-  adm: z.boolean().optional(),
   /** Signed in with a temporary password: only changing it is allowed. */
   pwd_change: z.boolean().optional(),
+  /** System role; absent means NONE. requireSuperAdmin re-checks it in the database. */
+  sys: z.literal('SUPER_ADMIN').optional(),
+  /** Super admin sessions: the refresh family, which keys the idle timeout and step-up. */
+  sid: z.uuid().optional(),
+  /** A super admin who has not confirmed their authenticator: only MFA setup is allowed. */
+  mfa_setup: z.boolean().optional(),
 });
 
 export interface AccessClaims {
   userId: string;
   jti: string;
-  roles: AuthRole[];
-  isAdmin: boolean;
   passwordChangeRequired: boolean;
+  /** Absent means NONE (tokens and test doubles from before system roles). */
+  systemRole?: SystemRole;
+  /** Set for super admin sessions only. */
+  sessionId?: string;
+  mfaSetupRequired?: boolean;
 }
 
 export interface TokenServiceDeps {
@@ -47,9 +53,10 @@ export function createTokenService({ privateKeyPem, publicKeyPem }: TokenService
   return {
     async sign(input: Omit<AccessClaims, 'jti'>): Promise<{ token: string; expiresIn: number }> {
       const token = await new SignJWT({
-        roles: input.roles,
-        ...(input.isAdmin && { adm: true }),
         ...(input.passwordChangeRequired && { pwd_change: true }),
+        ...(input.systemRole === 'SUPER_ADMIN' && { sys: 'SUPER_ADMIN' }),
+        ...(input.sessionId && { sid: input.sessionId }),
+        ...(input.mfaSetupRequired && { mfa_setup: true }),
       })
         .setProtectedHeader({ alg: ALG, typ: TYP })
         .setSubject(input.userId)
@@ -83,9 +90,10 @@ export function createTokenService({ privateKeyPem, publicKeyPem }: TokenService
       return {
         userId: claims.data.sub,
         jti: claims.data.jti,
-        roles: claims.data.roles,
-        isAdmin: claims.data.adm === true,
         passwordChangeRequired: claims.data.pwd_change === true,
+        systemRole: claims.data.sys ?? 'NONE',
+        ...(claims.data.sid && { sessionId: claims.data.sid }),
+        mfaSetupRequired: claims.data.mfa_setup === true,
       };
     },
   };

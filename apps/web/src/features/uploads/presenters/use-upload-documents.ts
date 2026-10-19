@@ -14,7 +14,7 @@ import {
   type DocumentMetadata,
   type UploadContentType,
 } from '@orghive/shared';
-import { useAuth } from '@/features/auth/presenters/use-auth';
+import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import {
   academicYearOf,
   SEMESTER_LABELS,
@@ -155,9 +155,7 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
   if (!org.data) return { status: 'loading' };
 
   const orgId = org.data.id;
-  const canUpload = !!user?.roles.some(
-    (role) => (role.orgId === orgId && role.role === 'officer') || role.role === 'admin',
-  );
+  const canUpload = isOwnOrganization(user, { id: orgId });
   if (!canUpload) {
     return { status: 'forbidden', org: { acronym: org.data.acronym } };
   }
@@ -179,7 +177,7 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
         description: '',
         academicYear: year,
         semester: undefined,
-        visibility: 'members',
+        visibility: 'private',
         tags: [],
       } satisfies DocumentMetadata);
     }

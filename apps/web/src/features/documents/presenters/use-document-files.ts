@@ -6,7 +6,7 @@ import {
   organizationDetailSchema,
   type DocumentVersion,
 } from '@orghive/shared';
-import { useAuth } from '@/features/auth/presenters/use-auth';
+import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import { uploadErrorMessage, uploadNewVersion } from './upload-version';
@@ -58,11 +58,7 @@ export function useDocumentFiles(
   });
 
   const orgId = orgDetail.data?.id;
-  const canReupload =
-    !!orgId &&
-    !!user?.roles.some(
-      (role) => (role.orgId === orgId && role.role === 'officer') || role.role === 'admin',
-    );
+  const canReupload = isOwnOrganization(user, { id: orgId });
 
   async function download(versionId: string) {
     try {

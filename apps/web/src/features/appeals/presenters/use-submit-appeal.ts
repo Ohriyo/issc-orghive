@@ -67,7 +67,7 @@ export type SubmitAppealModel =
   | { status: 'error'; retry: () => void }
   /** The project is not blocked, the freeze was lifted, or an appeal is already pending. */
   | { status: 'nothing'; message: string; href: string }
-  | { status: 'forbidden'; orgAcronym: string }
+  | { status: 'forbidden' }
   | {
       status: 'ready';
       target: AppealTarget;
@@ -106,7 +106,7 @@ export function useSubmitAppeal(): SubmitAppealModel {
   const freezeId = params.get('freeze');
   const isOfficer = useIsOfficerOf(slug || null);
   const { user } = useAuth();
-  const orgAcronym = user?.memberships.find((m) => m.orgSlug === slug)?.orgAcronym ?? slug;
+  const orgAcronym = user?.organization?.slug === slug ? user.organization.acronym : slug;
   const [files, setFiles] = useState<LocalAttachment[]>([]);
   const [saveError, setSaveError] = useState<string>();
 
@@ -210,7 +210,7 @@ export function useSubmitAppeal(): SubmitAppealModel {
       href: projectId ? `/projects/${projectId}` : '/dashboard',
     };
   }
-  if (!isOfficer) return { status: 'forbidden', orgAcronym: target.orgAcronym };
+  if (!isOfficer) return { status: 'forbidden' };
 
   const update = (key: string, patch: Partial<LocalAttachment>) =>
     setFiles((all) => all.map((f) => (f.key === key ? { ...f, ...patch } : f)));

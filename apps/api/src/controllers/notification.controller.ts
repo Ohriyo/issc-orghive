@@ -1,12 +1,17 @@
 import type { RequestHandler } from 'express';
-import { notificationIdParamsSchema } from '@orghive/shared';
+import {
+  notificationIdParamsSchema,
+  notificationListQuerySchema,
+  updateNotificationPreferencesSchema,
+} from '@orghive/shared';
 import { authOf } from '#src/middleware/require-auth';
 import type { NotificationService } from '#src/services/notification.service';
 
 export function createNotificationController(notifications: NotificationService) {
-  const list: RequestHandler = async (_req, res) => {
+  const list: RequestHandler = async (req, res) => {
+    const query = notificationListQuerySchema.parse(req.query);
     res.set('Cache-Control', 'private, no-store');
-    res.json(await notifications.list(authOf(res).userId));
+    res.json(await notifications.list(authOf(res).userId, query));
   };
 
   const markRead: RequestHandler = async (req, res) => {
@@ -20,5 +25,16 @@ export function createNotificationController(notifications: NotificationService)
     res.status(204).end();
   };
 
-  return { list, markRead, markAllRead };
+  const preferences: RequestHandler = async (_req, res) => {
+    res.set('Cache-Control', 'private, no-store');
+    res.json(await notifications.preferences(authOf(res).userId));
+  };
+
+  const updatePreferences: RequestHandler = async (req, res) => {
+    const body = updateNotificationPreferencesSchema.parse(req.body);
+    res.set('Cache-Control', 'private, no-store');
+    res.json(await notifications.updatePreferences(authOf(res).userId, body));
+  };
+
+  return { list, markRead, markAllRead, preferences, updatePreferences };
 }

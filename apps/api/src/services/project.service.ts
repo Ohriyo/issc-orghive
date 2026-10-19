@@ -193,8 +193,16 @@ export function createProjectService({
         createdById: actor.userId,
         createdAt,
       };
+      // The creating account is the organization's own (requireOwnOrg), so its type is the org's.
+      const viewer = await viewers.forUser(actor.userId);
       const plan = planProject(
-        { ...fields, proposalDueOverride: null, postEventDueOverride: null, filed: new Set() },
+        {
+          ...fields,
+          proposalDueOverride: null,
+          postEventDueOverride: null,
+          filed: new Set(),
+          exemptFromCompliance: viewer.kind === 'account' && viewer.organizationType === 'ISSC',
+        },
         createdAt,
       );
       const created = await projects.create(fields, plan);
@@ -207,7 +215,7 @@ export function createProjectService({
         metadata: { targetDate: input.targetDate },
         ip: actor.ip,
       });
-      return toDetail(await viewers.forUser(actor.userId), created);
+      return toDetail(viewer, created);
     },
 
     /**

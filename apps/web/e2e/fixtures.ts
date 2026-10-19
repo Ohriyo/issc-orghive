@@ -2,17 +2,21 @@ import type { Page, Route } from '@playwright/test';
 import type {
   AdminOrganization,
   AdminOrganizationTree,
+  Announcement,
+  AnnouncementListResponse,
   Appeal,
   AppealListResponse,
   AuthResponse,
   CollegeDetail,
   CollegeListResponse,
   CollegeSummary,
+  ComplianceOverview,
   DashboardResponse,
   DocumentListResponse,
   DocumentSummary,
   DocumentTypeListResponse,
   NotificationListResponse,
+  NotificationPreferences,
   OrganizationCompliance,
   OrganizationDetail,
   OrganizationSummary,
@@ -20,6 +24,10 @@ import type {
   ProjectListResponse,
   SearchResponse,
   SemestralReportListResponse,
+  SystemAuditListResponse,
+  SystemOverview,
+  SystemSecurity,
+  SystemUserListResponse,
 } from '@orghive/shared';
 
 /*
@@ -130,6 +138,7 @@ const TYPES: DocumentTypeListResponse = {
 };
 
 export const DOCUMENT_ID = '0195f3c0-0000-7000-8000-0000000000d1';
+export const UPDATE_ID = '0195f3c0-0000-7000-8000-0000000000e1';
 
 const TITLES = [
   'Activity Proposal: Inter-Year Bridge Design Competition 2026',
@@ -180,6 +189,8 @@ export const PUBLIC_ROUTES = [
   // Signed out, this redirects to sign-in: the check covers that path.
   '/orgs/jpice/paperworks/upload',
   `/documents/${DOCUMENT_ID}`,
+  '/updates',
+  `/updates/${UPDATE_ID}`,
   '/login',
   '/forgot-password',
   '/reset-password?token=e2e-placeholder',
@@ -196,52 +207,170 @@ export const SIGNED_IN_ROUTES = [
   '/dashboard/appeals',
   '/dashboard/appeals/new?org=jpice&project=0195f3c0-0000-7000-8000-0000000000c1',
   '/admin',
+  '/dashboard/compliance',
+  '/dashboard/notifications',
+  '/dashboard/notifications/settings',
 ] as const;
 
+/** JPICE's shared organization account. */
 const OFFICER: AuthResponse = {
   accessToken: 'e2e-token',
   expiresIn: 900,
   user: {
     id: '0195f3c0-0000-7000-8000-000000000001',
-    name: 'Juan Dela Cruz',
-    email: 'jpice.officer@orghive.local',
+    name: 'JPICE',
+    email: 'jpice@orghive.local',
     mustChangePassword: false,
-    roles: [{ orgId: organizations.jpice!.id, role: 'officer', isHead: true }],
-    memberships: [
-      {
-        orgId: organizations.jpice!.id,
-        orgSlug: 'jpice',
-        orgAcronym: 'JPICE',
-        role: 'officer',
-        isHead: true,
-        title: 'President',
-      },
-    ],
+    organization: {
+      id: organizations.jpice!.id,
+      type: 'SBO',
+      slug: 'jpice',
+      acronym: 'JPICE',
+      name: organizations.jpice!.name,
+      parentId: '0195f3c0-0000-7000-8000-0000000000c2',
+    },
+    officerInCharge: { name: 'Juan Dela Cruz', position: 'President', email: 'juan@nwssu.test' },
   },
 };
 
-/** An ISSC admin (also JPICE's officer, so the officer screens still work). */
+/** The ISSC's shared account, which administers colleges and organizations. */
 const ADMIN: AuthResponse = {
   ...OFFICER,
   user: {
     ...OFFICER.user,
-    roles: [...OFFICER.user.roles, { orgId: organizations.issc!.id, role: 'admin', isHead: false }],
-    memberships: [
-      ...OFFICER.user.memberships,
-      {
-        orgId: organizations.issc!.id,
-        orgSlug: 'issc',
-        orgAcronym: 'ISSC',
-        role: 'admin',
-        isHead: false,
-        title: 'Admin',
-      },
-    ],
+    id: '0195f3c0-0000-7000-8000-000000000002',
+    name: 'ISSC',
+    email: 'issc@orghive.local',
+    organization: {
+      id: organizations.issc!.id,
+      type: 'ISSC',
+      slug: 'issc',
+      acronym: 'ISSC',
+      name: organizations.issc!.name,
+      parentId: null,
+    },
   },
 };
 
 /** Admin-only screens, checked with the admin session. */
 export const ADMIN_ROUTES = ['/admin/organizations'] as const;
+
+/** The developer's console account: SUPER_ADMIN with MFA, no organization. */
+const SUPER_ADMIN: AuthResponse = {
+  accessToken: 'e2e-token',
+  expiresIn: 900,
+  user: {
+    id: '0195f3c0-0000-7000-8000-0000000000f1',
+    name: 'Orghive Developer',
+    email: 'dev@orghive.local',
+    mustChangePassword: false,
+    organization: null,
+    officerInCharge: null,
+    systemRole: 'SUPER_ADMIN',
+    mfaSetupRequired: false,
+  },
+};
+
+/** /system screens, checked with the super admin session. */
+export const SYSTEM_ROUTES = [
+  '/system/overview',
+  '/system/users',
+  '/system/super-admins',
+  '/system/audit',
+  '/system/security',
+] as const;
+
+const STAMP = '2026-10-19T08:00:00.000Z';
+
+const SYSTEM_OVERVIEW: SystemOverview = {
+  users: { total: 148, active: 141, disabled: 7 },
+  superAdmins: { active: 2, pendingMfa: 1 },
+  organizations: { total: 22, active: 21 },
+  documents: { available: 1204, scanning: 3, stuckScanning: 1, quarantined: 2, archived: 87 },
+  queues: [
+    { name: 'documents', waiting: 3, active: 1, delayed: 0, failed: 1 },
+    { name: 'notifications', waiting: 0, active: 0, delayed: 12, failed: 0 },
+    { name: 'reports', waiting: 0, active: 0, delayed: 0, failed: 0 },
+  ],
+  auditEventsLast24h: 912,
+  failedLoginsLast24h: 6,
+  generatedAt: STAMP,
+};
+
+const SYSTEM_USERS: SystemUserListResponse = {
+  items: [
+    {
+      id: SUPER_ADMIN.user.id,
+      name: SUPER_ADMIN.user.name,
+      email: SUPER_ADMIN.user.email,
+      systemRole: 'SUPER_ADMIN',
+      mfaEnabledAt: STAMP,
+      disabledAt: null,
+      organization: null,
+      createdAt: STAMP,
+    },
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000f2',
+      name: 'Second Developer',
+      email: 'second.developer.with.a.long.address@orghive.local',
+      systemRole: 'SUPER_ADMIN',
+      mfaEnabledAt: null,
+      disabledAt: null,
+      organization: null,
+      createdAt: STAMP,
+    },
+    {
+      id: OFFICER.user.id,
+      name: OFFICER.user.name,
+      email: OFFICER.user.email,
+      systemRole: 'NONE',
+      mfaEnabledAt: null,
+      disabledAt: STAMP,
+      organization: { slug: 'jpice', acronym: 'JPICE', type: 'SBO' },
+      createdAt: STAMP,
+    },
+  ],
+  nextCursor: '0195f3c0-0000-7000-8000-000000000001',
+};
+
+const SYSTEM_AUDIT: SystemAuditListResponse = {
+  items: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000f9',
+      createdAt: STAMP,
+      action: 'system_role_change',
+      actor: { id: SUPER_ADMIN.user.id, name: 'Orghive Developer', email: 'dev@orghive.local' },
+      entityType: 'user',
+      entityId: '0195f3c0-0000-7000-8000-0000000000f2',
+      organizationId: null,
+      ip: '2001:db8:85a3::8a2e:370:7334',
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)',
+      metadata: { before: { systemRole: 'SUPER_ADMIN' }, after: { systemRole: 'NONE' } },
+    },
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000f8',
+      createdAt: STAMP,
+      action: 'login_failed',
+      actor: null,
+      entityType: 'user',
+      entityId: null,
+      organizationId: null,
+      ip: '203.0.113.9',
+      userAgent: null,
+      metadata: null,
+    },
+  ],
+  nextCursor: null,
+};
+
+const SYSTEM_SECURITY: SystemSecurity = {
+  mfaEnabledAt: STAMP,
+  recoveryCodesRemaining: 3,
+  sessionStartedAt: STAMP,
+  sessionExpiresAt: '2026-10-19T16:00:00.000Z',
+  idleTimeoutSeconds: 900,
+  stepUpExpiresAt: null,
+};
 
 const adminOrg = (o: OrganizationSummary, n: number, active = true): AdminOrganization => ({
   type: o.type,
@@ -252,7 +381,7 @@ const adminOrg = (o: OrganizationSummary, n: number, active = true): AdminOrgani
   logoUrl: null,
   active,
   documentCount: n * 3,
-  memberCount: n + 2,
+  hasAccount: n % 3 !== 2,
 });
 
 const ADMIN_TREE: AdminOrganizationTree = {
@@ -272,30 +401,38 @@ const ADMIN_TREE: AdminOrganizationTree = {
 const jpiceDocs = documents.map((d, i) => ({
   ...d,
   status: (['scanning', 'available', 'available', 'quarantined', 'archived'] as const)[i]!,
-  visibility: (['public', 'members', 'private', 'public', 'public'] as const)[i]!,
+  visibility: (['public', 'governing', 'private', 'public', 'public'] as const)[i]!,
 }));
 
+/** Every panel is on (appeals, compliance) so the layout checks cover them all. */
 const DASHBOARD: DashboardResponse = {
-  memberships: [
-    {
-      organizationId: organizations.jpice!.id,
-      role: 'officer',
-      isHead: true,
-      title: 'President',
-      termEnd: '2027-07-31',
-    },
-    {
-      organizationId: organizations.issc!.id,
-      role: 'officer',
-      isHead: false,
-      title: null,
-      termEnd: '2027-07-31',
-    },
-  ],
+  term: {
+    officerInCharge: { name: 'Juan Dela Cruz', position: 'President', email: 'juan@nwssu.test' },
+    termEnd: '2027-07-31',
+  },
   organizations: [
     {
       organization: { ...sbos[3]!, id: organizations.jpice!.id },
-      counts: { public: 1, members: 1, private: 1, scanning: 1, quarantined: 1, archived: 1 },
+      counts: { public: 1, governing: 1, private: 1, scanning: 1, quarantined: 1, archived: 1 },
+      semester: {
+        academicYear: '2026-2027',
+        semester: 'first',
+        counts: { active: 2, blocked: 1, completed: 3 },
+        nextDeadlines: [
+          {
+            projectId: '0195f3c0-0000-7000-8000-0000000000c1',
+            projectName: 'Inter-Year Bridge Design Competition 2026',
+            task: 'PROPOSAL',
+            dueAt: `${isoDay(2)}T15:59:59.999Z`,
+          },
+          {
+            projectId: '0195f3c0-0000-7000-8000-0000000000c1',
+            projectName: 'Inter-Year Bridge Design Competition 2026',
+            task: 'FINANCIAL_REPORT',
+            dueAt: `${isoDay(34)}T15:59:59.999Z`,
+          },
+        ],
+      },
       recentDocuments: jpiceDocs,
       quarantined: [jpiceDocs[3]!],
       activity: [
@@ -317,23 +454,10 @@ const DASHBOARD: DashboardResponse = {
         },
       ],
     },
-    {
-      organization: {
-        type: 'ISSC',
-        slug: 'issc',
-        acronym: 'ISSC',
-        name: organizations.issc!.name,
-        logoUrl: null,
-        logoSrcSet: null,
-        id: organizations.issc!.id,
-      },
-      counts: { public: 0, members: 0, private: 0, scanning: 0, quarantined: 0, archived: 0 },
-      recentDocuments: [],
-      quarantined: [],
-      activity: [],
-    },
   ],
-  isAdmin: false,
+  isIssc: false,
+  canSeeCompliance: true,
+  decidesAppeals: true,
 };
 
 /** `YYYY-MM-DD`, `days` from today (UTC is close enough for a stand-in). */
@@ -370,7 +494,7 @@ const PROJECT: ProjectDetail = {
         id: documents[0]!.id,
         title: 'Project Proposal: Inter-Year Bridge Design Competition 2026',
         status: 'available',
-        visibility: 'members',
+        visibility: 'private',
       },
     },
     { type: 'NOM', status: 'open', dueAt: null, submittedAt: null, document: null },
@@ -503,6 +627,7 @@ const QUEUE: AppealListResponse = {
 };
 
 const NOTIFICATIONS: NotificationListResponse = {
+  nextCursor: null,
   unreadCount: 2,
   items: [
     {
@@ -572,6 +697,66 @@ const REPORTS: SemestralReportListResponse = {
   ],
 };
 
+const ISSC_BRIEF = {
+  type: 'ISSC' as const,
+  slug: 'issc',
+  acronym: 'ISSC',
+  name: organizations.issc!.name,
+};
+
+const UPDATES: Announcement[] = [
+  {
+    id: UPDATE_ID,
+    title: 'General assembly of all organization officers this Friday',
+    body: 'All officers of the ISSC, the Collegiate Student Councils and the Student Body Organizations meet at the university gymnasium on Friday at 3:00 PM.\n\nBring your organization ID. Attendance is recorded per organization, and the semestral calendar of activities will be discussed.',
+    publishedAt: new Date(Date.now() - 86_400_000).toISOString(),
+    editedAt: null,
+    organization: ISSC_BRIEF,
+    canEdit: false,
+  },
+  {
+    id: '0195f3c0-0000-7000-8000-0000000000e2',
+    title: 'CEA Engineering Week opening program',
+    body: 'The opening program starts Monday at 8:00 AM at the CEA lobby. Each SBO prepares one booth.',
+    publishedAt: new Date(Date.now() - 4 * 86_400_000).toISOString(),
+    editedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    organization: CSC_CEA,
+    canEdit: false,
+  },
+];
+
+const OVERVIEW: ComplianceOverview = {
+  academicYear: '2026-2027',
+  semester: 'first',
+  scope: { type: 'ISSC', acronym: 'ISSC' },
+  organizations: sbos.map((s, i) => ({
+    organization: { type: 'SBO', slug: s.slug, acronym: s.acronym, name: s.name, college: 'CEA' },
+    activeProjects: (i % 3) + 1,
+    blockedProjects:
+      i === 1 ? [{ id: PROJECT.id, name: 'Inter-Year Bridge Design Competition 2026' }] : [],
+    nextDeadline: {
+      projectId: PROJECT.id,
+      projectName: 'Inter-Year Bridge Design Competition 2026',
+      task: 'PROPOSAL',
+      dueAt: endOfDay(isoDay(i + 1)),
+    },
+    overdueTasks:
+      i % 2 === 0
+        ? [
+            {
+              projectId: PROJECT.id,
+              projectName: 'Inter-Year Bridge Design Competition 2026',
+              task: 'FINANCIAL_REPORT',
+              dueAt: endOfDay(isoDay(-(i + 2))),
+              daysOverdue: i + 2,
+            },
+          ]
+        : [],
+    frozenSince: i === 0 ? new Date(Date.now() - 5 * 86_400_000).toISOString() : null,
+    openAppeals: i === 0 ? 1 : 0,
+  })),
+};
+
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 }
@@ -579,11 +764,27 @@ function json(route: Route, body: unknown, status = 200) {
 /** Answers every /api/v1 request in the browser, as a signed-out visitor or an officer. */
 export async function stubApi(
   page: Page,
-  { signedIn = false, admin = false }: { signedIn?: boolean; admin?: boolean } = {},
+  {
+    signedIn = false,
+    admin = false,
+    superAdmin = false,
+  }: { signedIn?: boolean; admin?: boolean; superAdmin?: boolean } = {},
 ) {
   await page.route('**/api/v1/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^\/api\/v1/, '');
+    if (superAdmin && path === '/auth/refresh') return json(route, SUPER_ADMIN);
+    if (superAdmin && path === '/system/overview') return json(route, SYSTEM_OVERVIEW);
+    if (superAdmin && path === '/system/users') {
+      return json(
+        route,
+        url.searchParams.get('role') === 'SUPER_ADMIN'
+          ? { items: SYSTEM_USERS.items.slice(0, 2), nextCursor: null }
+          : SYSTEM_USERS,
+      );
+    }
+    if (superAdmin && path === '/system/audit-logs') return json(route, SYSTEM_AUDIT);
+    if (superAdmin && path === '/system/me/security') return json(route, SYSTEM_SECURITY);
     if (admin && path === '/auth/refresh') return json(route, ADMIN);
     if (admin && path === '/admin/organizations') return json(route, ADMIN_TREE);
     if (signedIn && path === '/auth/refresh') return json(route, OFFICER);
@@ -598,6 +799,21 @@ export async function stubApi(
       return json(route, url.searchParams.get('status') === 'decided' ? { items: [] } : QUEUE);
     }
     if (signedIn && path === '/me/notifications') return json(route, NOTIFICATIONS);
+    if (signedIn && path === '/me/notification-preferences') {
+      return json(route, {
+        email: {
+          deadline_soon: true,
+          deadline_missed: true,
+          appeal_submitted: true,
+          appeal_decided: true,
+          report_ready: true,
+          upload_quarantined: true,
+          term_ending: true,
+          announcement_posted: false,
+        },
+      } satisfies NotificationPreferences);
+    }
+    if (signedIn && path === '/compliance/overview') return json(route, OVERVIEW);
     if (signedIn && path === '/organizations/jpice/semestral-reports') {
       return json(route, REPORTS);
     }
@@ -615,6 +831,14 @@ export async function stubApi(
       return json(route, { colleges: collegeSummaries } satisfies CollegeListResponse);
     if (path === '/colleges/cea') return json(route, cea);
     if (path === '/document-types') return json(route, TYPES);
+    if (path === '/announcements') {
+      return json(route, {
+        items: UPDATES,
+        nextCursor: null,
+        canPostFor: signedIn ? [ISSC_BRIEF] : [],
+      } satisfies AnnouncementListResponse);
+    }
+    if (path === `/announcements/${UPDATE_ID}`) return json(route, UPDATES[0]);
     if (path === '/organizations/jpice/documents') {
       return json(route, { items: documents, nextCursor: null } satisfies DocumentListResponse);
     }

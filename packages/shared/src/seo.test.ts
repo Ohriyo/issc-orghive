@@ -4,6 +4,7 @@ import {
   DEFAULT_OG_IMAGE_PATH,
   META_DESCRIPTION_MAX,
   organizationSeo,
+  paperworksSeo,
   truncateDescription,
 } from './seo';
 
@@ -84,5 +85,15 @@ describe('collegeSeo', () => {
     expect(seo.path).toBe('/colleges/cea');
     expect(seo.image).toBe('https://cdn.test/csc.png');
     expect(seo.imageAlt).toBe('CSC of CEA logo');
+  });
+});
+
+describe('paperworksSeo', () => {
+  it('describes the archive from facts, within the description limit', () => {
+    const seo = paperworksSeo(JPICE);
+    expect(seo.title).toBe('JPICE Paperworks | Orghive');
+    expect(seo.path).toBe('/orgs/jpice/paperworks');
+    expect(seo.description).toContain('Junior Philippine Institute of Civil Engineers (JPICE)');
+    expect(seo.description.length).toBeLessThanOrEqual(155);
   });
 });

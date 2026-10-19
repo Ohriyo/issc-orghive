@@ -12,28 +12,17 @@ export interface ReportsRouterDeps {
 }
 
 /**
- * The Semestral End Report (docs/PROJECT_WORKFLOW_SPEC.md, section 4), for the organization's
- * officers. Asking for one is the organization's own act (admins do not pass); admins may
- * see the list for support (audited override).
+ * The Semestral End Report (docs/PROJECT_WORKFLOW_SPEC.md, section 4): the organization's
+ * own account asks for and lists its reports.
  */
 export function reportsRouter({ reports, access, tokens }: ReportsRouterDeps): Router {
   const router = Router();
   const controller = createReportController(reports);
-  const { requireOrgRole, requireOwnOrgRole } = createOrgGuards(access);
+  const { requireOwnOrg } = createOrgGuards(access);
   const auth = requireAuth(tokens);
 
-  router.post(
-    '/organizations/:slug/semestral-reports',
-    auth,
-    requireOwnOrgRole('officer'),
-    controller.request,
-  );
-  router.get(
-    '/organizations/:slug/semestral-reports',
-    auth,
-    requireOrgRole('officer'),
-    controller.list,
-  );
+  router.post('/organizations/:slug/semestral-reports', auth, requireOwnOrg, controller.request);
+  router.get('/organizations/:slug/semestral-reports', auth, requireOwnOrg, controller.list);
 
   return router;
 }

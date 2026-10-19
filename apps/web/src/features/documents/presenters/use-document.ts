@@ -5,7 +5,7 @@ import {
   type DocumentSummary,
   type DocumentVisibility,
 } from '@orghive/shared';
-import { useAuth } from '@/features/auth/presenters/use-auth';
+import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import { SEMESTER_LABELS } from '@/features/paperworks/presenters/use-paperworks';
@@ -79,9 +79,7 @@ export function useDocument(id: string): DocumentPageState {
 
   if (query.data) {
     const page = query.data;
-    const canChange = !!user?.memberships.some(
-      (m) => m.orgSlug === page.org.slug && m.role === 'officer',
-    );
+    const canChange = isOwnOrganization(user, { slug: page.org.slug });
     return {
       status: 'ready',
       page,

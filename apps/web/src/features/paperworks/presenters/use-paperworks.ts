@@ -5,13 +5,15 @@ import {
   documentListResponseSchema,
   documentTypeListResponseSchema,
   organizationDetailSchema,
+  paperworksSeo,
   SEMESTERS,
+  type PageSeo,
   type DocumentSummary,
   type Semester,
 } from '@orghive/shared';
 import type { DocumentCardProps, DocumentFileType } from '@/components/document-card';
 import type { FilterBarModel, FilterOption } from '@/components/filter-bar';
-import { useAuth } from '@/features/auth/presenters/use-auth';
+import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -73,6 +75,8 @@ export type PaperworksState =
   | {
       status: 'ready';
       org: { acronym: string; name: string; href: string };
+      /** Title and description for search engines and link previews. */
+      seo: PageSeo;
       /** Set for the organization's officers (and admins): where to upload. */
       uploadHref?: string;
       filters: PaperworksFilterModel;
@@ -212,9 +216,8 @@ export function usePaperworks(slug: string): PaperworksState {
   return {
     status: 'ready',
     org: { acronym: org.data.acronym, name: org.data.name, href: `/orgs/${org.data.slug}` },
-    uploadHref: user?.roles.some(
-      (role) => (role.orgId === org.data.id && role.role === 'officer') || role.role === 'admin',
-    )
+    seo: paperworksSeo(org.data),
+    uploadHref: isOwnOrganization(user, { id: org.data.id })
       ? `/orgs/${org.data.slug}/paperworks/upload`
       : undefined,
     filters: {

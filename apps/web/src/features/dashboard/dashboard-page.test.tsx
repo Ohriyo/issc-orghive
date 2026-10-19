@@ -28,17 +28,15 @@ function session(): AuthResponse {
       name: 'Juan Dela Cruz',
       email: 'juan@nwssu.test',
       mustChangePassword: false,
-      roles: [{ orgId: JPICE_ID, role: 'officer', isHead: true }],
-      memberships: [
-        {
-          orgId: JPICE_ID,
-          orgSlug: 'jpice',
-          orgAcronym: 'JPICE',
-          role: 'officer',
-          isHead: true,
-          title: 'President',
-        },
-      ],
+      organization: {
+        id: JPICE_ID,
+        type: 'SBO',
+        slug: 'jpice',
+        acronym: 'JPICE',
+        name: 'JPICE',
+        parentId: null,
+      },
+      officerInCharge: null,
     },
   };
 }
@@ -51,7 +49,7 @@ function doc(overrides: Partial<DocumentSummary> = {}): DocumentSummary {
     academicYear: '2026-2027',
     semester: 'first',
     status: 'available',
-    visibility: 'members',
+    visibility: 'governing',
     tags: [],
     createdAt: '2026-10-10T00:00:00.000Z',
     updatedAt: '2026-10-14T00:00:00.000Z',
@@ -82,7 +80,7 @@ function org(
       logoUrl: null,
       logoSrcSet: null,
     },
-    counts: { public: 20, members: 3, private: 1, scanning: 2, quarantined: 1, archived: 0 },
+    counts: { public: 20, governing: 3, private: 1, scanning: 2, quarantined: 1, archived: 0 },
     recentDocuments: [doc()],
     quarantined: [doc({ status: 'quarantined' })],
     activity: [
@@ -95,23 +93,20 @@ function org(
         version: 1,
       },
     ],
+    semester: null,
     ...overrides,
   };
 }
 
+const OFFICER = { name: 'Juan Dela Cruz', position: 'President', email: 'juan@nwssu.test' };
+
 function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardResponse {
   return {
-    memberships: [
-      {
-        organizationId: JPICE_ID,
-        role: 'officer',
-        isHead: true,
-        title: 'President',
-        termEnd: '2027-07-31',
-      },
-    ],
+    term: { officerInCharge: OFFICER, termEnd: '2027-07-31' },
     organizations: [org(JPICE_ID, 'JPICE')],
-    isAdmin: false,
+    isIssc: false,
+    canSeeCompliance: false,
+    decidesAppeals: false,
     ...overrides,
   };
 }
@@ -177,18 +172,12 @@ describe('dashboard presenter helpers', () => {
     const today = new Date(2026, 9, 16, 15);
     expect(daysUntil('2026-10-16', today)).toBe(0);
     expect(daysUntil('2026-10-29', today)).toBe(13);
-    const member = (termEnd: string | null) => ({
-      organizationId: JPICE_ID,
-      role: 'officer' as const,
-      isHead: false,
-      title: null,
-      termEnd,
-    });
-    expect(termOf([member('2026-10-29')], today)).toMatchObject({ daysLeft: 13, endingSoon: true });
-    expect(termOf([member('2026-10-30')], today)).toMatchObject({ endingSoon: false });
-    // The latest of two terms counts; an open-ended one has no end.
-    expect(termOf([member('2026-10-20'), member('2027-07-31')], today)?.endingSoon).toBe(false);
-    expect(termOf([member(null)], today)).toBeNull();
+    const term = (termEnd: string | null) => ({ officerInCharge: OFFICER, termEnd });
+    expect(termOf(term('2026-10-29'), today)).toMatchObject({ daysLeft: 13, endingSoon: true });
+    expect(termOf(term('2026-10-30'), today)).toMatchObject({ endingSoon: false });
+    // An open-ended term, or no term at all, has no end.
+    expect(termOf(term(null), today)).toBeNull();
+    expect(termOf(null, today)).toBeNull();
   });
 
   it('words activity plainly', () => {
@@ -229,7 +218,7 @@ describe('/dashboard', () => {
       expect(
         await screen.findByRole('heading', { level: 1, name: 'JPICE' }, { timeout: 5000 }),
       ).toBeInTheDocument();
-      expect(screen.getByText('Officer, President')).toBeInTheDocument();
+      expect(screen.getByText('Juan Dela Cruz, President')).toBeInTheDocument();
       expect(screen.getByText(/Term ends/)).toBeInTheDocument();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
@@ -261,22 +250,6 @@ describe('/dashboard', () => {
   it('switches organization and remembers the choice on this device', async () => {
     serve(
       dashboard({
-        memberships: [
-          {
-            organizationId: JPICE_ID,
-            role: 'officer',
-            isHead: false,
-            title: null,
-            termEnd: '2027-07-31',
-          },
-          {
-            organizationId: CSC_ID,
-            role: 'officer',
-            isHead: false,
-            title: null,
-            termEnd: '2027-07-31',
-          },
-        ],
         organizations: [org(JPICE_ID, 'JPICE'), org(CSC_ID, 'CSC-CEA')],
       }),
     );
@@ -295,20 +268,18 @@ describe('/dashboard', () => {
     const soon = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     serve(
       dashboard({
-        memberships: [
-          { organizationId: JPICE_ID, role: 'officer', isHead: false, title: null, termEnd: soon },
-        ],
+        term: { officerInCharge: OFFICER, termEnd: soon },
       }),
     );
     renderAt('/dashboard');
     expect(await screen.findByRole('status', {}, { timeout: 5000 })).toHaveTextContent(
-      /Your term ends in [45] days/,
+      /This officer term ends in [45] days/,
     );
   });
 
   it('welcomes a new organization with no documents', async () => {
     const empty = org(JPICE_ID, 'JPICE', {
-      counts: { public: 0, members: 0, private: 0, scanning: 0, quarantined: 0, archived: 0 },
+      counts: { public: 0, governing: 0, private: 0, scanning: 0, quarantined: 0, archived: 0 },
       recentDocuments: [],
       quarantined: [],
       activity: [],
@@ -327,8 +298,8 @@ describe('/dashboard', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('shows the admin panel only to admins, and no review queue to anyone', async () => {
-    serve(dashboard({ isAdmin: true }));
+  it('shows the admin panel only to the ISSC account, and no review queue to anyone', async () => {
+    serve(dashboard({ isIssc: true }));
     renderAt('/dashboard');
     expect(
       await screen.findByRole('link', { name: 'Open admin' }, { timeout: 5000 }),
@@ -336,33 +307,64 @@ describe('/dashboard', () => {
     expect(screen.queryByRole('link', { name: /review/i })).not.toBeInTheDocument();
   });
 
-  it('hides upload and revise from an adviser', async () => {
+  it('links councils to the compliance overview', async () => {
+    serve(dashboard({ canSeeCompliance: true }));
+    renderAt('/dashboard');
+    expect(
+      await screen.findByRole('link', { name: 'Open overview' }, { timeout: 5000 }),
+    ).toHaveAttribute('href', '/dashboard/compliance');
+  });
+
+  it("shows an officer this semester's projects and next deadlines", async () => {
+    const dueAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
     serve(
       dashboard({
-        memberships: [
-          {
-            organizationId: JPICE_ID,
-            role: 'adviser',
-            isHead: false,
-            title: 'Adviser',
-            termEnd: '2027-07-31',
-          },
+        organizations: [
+          org(JPICE_ID, 'JPICE', {
+            semester: {
+              academicYear: '2026-2027',
+              semester: 'first',
+              counts: { active: 2, blocked: 1, completed: 0 },
+              nextDeadlines: [
+                {
+                  projectId: '0195f3c0-0000-7000-8000-0000000000c1',
+                  projectName: 'Bridge contest',
+                  task: 'PROPOSAL',
+                  dueAt,
+                },
+              ],
+            },
+          }),
         ],
       }),
     );
     renderAt('/dashboard');
-    expect(await screen.findByText('Adviser', {}, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Upload document' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Upload a clean copy/ })).not.toBeInTheDocument();
+    const section = (
+      await screen.findByRole('heading', { name: 'This semester' }, { timeout: 5000 })
+    ).closest('section')!;
+    expect(within(section).getByText('1st semester, 2026-2027')).toBeInTheDocument();
+    expect(within(section).getByText('Blocked').nextSibling).toHaveTextContent('1');
+    expect(within(section).getByText('Project Proposal')).toBeInTheDocument();
+    expect(within(section).getByRole('link', { name: 'Bridge contest' })).toHaveAttribute(
+      'href',
+      '/projects/0195f3c0-0000-7000-8000-0000000000c1',
+    );
+  });
+
+  it('leaves "This semester" out where the user is not an officer', async () => {
+    serve(dashboard());
+    renderAt('/dashboard');
+    await screen.findByRole('heading', { level: 1 }, { timeout: 5000 });
+    expect(screen.queryByRole('heading', { name: 'This semester' })).not.toBeInTheDocument();
   });
 
   it('explains what to do without an organization', async () => {
-    serve(dashboard({ memberships: [], organizations: [] }));
+    serve(dashboard({ term: null, organizations: [] }));
     renderAt('/dashboard');
     expect(
       await screen.findByRole(
         'heading',
-        { name: 'You’re not in an organization yet' },
+        { name: 'This account has no organization' },
         { timeout: 5000 },
       ),
     ).toBeInTheDocument();
@@ -407,18 +409,18 @@ describe('/dashboard/documents', () => {
 
   it('asks the API for the chosen status and visibility, and can clear the visibility', async () => {
     serve(dashboard(), [doc()]);
-    renderAt('/dashboard/documents?org=jpice&status=available&visibility=members');
+    renderAt('/dashboard/documents?org=jpice&status=available&visibility=governing');
     expect(
       await screen.findByRole('button', { name: /Edit details/ }, { timeout: 5000 }),
     ).toBeInTheDocument();
     expect(
       calls.some((c) =>
         c.url.includes(
-          '/organizations/jpice/documents?limit=20&status=available&visibility=members',
+          '/organizations/jpice/documents?limit=20&status=available&visibility=governing',
         ),
       ),
     ).toBe(true);
-    expect(screen.getByText(/Showing only: Members only/)).toBeInTheDocument();
+    expect(screen.getByText(/Showing only: Governing bodies/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Show every visibility' })).toHaveAttribute(
       'href',
       '/dashboard/documents?org=jpice&status=available',
@@ -433,7 +435,7 @@ describe('/dashboard/documents', () => {
       { name: 'Who can see it: Site visit report' },
       { timeout: 5000 },
     );
-    expect(select).toHaveValue('members');
+    expect(select).toHaveValue('governing');
     fireEvent.change(select, { target: { value: 'private' } });
     await waitFor(() =>
       expect(calls).toContainEqual({
@@ -442,23 +444,5 @@ describe('/dashboard/documents', () => {
         body: { visibility: 'private' },
       }),
     );
-  });
-
-  it('shows an admin who can see a document, without a control to change it', async () => {
-    serve(
-      dashboard({
-        isAdmin: true,
-        memberships: [
-          { organizationId: JPICE_ID, role: 'admin', isHead: false, title: null, termEnd: null },
-        ],
-      }),
-      [doc({ title: 'Site visit report' })],
-    );
-    renderAt('/dashboard/documents?org=jpice');
-    expect(
-      await screen.findByRole('button', { name: /Edit details/ }, { timeout: 5000 }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: /Who can see it/ })).not.toBeInTheDocument();
-    expect(screen.getByText('· Members only')).toBeInTheDocument();
   });
 });

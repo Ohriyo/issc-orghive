@@ -17,12 +17,6 @@ enum OrganizationType {
   SBO
 }
 
-enum MembershipRole {
-  officer
-  adviser
-  admin
-}
-
 /// uploading (in the browser, not stored) -> scanning -> available | quarantined -> archived.
 /// Only the uploader sees a document before it is available. No review, no approval.
 enum DocumentStatus {
@@ -32,12 +26,12 @@ enum DocumentStatus {
   archived
 }
 
-/// Who may see an available document, chosen by the owning organization's officers:
-/// public = anyone, members = the organization's active members, private = its officers.
-/// Admins see every available or archived document (audited) but cannot change this.
+/// Who may see an available document, chosen by the owning organization's account
+/// (docs/DOMAIN_RULES.md, "Visibility"): public = anyone; governing = the organization, its
+/// college's CSC and the ISSC; private = the organization's account only, no exceptions.
 enum DocumentVisibility {
   public
-  members
+  governing
   private
 }
 
@@ -108,6 +102,38 @@ enum AuditAction {
   organization_change
   /// An admin created, edited or reordered a college; metadata has `change`.
   college_change
+  /// An officer published or edited an update (announcement); deletes are `delete`.
+  announcement_change
+  /// The create-super-admin command created or promoted a super admin (actor: none).
+  super_admin_create
+  /// The create-super-admin command issued a new authenticator secret (--reset-mfa).
+  super_admin_mfa_reset
+  /// A super admin confirmed their authenticator and received recovery codes.
+  mfa_enroll
+  /// A wrong TOTP or recovery code; metadata has `stage` (login, setup, step_up).
+  mfa_failed
+  /// A super admin signed in with a one-time recovery code instead of TOTP.
+  mfa_recovery_used
+  /// A super admin replaced their recovery codes.
+  recovery_codes_regenerate
+  /// A super admin re-entered a TOTP code to unlock destructive actions for 5 minutes.
+  step_up
+  /// A super admin was demoted; metadata has `before` and `after`.
+  system_role_change
+  /// A super admin deactivated an account (every session ended) or reactivated one.
+  user_deactivate
+  user_reactivate
+  /// 5 failed super admin sign-in or code attempts in 15 minutes; the super admins are emailed.
+  super_admin_lockout
+  /// A super admin read a /system page; metadata has `route`.
+  system_view
+}
+
+/// System-level role: SUPER_ADMIN is the developer's personal console account, the only
+/// account that belongs to no organization.
+enum SystemRole {
+  NONE
+  SUPER_ADMIN
 }
 
 /// docs/PROJECT_WORKFLOW_SPEC.md, sections 2A and 2B. `blocked` is set by the compliance
@@ -153,6 +179,9 @@ enum NotificationKind {
   appeal_submitted
   appeal_decided
   report_ready
+  upload_quarantined
+  term_ending
+  announcement_posted
 }
 
 /// A Semestral End Report job: queued -> generating -> ready | failed (spec section 4).
@@ -208,7 +237,9 @@ model Organization {
   parent        Organization?      @relation("OrganizationHierarchy", fields: [parentId], references: [id])
   children      Organization[]     @relation("OrganizationHierarchy")
   college       College?           @relation(fields: [collegeId], references: [id])
-  memberships   Membership[]
+  /// Its shared account (at most one active: users_one_active_account_per_org).
+  accounts      User[]
+  officerTerms  OfficerTerm[]
   uploadIntents UploadIntent[]
   documents     Document[]
   announcements Announcement[]
@@ -235,52 +266,87 @@ model User {
   mustChangePassword Boolean   @default(true) @map("must_change_password")
   passwordChangedAt  DateTime? @map("password_changed_at")
   disabledAt         DateTime? @map("disabled_at")
+  /// Only the create-super-admin command sets SUPER_ADMIN; never seed data or signup.
+  systemRole         SystemRole @default(NONE) @map("system_role")
+  /// TOTP secret, AES-256-GCM encrypted with MFA_ENCRYPTION_KEY (lib/secret-box.ts).
+  mfaSecret          String?   @map("mfa_secret")
+  /// Set once the super admin confirms the secret with a code; null while pending.
+  mfaEnabledAt       DateTime? @map("mfa_enabled_at")
+  /// The last accepted TOTP time step: the same code (or an older one) never works twice.
+  mfaLastTimeStep    Int?      @map("mfa_last_time_step")
+  /// The organization this shared account belongs to (docs/DOMAIN_RULES.md, "Accounts").
+  /// Null only for SUPER_ADMIN. At most one active (not disabled) account per organization:
+  /// a partial unique index in the migration, which Prisma cannot express.
+  organizationId     String?   @map("organization_id") @db.Uuid
+  /// A temporary hold (end of term, security): no sign-in until unlocked. Not deactivation.
+  lockedAt           DateTime? @map("locked_at")
+  lockReason         String?   @map("lock_reason")
+  lastLoginAt        DateTime? @map("last_login_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  memberships         Membership[]
-  uploadIntents       UploadIntent[]
-  documentsCreated    Document[]           @relation("DocumentCreatedBy")
-  versionsUploaded    DocumentVersion[]
-  refreshTokens       RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
-  auditLogs           AuditLog[]
-  announcements       Announcement[]
-  projectsCreated     Project[]
-  appealsSubmitted    Appeal[]             @relation("AppealSubmittedBy")
-  appealsDecided      Appeal[]             @relation("AppealDecidedBy")
-  appealFiles         AppealAttachment[]
-  notifications       Notification[]
-  reportsRequested    SemestralReport[]
+  organization            Organization?            @relation(fields: [organizationId], references: [id])
+  officerTerms            OfficerTerm[]
+  recoveryCodes           RecoveryCode[]
+  uploadIntents           UploadIntent[]
+  documentsCreated        Document[]               @relation("DocumentCreatedBy")
+  versionsUploaded        DocumentVersion[]
+  refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
+  auditLogs               AuditLog[]
+  announcements           Announcement[]
+  projectsCreated         Project[]
+  appealsSubmitted        Appeal[]                 @relation("AppealSubmittedBy")
+  appealsDecided          Appeal[]                 @relation("AppealDecidedBy")
+  appealFiles             AppealAttachment[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  reportsRequested        SemestralReport[]
 
+  @@index([systemRole])
+  @@index([organizationId])
   @@map("users")
 }
 
-/// A role in one organization for one term. A membership past term_end grants nothing.
-model Membership {
-  id             String         @id @default(uuid(7)) @db.Uuid
-  userId         String         @map("user_id") @db.Uuid
-  organizationId String         @map("organization_id") @db.Uuid
-  role           MembershipRole
-  /// Head of the organization: Governor of a CSC, President of an SBO or the ISSC.
-  isHead         Boolean        @default(false) @map("is_head")
-  /// Display title, e.g. "Governor", "President", "Adviser".
-  title          String?
-  termStart      DateTime       @map("term_start") @db.Date
-  /// Null means open-ended (e.g. admins).
-  termEnd        DateTime?      @map("term_end") @db.Date
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
+/// Who answers for an organization's account during a term: the officer-in-charge the ISSC
+/// can reach. The open term (endedAt null) is the current one; past terms are history.
+model OfficerTerm {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  officerName     String    @map("officer_name")
+  officerPosition String    @map("officer_position")
+  officerEmail    String    @map("officer_email")
+  termStart       DateTime  @map("term_start") @db.Date
+  /// Planned last day; the term-ending notice uses it. Null when open-ended.
+  termEnd         DateTime? @map("term_end") @db.Date
+  /// When the term actually ended (End of term, or a new officer-in-charge).
+  endedAt         DateTime? @map("ended_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id])
 
-  @@unique([userId, organizationId, role, termStart])
   @@index([userId])
-  @@index([organizationId, role])
-  @@map("memberships")
+  @@index([organizationId])
+  @@map("officer_terms")
 }
 
+/// A super admin's one-time recovery codes: Argon2id hashes only, 10 per issue.
+model RecoveryCode {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("recovery_codes")
+}
+
+/// A role in one organization for one term. A membership past term_end grants nothing.
 /// Document types are data, not an enum: the official list is still an open question.
 model DocumentType {
   id        String     @id @default(uuid(7)) @db.Uuid
@@ -305,6 +371,9 @@ model Document {
   semester         Semester?
   status           DocumentStatus           @default(scanning)
   visibility       DocumentVisibility       @default(public)
+  /// Old `members` documents (before shared accounts): now private, removable in bulk by the
+  /// super admin ("Delete test data").
+  isTestData       Boolean                  @default(false) @map("is_test_data")
   /// Free-form, lowercased labels (at most 10, see documentTagsSchema).
   tags             String[]                 @default([])
   /// Text extracted from the current PDF by the worker; feeds search_vector.
@@ -374,6 +443,8 @@ model RefreshToken {
   revokedAt        DateTime? @map("revoked_at")
   replacedById     String?   @unique @map("replaced_by_id") @db.Uuid
   userAgent        String?   @map("user_agent")
+  /// Where the session signed in or last refreshed from: shown as an active session.
+  ip               String?
   createdAt        DateTime  @default(now()) @map("created_at")
 
   user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -410,6 +481,7 @@ model AuditLog {
   organizationId String?     @map("organization_id") @db.Uuid
   metadata       Json?
   ip             String?
+  userAgent      String?     @map("user_agent")
   createdAt      DateTime    @default(now()) @map("created_at")
 
   actor        User?         @relation(fields: [actorId], references: [id])
@@ -429,6 +501,8 @@ model Announcement {
   body           String
   /// Null until published.
   publishedAt    DateTime? @map("published_at")
+  /// Set when an officer edits it after publishing.
+  editedAt       DateTime? @map("edited_at")
   deletedAt      DateTime? @map("deleted_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
@@ -621,6 +695,20 @@ model Notification {
 
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+/// A user's email choice for one kind of notification. No row means email is on
+/// (docs/DOMAIN_RULES.md, "Notifications"); in-app notifications are always on.
+model NotificationPreference {
+  userId    String           @map("user_id") @db.Uuid
+  kind      NotificationKind
+  email     Boolean
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, kind])
+  @@map("notification_preferences")
 }
 
 /// One request for a Semestral End Report (docs/PROJECT_WORKFLOW_SPEC.md, section 4): the

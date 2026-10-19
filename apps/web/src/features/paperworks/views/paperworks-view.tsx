@@ -1,6 +1,7 @@
 import { Upload } from 'lucide-react';
 import { OriginLink } from '@/navigation/origin-link';
 import { Container } from '@/components/container';
+import { Seo } from '@/components/seo';
 import { DocumentCard, DocumentCardSkeleton } from '@/components/document-card';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
@@ -35,11 +36,7 @@ const GRID = 'grid gap-4 md:grid-cols-2 lg:grid-cols-3 lg:gap-6';
 export function PaperworksView(props: PaperworksViewProps) {
   return (
     <div className="bg-surface-sweep min-h-page">
-      <title>
-        {props.status === 'ready'
-          ? `${props.org.acronym} Paperworks | Orghive`
-          : 'Paperworks | Orghive'}
-      </title>
+      {props.status === 'ready' ? <Seo seo={props.seo} /> : <title>Paperworks | Orghive</title>}
       <Container as="main" className="pt-4 pb-section lg:pt-6">
         {props.status === 'ready' ? (
           <>

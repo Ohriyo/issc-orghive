@@ -55,11 +55,11 @@ export const PROJECT_TASK_DOCUMENT_TYPES: Record<ProjectTaskType, { slug: string
  * docs/DOMAIN_RULES.md): proposals and financial reports stay with the organization.
  */
 export const TASK_DEFAULT_VISIBILITY: Record<ProjectTaskType, DocumentVisibility> = {
-  PROPOSAL: 'members',
+  PROPOSAL: 'private',
   NOM: 'public',
   MOM: 'public',
   ACR: 'public',
-  FINANCIAL_REPORT: 'members',
+  FINANCIAL_REPORT: 'private',
 };
 
 /** Task files are merged into the Semestral End Report, so only PDF and images. */

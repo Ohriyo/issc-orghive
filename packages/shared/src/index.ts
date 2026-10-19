@@ -21,3 +21,5 @@ export * from './announcement';
 export * from './compliance-overview';
 export * from './csv';
 export * from './system';
+export * from './system-accounts';
+export * from './reveal';

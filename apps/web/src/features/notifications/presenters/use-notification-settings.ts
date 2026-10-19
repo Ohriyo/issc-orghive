@@ -29,20 +29,29 @@ export type NotificationSettingsModel =
       groups: { title: string; rows: SettingRow[] }[];
     };
 
-/** Pure: the settings page's groups, in the shared order. */
+/** Only the ISSC account receives temporary passwords to hand over. */
+const ISSC_ONLY: NotificationKind[] = ['password_reveal'];
+
+/** Pure: the settings page's groups, in the shared order; ISSC-only kinds for the ISSC. */
 export function toGroups(
   preferences: NotificationPreferences,
   toggle: (kind: NotificationKind, email: boolean) => void,
+  { isIssc = false }: { isIssc?: boolean } = {},
 ): { title: string; rows: SettingRow[] }[] {
   return NOTIFICATION_KIND_GROUPS.map((group) => ({
-    title: group.title,
-    rows: group.kinds.map((kind) => ({
-      kind,
-      ...NOTIFICATION_KIND_INFO[kind],
-      email: preferences.email[kind],
-      toggle: (email: boolean) => toggle(kind, email),
-    })),
-  }));
+    ...group,
+    kinds: group.kinds.filter((kind) => isIssc || !ISSC_ONLY.includes(kind)),
+  }))
+    .filter((group) => group.kinds.length > 0)
+    .map((group) => ({
+      title: group.title,
+      rows: group.kinds.map((kind) => ({
+        kind,
+        ...NOTIFICATION_KIND_INFO[kind],
+        email: preferences.email[kind],
+        toggle: (email: boolean) => toggle(kind, email),
+      })),
+    }));
 }
 
 /**
@@ -98,6 +107,8 @@ export function useNotificationSettings(): NotificationSettingsModel {
   return {
     status: 'ready',
     email: user?.email ?? null,
-    groups: toGroups(query.data, (kind, email) => save.mutate({ kind, email })),
+    groups: toGroups(query.data, (kind, email) => save.mutate({ kind, email }), {
+      isIssc: user?.organization?.type === 'ISSC',
+    }),
   };
 }

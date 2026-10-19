@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { RECOVERY_CODE_COUNT, systemRoleSchema, totpCodeSchema } from './auth';
-import { organizationTypeSchema } from './organization';
+import { RECOVERY_CODE_COUNT, totpCodeSchema } from './auth';
 
 /*
  * /system: the super admin console (CLAUDE.md, "System roles"). Every route needs an
@@ -73,38 +72,6 @@ const pageQuery = {
   limit: z.coerce.number().int().min(1).max(SYSTEM_PAGE_MAX).optional(),
 };
 
-/** GET /system/users: newest first. `q` matches name or email. */
-export const systemUserListQuerySchema = z.object({
-  ...pageQuery,
-  q: z.string().trim().max(120).optional(),
-  role: systemRoleSchema.optional(),
-  status: z.enum(['active', 'disabled']).optional(),
-});
-export type SystemUserListQuery = z.infer<typeof systemUserListQuerySchema>;
-
-export const systemUserSchema = z
-  .object({
-    id: z.uuid(),
-    name: z.string(),
-    email: z.email(),
-    systemRole: systemRoleSchema,
-    /** Super admins only: when they confirmed their authenticator; null while pending. */
-    mfaEnabledAt: z.iso.datetime().nullable(),
-    disabledAt: z.iso.datetime().nullable(),
-    /** The organization this shared account belongs to; null for a super admin. */
-    organization: z
-      .object({ slug: z.string(), acronym: z.string(), type: organizationTypeSchema })
-      .nullable(),
-    createdAt: z.iso.datetime(),
-  })
-  .meta({ id: 'SystemUser' });
-export type SystemUser = z.infer<typeof systemUserSchema>;
-
-export const systemUserListResponseSchema = z
-  .object({ items: z.array(systemUserSchema), nextCursor: z.uuid().nullable() })
-  .meta({ id: 'SystemUserListResponse' });
-export type SystemUserListResponse = z.infer<typeof systemUserListResponseSchema>;
-
 export const systemUserIdParamsSchema = z.object({ userId: z.uuid() });
 
 /** PATCH /system/users/:userId/status: deactivate (signs them out everywhere) or reactivate. */
@@ -124,6 +91,7 @@ export const systemAuditQuerySchema = z.object({
   actorId: z.uuid().optional(),
   action: z.string().trim().max(64).optional(),
   entityType: z.string().trim().max(64).optional(),
+  entityId: z.string().trim().max(64).optional(),
   /** Part of an "Acting as" name, any case. */
   actingAs: z.string().trim().min(1).max(80).optional(),
   from: z.iso.datetime().optional(),

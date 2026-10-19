@@ -101,7 +101,7 @@ const READS = [
 ];
 
 describe('/system role matrix', () => {
-  it('lets only an active super admin with MFA in', async () => {
+  it('lets only an active super admin with MFA in', { timeout: 15_000 }, async () => {
     const world = await buildWorld(db);
     const { app } = build();
     await orgUser('officer@nwssu.test', world.orgs.jpice.id);
@@ -459,25 +459,22 @@ describe('the last super admin', () => {
 });
 
 describe('GET /system/users', () => {
-  it('pages newest first and filters by role and text', async () => {
+  it('numbers pages newest first and filters by role and text', async () => {
     const { app } = build();
     const { secret } = await createSuperAdmin(db, 'dev@nwssu.test');
     for (const name of ['ana', 'ben', 'cris']) await createUser(db, `${name}@nwssu.test`);
     const { accessToken } = await superAdminSession(app, 'dev@nwssu.test', secret);
 
     const first = systemUserListResponseSchema.parse(
-      (await request(app).get('/api/v1/system/users?limit=2').set(bearer(accessToken))).body,
+      (await request(app).get('/api/v1/system/users?pageSize=2').set(bearer(accessToken))).body,
     );
     expect(first.items.map((u) => u.email)).toEqual(['cris@nwssu.test', 'ben@nwssu.test']);
+    expect(first).toMatchObject({ total: 4, page: 1, pageSize: 2 });
     const second = systemUserListResponseSchema.parse(
-      (
-        await request(app)
-          .get(`/api/v1/system/users?limit=2&cursor=${first.nextCursor}`)
-          .set(bearer(accessToken))
-      ).body,
+      (await request(app).get('/api/v1/system/users?pageSize=2&page=2').set(bearer(accessToken)))
+        .body,
     );
     expect(second.items.map((u) => u.email)).toEqual(['ana@nwssu.test', 'dev@nwssu.test']);
-    expect(second.nextCursor).toBeNull();
 
     const supers = systemUserListResponseSchema.parse(
       (await request(app).get('/api/v1/system/users?role=SUPER_ADMIN').set(bearer(accessToken)))

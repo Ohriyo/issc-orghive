@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import { useOriginNavigate } from '@/navigation/use-origin-navigate';
 import { timeAgo } from './use-notifications';
+import { useReveal, type RevealState } from './use-reveal';
 
 const PAGE_SIZE = 20;
 
@@ -39,11 +40,16 @@ export interface CenterItem {
   /** Marks it read and opens its page. */
   open: () => void;
   markRead: () => void;
+  /** Opens its one-time Reveal of temporary passwords; null when it has none. */
+  openReveal: (() => void) | null;
 }
 
 export type NotificationCenterModel = {
   show: NotificationShow;
   setShow: (show: NotificationShow) => void;
+  /** The open Reveal dialog (from `?reveal=`), or null. */
+  reveal: RevealState | null;
+  closeReveal: () => void;
 } & (
   | { status: 'loading' }
   | { status: 'error'; retry: () => void }
@@ -60,7 +66,7 @@ export type NotificationCenterModel = {
 export function toCenterItem(
   n: Notification,
   now: Date,
-  actions: { open: () => void; markRead: () => void },
+  actions: { open: () => void; markRead: () => void; openReveal: (() => void) | null },
 ): CenterItem {
   return {
     id: n.id,
@@ -85,6 +91,8 @@ export function useNotificationCenter(now: () => Date = () => new Date()): Notif
   const navigate = useOriginNavigate();
   const [params, setParams] = useSearchParams();
   const show: NotificationShow = params.get('show') === 'unread' ? 'unread' : 'all';
+  const revealId = params.get('reveal');
+  const { state: reveal, forget: forgetReveal } = useReveal(revealId);
 
   const list = useInfiniteQuery({
     queryKey: queryKeys.notificationCenter(show),
@@ -111,10 +119,20 @@ export function useNotificationCenter(now: () => Date = () => new Date()): Notif
     onSettled: refresh,
   });
 
+  const withParam = (key: string, value: string | null) => {
+    const next = new URLSearchParams(params);
+    if (value === null) next.delete(key);
+    else next.set(key, value);
+    setParams(next, { replace: true });
+  };
   const base = {
     show,
-    setShow: (next: NotificationShow) =>
-      setParams(next === 'all' ? {} : { show: next }, { replace: true }),
+    setShow: (next: NotificationShow) => withParam('show', next === 'all' ? null : next),
+    reveal,
+    closeReveal: () => {
+      forgetReveal();
+      withParam('reveal', null);
+    },
   };
   if (list.isError) return { ...base, status: 'error', retry: () => void list.refetch() };
   if (!list.data) return { ...base, status: 'loading' };
@@ -133,6 +151,12 @@ export function useNotificationCenter(now: () => Date = () => new Date()): Notif
             if (n.link) navigate(n.link);
           },
           markRead: () => markRead.mutate(n.id),
+          openReveal: n.revealId
+            ? () => {
+                if (n.readAt === null) markRead.mutate(n.id);
+                withParam('reveal', n.revealId);
+              }
+            : null,
         }),
       ),
     ),

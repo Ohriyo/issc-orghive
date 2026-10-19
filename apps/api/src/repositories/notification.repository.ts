@@ -7,6 +7,7 @@ const notificationSelect = {
   title: true,
   body: true,
   link: true,
+  revealId: true,
   readAt: true,
   createdAt: true,
 } satisfies Prisma.NotificationSelect;
@@ -23,6 +24,8 @@ export interface NewNotification {
   link: string | null;
   /** Unique per user and event; a second insert with the same key is skipped. */
   dedupeKey: string | null;
+  /** The one-time Reveal it carries (password_reveal). */
+  revealId?: string | null;
 }
 
 export function createNotificationRepository(db: Db) {

@@ -53,6 +53,15 @@ const unwiredServices: AppServices = {
   system: new Proxy({} as AppServices['system'], {
     get: (_t, key) => () => unwired(`system.${String(key)}`),
   }),
+  accountAdmin: new Proxy({} as AppServices['accountAdmin'], {
+    get: (_t, key) => () => unwired(`accountAdmin.${String(key)}`),
+  }),
+  support: new Proxy({} as AppServices['support'], {
+    get: (_t, key) => () => unwired(`support.${String(key)}`),
+  }),
+  reveals: new Proxy({} as AppServices['reveals'], {
+    get: (_t, key) => () => unwired(`reveals.${String(key)}`),
+  }),
   superAdmins: new Proxy({} as AppServices['superAdmins'], {
     get: (_t, key) => () => unwired(`superAdmins.${String(key)}`),
   }),

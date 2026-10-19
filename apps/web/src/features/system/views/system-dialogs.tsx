@@ -5,11 +5,11 @@ import { FormAlert } from '@/features/auth/views/auth-layout';
 import type { Confirming } from '../presenters/use-system-users';
 import type { StepUpDialogModel } from '../presenters/use-step-up';
 
-const OVERLAY =
+export const OVERLAY =
   'fixed inset-0 z-50 bg-ink/30 duration-300 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 motion-reduce:animate-none';
-const PANEL =
+export const PANEL =
   'fixed top-1/2 left-1/2 z-50 max-h-[85dvh] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl bg-white p-6 shadow-pool-lift duration-300 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 motion-reduce:animate-none';
-const SECONDARY =
+export const SECONDARY =
   'tap-area cursor-pointer rounded-sm text-body font-medium text-ink underline decoration-transparent underline-offset-4 transition-colors hover:decoration-ink focus-visible:decoration-ink';
 
 /** Asks before a change to someone's account. */

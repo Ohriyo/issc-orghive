@@ -24,6 +24,9 @@ const claimsSchema = z.object({
   sid: z.uuid().optional(),
   /** A super admin who has not confirmed their authenticator: only MFA setup is allowed. */
   mfa_setup: z.boolean().optional(),
+  iat: z.number().int(),
+  /** Issued at, in milliseconds (tokens from before it existed have only `iat`). */
+  iat_ms: z.number().int().optional(),
 });
 
 export interface AccessClaims {
@@ -35,6 +38,8 @@ export interface AccessClaims {
   /** Set for super admin sessions only. */
   sessionId?: string;
   mfaSetupRequired?: boolean;
+  /** When the token was signed, in milliseconds; set by verify(). */
+  issuedAtMs?: number;
 }
 
 export interface TokenServiceDeps {
@@ -51,12 +56,16 @@ export function createTokenService({ privateKeyPem, publicKeyPem }: TokenService
   publicKey.catch(() => {});
 
   return {
-    async sign(input: Omit<AccessClaims, 'jti'>): Promise<{ token: string; expiresIn: number }> {
+    async sign(
+      input: Omit<AccessClaims, 'jti' | 'issuedAtMs'>,
+    ): Promise<{ token: string; expiresIn: number }> {
       const token = await new SignJWT({
         ...(input.passwordChangeRequired && { pwd_change: true }),
         ...(input.systemRole === 'SUPER_ADMIN' && { sys: 'SUPER_ADMIN' }),
         ...(input.sessionId && { sid: input.sessionId }),
         ...(input.mfaSetupRequired && { mfa_setup: true }),
+        // `iat` is whole seconds; ending sessions needs to tell apart tokens of the same second.
+        iat_ms: Date.now(),
       })
         .setProtectedHeader({ alg: ALG, typ: TYP })
         .setSubject(input.userId)
@@ -94,6 +103,7 @@ export function createTokenService({ privateKeyPem, publicKeyPem }: TokenService
         systemRole: claims.data.sys ?? 'NONE',
         ...(claims.data.sid && { sessionId: claims.data.sid }),
         mfaSetupRequired: claims.data.mfa_setup === true,
+        issuedAtMs: claims.data.iat_ms ?? claims.data.iat * 1000,
       };
     },
   };

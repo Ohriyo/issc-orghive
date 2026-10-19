@@ -45,3 +45,13 @@ export function complianceScopeOf(org: OrgPlace | null): ComplianceScope | null 
   if (org?.type === 'CSC') return { type: 'CSC', cscId: org.id };
   return null;
 }
+
+/**
+ * Where a new temporary password goes (docs/DOMAIN_RULES.md, "Accounts"): every
+ * organization's goes to the ISSC account's one-time Reveal, so the ISSC hands it over and
+ * the super admin never sees it; the ISSC account's own is shown once to the super admin who
+ * issued it, since nobody else could receive it.
+ */
+export function passwordRecipientOf(org: { type: OrganizationType }): 'issc_reveal' | 'shown_once' {
+  return org.type === 'ISSC' ? 'shown_once' : 'issc_reveal';
+}

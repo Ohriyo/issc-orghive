@@ -1,26 +1,14 @@
-import type { SystemAuditQuery, SystemUserListQuery } from '@orghive/shared';
-import type { Prisma } from '#src/generated/prisma/client';
+import type { SystemAuditQuery } from '@orghive/shared';
+import { Prisma } from '#src/generated/prisma/client';
 import { AuditAction } from '#src/generated/prisma/enums';
 import type { Db } from './prisma';
 import type { AccountDecision, AccountPatch, AccountState } from '#src/services/super-admin-rules';
+import { DuplicateAccountError } from './account-admin.repository';
 
 /*
  * Reads and writes for the /system console. Ids are UUIDv7 (time-ordered), so "newest
  * first" is `id desc` and a page cursor is simply the last id seen.
  */
-
-const USER_SELECT = {
-  id: true,
-  name: true,
-  email: true,
-  systemRole: true,
-  mfaEnabledAt: true,
-  disabledAt: true,
-  createdAt: true,
-  organization: { select: { slug: true, acronym: true, type: true } },
-} satisfies Prisma.UserSelect;
-
-export type SystemUserRecord = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
 
 const accountSelect = {
   id: true,
@@ -123,37 +111,18 @@ export function createSystemRepository(db: Db) {
       };
     },
 
-    /** One more than `take`, so the caller knows whether another page exists. */
-    listUsers(
-      { q, role, status, cursor }: Omit<SystemUserListQuery, 'limit'>,
-      take: number,
-    ): Promise<SystemUserRecord[]> {
-      return db.user.findMany({
-        where: {
-          ...(q && {
-            OR: [
-              { name: { contains: q, mode: 'insensitive' } },
-              { email: { contains: q, mode: 'insensitive' } },
-            ],
-          }),
-          ...(role && { systemRole: role }),
-          ...(status === 'active' && { disabledAt: null }),
-          ...(status === 'disabled' && { disabledAt: { not: null } }),
-          ...(cursor && { id: { lt: cursor } }),
-        },
-        orderBy: { id: 'desc' },
-        take: take + 1,
-        select: USER_SELECT,
-      });
-    },
-
-    findUser(userId: string): Promise<SystemUserRecord | null> {
-      return db.user.findUnique({ where: { id: userId }, select: USER_SELECT });
-    },
-
     /** One more than `take`. An unknown `action` matches nothing. */
     async listAuditLogs(
-      { actorId, action, entityType, actingAs, from, to, cursor }: Omit<SystemAuditQuery, 'limit'>,
+      {
+        actorId,
+        action,
+        entityType,
+        entityId,
+        actingAs,
+        from,
+        to,
+        cursor,
+      }: Omit<SystemAuditQuery, 'limit'>,
       take: number,
     ): Promise<SystemAuditRecord[]> {
       if (action && !Object.hasOwn(AuditAction, action)) return [];
@@ -162,6 +131,7 @@ export function createSystemRepository(db: Db) {
           ...(actorId && { actorId }),
           ...(action && { action: action as AuditAction }),
           ...(entityType && { entityType }),
+          ...(entityId && { entityId }),
           ...(actingAs && { actingAs: { contains: actingAs, mode: 'insensitive' as const } }),
           ...((from ?? to) && {
             createdAt: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) },
@@ -243,29 +213,49 @@ export function createSystemRepository(db: Db) {
           before,
           active.map((row) => row.id),
         );
-        if (decision.kind === 'apply') await applyPatch(tx, targetId, decision.patch);
+        if (decision.kind === 'apply') await applyPatch(tx, targetId, decision.patch, new Date());
         return { decision, before };
       });
     },
   };
 }
 
-async function applyPatch(tx: Prisma.TransactionClient, userId: string, patch: AccountPatch) {
+/**
+ * Deactivating or demoting also ends live access tokens (sessions_revoked_at). Reactivating
+ * an organization account whose organization has another active one breaks the one-account
+ * unique index: DuplicateAccountError.
+ */
+async function applyPatch(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  patch: AccountPatch,
+  at: Date,
+) {
   if (patch.demote) {
     await tx.recoveryCode.deleteMany({ where: { userId } });
   }
-  await tx.user.update({
-    where: { id: userId },
-    data: {
-      ...('disabledAt' in patch && { disabledAt: patch.disabledAt }),
-      ...(patch.demote && {
-        systemRole: 'NONE',
-        mfaSecret: null,
-        mfaEnabledAt: null,
-        mfaLastTimeStep: null,
-      }),
-    },
-  });
+  const endsSessions =
+    patch.demote === true || ('disabledAt' in patch && patch.disabledAt !== null);
+  await tx.user
+    .update({
+      where: { id: userId },
+      data: {
+        ...(endsSessions && { sessionsRevokedAt: at }),
+        ...('disabledAt' in patch && { disabledAt: patch.disabledAt }),
+        ...(patch.demote && {
+          systemRole: 'NONE',
+          mfaSecret: null,
+          mfaEnabledAt: null,
+          mfaLastTimeStep: null,
+        }),
+      },
+    })
+    .catch((err: unknown) => {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new DuplicateAccountError('organization');
+      }
+      throw err;
+    });
 }
 
 export type SystemRepository = ReturnType<typeof createSystemRepository>;

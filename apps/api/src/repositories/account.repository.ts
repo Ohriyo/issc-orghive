@@ -74,6 +74,15 @@ export function createAccountRepository(db: Db) {
       return user?.organization ? { userId: user.id, organization: user.organization } : null;
     },
 
+    /** When every session of the account was last ended; null if never. */
+    async sessionsRevokedAt(userId: string): Promise<Date | null> {
+      const user = await db.user.findUnique({
+        where: { id: userId },
+        select: { sessionsRevokedAt: true },
+      });
+      return user?.sessionsRevokedAt ?? null;
+    },
+
     /** The organization's active account: who is notified, who decides its appeals. */
     findOrganizationAccount(
       organizationId: string,

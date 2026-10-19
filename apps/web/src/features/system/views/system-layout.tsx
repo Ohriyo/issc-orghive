@@ -1,4 +1,4 @@
-import { Gauge, KeyRound, ScrollText, ShieldCheck, Users } from 'lucide-react';
+import { FlaskConical, Gauge, KeyRound, ScrollText, ShieldCheck, Users } from 'lucide-react';
 import { NavLink } from 'react-router';
 import { Container } from '@/components/container';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,7 @@ const SECTIONS = [
   { to: '/system/overview', label: 'Overview', icon: Gauge },
   { to: '/system/users', label: 'Users', icon: Users },
   { to: '/system/super-admins', label: 'Super admins', icon: ShieldCheck },
+  { to: '/system/test-data', label: 'Test data', icon: FlaskConical },
   { to: '/system/audit', label: 'Audit log', icon: ScrollText },
   { to: '/system/security', label: 'My security', icon: KeyRound },
 ] as const;

@@ -24,6 +24,7 @@ import { searchRouter } from '#src/routes/search.routes';
 import { systemRouter } from '#src/routes/system.routes';
 import type { AccessVerifier } from '#src/middleware/require-auth';
 import type { AccessService } from '#src/services/access.service';
+import type { AccountAdminService } from '#src/services/account-admin.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { AnnouncementService } from '#src/services/announcement.service';
 import type { ComplianceOverviewService } from '#src/services/compliance-overview.service';
@@ -36,8 +37,10 @@ import type { NotificationService } from '#src/services/notification.service';
 import type { OrganizationService } from '#src/services/organization.service';
 import type { ProjectService } from '#src/services/project.service';
 import type { ReportService } from '#src/services/report.service';
+import type { RevealService } from '#src/services/reveal.service';
 import type { SearchService } from '#src/services/search.service';
 import type { SuperAdminService } from '#src/services/super-admin.service';
+import type { SupportService } from '#src/services/support.service';
 import type { SystemService } from '#src/services/system.service';
 import type { UploadService } from '#src/services/upload.service';
 
@@ -61,6 +64,12 @@ export interface AppServices {
   complianceOverview: ComplianceOverviewService;
   system: SystemService;
   superAdmins: SuperAdminService;
+  /** /system accounts: creation, resets, locks (the super admin). */
+  accountAdmin: AccountAdminService;
+  /** /system file support and test data. */
+  support: SupportService;
+  /** One-time Reveals of temporary passwords (/me/reveals). */
+  reveals: RevealService;
 }
 
 export interface AppDeps {
@@ -109,6 +118,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     meRouter({
       dashboard: services.dashboard,
       notifications: services.notifications,
+      reveals: services.reveals,
       tokens: services.tokens,
     }),
   );
@@ -136,6 +146,9 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     systemRouter({
       system: services.system,
       superAdmins: services.superAdmins,
+      accounts: services.accountAdmin,
+      organizations: services.adminOrganizations,
+      support: services.support,
       tokens: services.tokens,
     }),
   );

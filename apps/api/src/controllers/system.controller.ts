@@ -5,7 +5,6 @@ import {
   stepUpRequestSchema,
   systemAuditQuerySchema,
   systemUserIdParamsSchema,
-  systemUserListQuerySchema,
   type RecoveryCodesResponse,
 } from '@orghive/shared';
 import { authOf } from '#src/middleware/require-auth';
@@ -16,10 +15,6 @@ import type { SystemService } from '#src/services/system.service';
 export function createSystemController(system: SystemService, superAdmins: SuperAdminService) {
   const overview: RequestHandler = async (_req, res) => {
     res.json(await system.overview());
-  };
-
-  const listUsers: RequestHandler = async (req, res) => {
-    res.json(await system.listUsers(systemUserListQuerySchema.parse(req.query)));
   };
 
   const setUserStatus: RequestHandler = async (req, res) => {
@@ -66,7 +61,6 @@ export function createSystemController(system: SystemService, superAdmins: Super
 
   return {
     overview,
-    listUsers,
     setUserStatus,
     setSystemRole,
     listAuditLogs,

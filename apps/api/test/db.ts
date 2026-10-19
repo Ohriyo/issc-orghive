@@ -16,7 +16,7 @@ export async function resetDb(client: Db) {
       project_tasks, projects,
       upload_intents, document_versions, documents, document_types,
       announcements, audit_logs, refresh_tokens, password_reset_tokens, recovery_codes,
-      officer_terms, users,
+      officer_terms, password_reveals, users,
       organizations, colleges
     RESTART IDENTITY CASCADE`);
 }

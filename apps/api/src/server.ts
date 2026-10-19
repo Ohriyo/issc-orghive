@@ -61,6 +61,13 @@ import { createTotp } from '#src/lib/totp';
 import { createRecoveryCodeRepository } from '#src/repositories/recovery-code.repository';
 import { createSystemRepository } from '#src/repositories/system.repository';
 import { createSuperAdminService } from '#src/services/super-admin.service';
+import { createSessionGuard } from '#src/services/session-guard';
+import { createAccountAdminRepository } from '#src/repositories/account-admin.repository';
+import { createRevealRepository } from '#src/repositories/reveal.repository';
+import { createSupportRepository } from '#src/repositories/support.repository';
+import { createAccountAdminService } from '#src/services/account-admin.service';
+import { createRevealService } from '#src/services/reveal.service';
+import { createSupportService } from '#src/services/support.service';
 import { createSystemService } from '#src/services/system.service';
 
 let config: Config;
@@ -131,8 +138,9 @@ const complianceOverview = createComplianceOverviewService({
   overview: createComplianceOverviewRepository(db),
   accounts,
 });
+const adminOrganizationReads = createAdminOrganizationRepository(db);
 const adminOrganizations = createAdminOrganizationService({
-  admin: createAdminOrganizationRepository(db),
+  admin: adminOrganizationReads,
   audit,
   cache,
   storage,
@@ -166,6 +174,14 @@ const systemReads = createSystemRepository(db);
 if (!config.MFA_ENCRYPTION_KEY) {
   logger.warn('MFA_ENCRYPTION_KEY is not set: super admins cannot sign in');
 }
+const secrets = config.MFA_ENCRYPTION_KEY ? createSecretBox(config.MFA_ENCRYPTION_KEY) : null;
+const accountAdminReads = createAccountAdminRepository(db);
+const reveals = createRevealService({
+  reveals: createRevealRepository(db),
+  secrets,
+  notifications,
+  audit,
+});
 const superAdmins = createSuperAdminService({
   users,
   recoveryCodes: createRecoveryCodeRepository(db),
@@ -173,7 +189,7 @@ const superAdmins = createSuperAdminService({
   refreshTokens,
   store: createRedisSuperAdminStore(redis),
   totp: createTotp(),
-  secrets: config.MFA_ENCRYPTION_KEY ? createSecretBox(config.MFA_ENCRYPTION_KEY) : null,
+  secrets,
   passwords,
   audit,
   mailer,
@@ -192,8 +208,7 @@ const app = createApp({
   services: {
     tokens: {
       verify: (token) => tokens.verify(token),
-      checkSession: (claims, activity) =>
-        claims.sessionId ? superAdmins.checkSession(claims.sessionId, activity) : Promise.resolve(),
+      checkSession: createSessionGuard({ accounts, superAdmins }),
     },
     auth: createAuthService({
       users,
@@ -211,6 +226,7 @@ const app = createApp({
     superAdmins,
     system: createSystemService({
       system: systemReads,
+      accounts: accountAdminReads,
       refreshTokens,
       audit,
       queues: () =>
@@ -283,6 +299,24 @@ const app = createApp({
     adminOrganizations,
     announcements,
     complianceOverview,
+    reveals,
+    accountAdmin: createAccountAdminService({
+      accounts: accountAdminReads,
+      accountReads: accounts,
+      orgReads: adminOrganizationReads,
+      organizations: adminOrganizations,
+      audits: systemReads,
+      reveals,
+      passwords,
+      audit,
+      emailDomains: config.ACCOUNT_EMAIL_DOMAINS,
+    }),
+    support: createSupportService({
+      support: createSupportRepository(db),
+      queue: jobs,
+      cache,
+      audit,
+    }),
   },
 });
 

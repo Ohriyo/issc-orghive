@@ -1,26 +1,40 @@
 import { useState } from 'react';
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { systemUserListResponseSchema, systemUserSchema, type SystemUser } from '@orghive/shared';
+import {
+  systemUserListResponseSchema,
+  systemUserSchema,
+  type AccountStatus,
+  type LastLoginFilter,
+  type OrganizationType,
+  type SystemUser,
+} from '@orghive/shared';
 import { useAuth } from '@/features/auth/presenters/use-auth';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
-import { formatDate, messageOf, toSearch } from './system-format';
+import { formatDate, formatDateTime, messageOf, toSearch } from './system-format';
 import { useStepUp } from './use-step-up';
 
 export type UserActionKind = 'deactivate' | 'reactivate' | 'demote';
+
+/** How an account stands, in one word: what the list shows and filters by. */
+export type AccountStanding = 'Active' | 'Locked' | 'Deactivated' | 'Must change password';
 
 export interface UserRow {
   id: string;
   name: string;
   email: string;
+  href: string;
   isSelf: boolean;
-  role: 'Super admin' | 'User';
+  role: 'Super admin' | 'Organization';
   /** Super admins only: "MFA on since Oct 19, 2026", or pending setup. */
   mfa: { label: string; pending: boolean } | null;
-  status: 'Active' | 'Deactivated';
-  /** The organization this shared account belongs to; null for super admins. */
+  standing: AccountStanding;
+  /** "JPICE · CEA"; null for super admins. */
   organization: string | null;
+  /** "Rosa Lim, President". */
+  officer: string | null;
+  lastLogin: string;
   actions: { kind: UserActionKind; label: string }[];
 }
 
@@ -33,7 +47,23 @@ export interface Confirming {
   run: () => void;
 }
 
-export type StatusFilter = '' | 'active' | 'disabled';
+export const STATUS_OPTIONS: { value: AccountStatus; label: string }[] = [
+  { value: 'active', label: 'Active' },
+  { value: 'locked', label: 'Locked' },
+  { value: 'deactivated', label: 'Deactivated' },
+  { value: 'must_change', label: 'Must change password' },
+];
+export const TYPE_OPTIONS: { value: OrganizationType; label: string }[] = [
+  { value: 'ISSC', label: 'ISSC' },
+  { value: 'CSC', label: 'CSC' },
+  { value: 'SBO', label: 'SBO' },
+];
+export const LAST_LOGIN_OPTIONS: { value: LastLoginFilter; label: string }[] = [
+  { value: 'never', label: 'Never signed in' },
+  { value: '7d', label: 'In the last 7 days' },
+  { value: '30d', label: 'In the last 30 days' },
+  { value: 'older', label: 'Over 30 days ago' },
+];
 
 const ACTION_LABEL: Record<UserActionKind, string> = {
   deactivate: 'Deactivate',
@@ -41,12 +71,19 @@ const ACTION_LABEL: Record<UserActionKind, string> = {
   demote: 'Remove super admin',
 };
 
+export function standingOf(user: SystemUser): AccountStanding {
+  if (user.disabledAt) return 'Deactivated';
+  if (user.lockedAt) return 'Locked';
+  if (user.mustChangePassword) return 'Must change password';
+  return 'Active';
+}
+
 function confirmCopy(kind: UserActionKind, user: SystemUser) {
   switch (kind) {
     case 'deactivate':
       return {
         title: `Deactivate ${user.name}?`,
-        body: `${user.email} is signed out everywhere and cannot sign in until reactivated. Their documents and roles stay as they are.`,
+        body: `${user.email} is signed out everywhere and cannot sign in until reactivated.`,
         confirmLabel: 'Deactivate',
       };
     case 'reactivate':
@@ -65,32 +102,43 @@ function confirmCopy(kind: UserActionKind, user: SystemUser) {
 }
 
 /**
- * /system/users and /system/super-admins: accounts, newest first, with deactivate,
- * reactivate and (for super admins) demote. Each change is confirmed, then needs a fresh
- * step-up code; the API enforces who may be changed (never yourself, never the last).
+ * /system/users (organization accounts, each opening its account page) and
+ * /system/super-admins (with deactivate, reactivate and demote). Numbered pages; each change
+ * is confirmed, then needs a fresh step-up code. The API enforces who may be changed.
  */
 export function useSystemUsers({ superAdminsOnly }: { superAdminsOnly: boolean }) {
   const queryClient = useQueryClient();
   const me = useAuth().user?.id;
   const [query, setQuery] = useState('');
   const [submitted, setSubmitted] = useState('');
-  const [status, setStatus] = useState<StatusFilter>('');
+  const [status, setStatusState] = useState<AccountStatus | ''>('');
+  const [type, setTypeState] = useState<OrganizationType | ''>('');
+  const [lastLogin, setLastLoginState] = useState<LastLoginFilter | ''>('');
+  const [page, setPage] = useState(1);
   const [confirming, setConfirming] = useState<Confirming | null>(null);
   const stepUp = useStepUp();
+
+  // A new filter starts again at page 1.
+  const filtered =
+    <T>(set: (value: T) => void) =>
+    (value: T) => {
+      set(value);
+      setPage(1);
+    };
 
   const filters = {
     q: submitted || undefined,
     status: status || undefined,
+    type: type || undefined,
+    lastLogin: lastLogin || undefined,
     role: superAdminsOnly ? 'SUPER_ADMIN' : undefined,
+    page: String(page),
   };
-  const list = useInfiniteQuery({
+  const list = useQuery({
     queryKey: queryKeys.system.users(filters),
-    queryFn: ({ pageParam }) =>
-      api.get(`/system/users${toSearch({ ...filters, cursor: pageParam, limit: '25' })}`, {
-        schema: systemUserListResponseSchema,
-      }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    queryFn: () =>
+      api.get(`/system/users${toSearch(filters)}`, { schema: systemUserListResponseSchema }),
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
 
@@ -135,47 +183,64 @@ export function useSystemUsers({ superAdminsOnly }: { superAdminsOnly: boolean }
   const toRow = (user: SystemUser): UserRow => {
     const isSuper = user.systemRole === 'SUPER_ADMIN';
     const kinds: UserActionKind[] = [];
-    if (user.disabledAt) kinds.push('reactivate');
-    else if (user.id !== me) kinds.push('deactivate');
-    if (isSuper && superAdminsOnly) kinds.push('demote');
+    if (superAdminsOnly) {
+      if (user.disabledAt) kinds.push('reactivate');
+      else if (user.id !== me) kinds.push('deactivate');
+      if (isSuper) kinds.push('demote');
+    }
+    const org = user.organization;
+    const officer = user.officerInCharge;
     return {
       id: user.id,
       name: user.name,
       email: user.email,
+      href: `/system/users/${user.id}`,
       isSelf: user.id === me,
-      role: isSuper ? 'Super admin' : 'User',
+      role: isSuper ? 'Super admin' : 'Organization',
       mfa: isSuper
         ? user.mfaEnabledAt
           ? { label: `MFA on since ${formatDate(user.mfaEnabledAt)}`, pending: false }
           : { label: 'MFA pending', pending: true }
         : null,
-      status: user.disabledAt ? 'Deactivated' : 'Active',
-      organization: user.organization?.acronym ?? null,
+      standing: standingOf(user),
+      organization: org ? [org.acronym, org.college].filter(Boolean).join(' · ') : null,
+      officer: officer ? `${officer.name}, ${officer.position}` : null,
+      lastLogin: user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Never',
       actions: kinds.map((kind) => ({ kind, label: ACTION_LABEL[kind] })),
     };
   };
 
-  const users = list.data?.pages.flatMap((page) => page.items) ?? [];
-  const byId = new Map(users.map((user) => [user.id, user]));
+  const data = list.data;
+  const byId = new Map((data?.items ?? []).map((user) => [user.id, user]));
+  const pageCount = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return {
     filters: {
       query,
       setQuery,
       status,
-      setStatus,
-      search: () => setSubmitted(query.trim()),
+      setStatus: filtered(setStatusState),
+      type,
+      setType: filtered(setTypeState),
+      lastLogin,
+      setLastLogin: filtered(setLastLoginState),
+      search: () => {
+        setSubmitted(query.trim());
+        setPage(1);
+      },
     },
     list: list.isPending
       ? ({ status: 'loading' } as const)
-      : list.isError
+      : list.isError || !data
         ? ({ status: 'error', retry: () => void list.refetch() } as const)
         : ({
             status: 'ready',
-            rows: users.map(toRow),
-            hasMore: list.hasNextPage,
-            loadMore: () => void list.fetchNextPage(),
-            isLoadingMore: list.isFetchingNextPage,
+            rows: data.items.map(toRow),
+            total: data.total,
+            page: data.page,
+            pageCount,
+            isFetching: list.isFetching,
+            goTo: (next: number) => setPage(Math.min(Math.max(1, next), pageCount)),
           } as const),
     act: (kind: UserActionKind, userId: string) => {
       const user = byId.get(userId);

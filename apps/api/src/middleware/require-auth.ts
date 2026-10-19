@@ -27,7 +27,11 @@ export function authOf(res: Response): AccessClaims {
  * sessions get their idle timeout on every route without each router knowing about it.
  */
 export interface AccessVerifier extends Pick<TokenService, 'verify'> {
-  /** Ends an idle or expired super admin session (401); background requests don't count. */
+  /**
+   * Runs on every authenticated request: refuses a token from before the account's sessions
+   * were ended (a reset, a forced sign-out, a lock), and ends an idle or expired super admin
+   * session (401). Background requests don't count as super admin activity.
+   */
   checkSession?(claims: AccessClaims, activity: { background: boolean }): Promise<void>;
 }
 
@@ -60,7 +64,7 @@ async function authenticate(
   if (!match) throw AppError.unauthorized();
 
   const claims = await tokens.verify(match[1]!);
-  if (claims.sessionId && tokens.checkSession) {
+  if (tokens.checkSession) {
     await tokens.checkSession(claims, {
       background: req.get(BACKGROUND_REQUEST_HEADER) === '1',
     });

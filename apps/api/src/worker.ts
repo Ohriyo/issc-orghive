@@ -48,6 +48,7 @@ import {
 } from '#src/services/processing.service';
 import { createProjectSync } from '#src/services/project-sync.service';
 import { createTermReminders } from '#src/services/term-reminders.service';
+import { createRevealRepository } from '#src/repositories/reveal.repository';
 import { createRecipients } from '#src/services/recipients.service';
 import { createReportService } from '#src/services/report.service';
 
@@ -132,6 +133,7 @@ const requeueStale = createPendingRequeue({
   findStalePending: (before) => documents.findStalePending(before),
   queue: jobs,
 });
+const revealReads = createRevealRepository(db);
 const termReminders = createTermReminders({
   accounts: createAccountRepository(db),
   notifications,
@@ -180,8 +182,10 @@ async function handle(job: Job<DocumentJob['data'], unknown, DocumentJob['name']
     case 'check-compliance': {
       const checked = await projectSync.syncAll();
       const termsEnding = await termReminders.run();
-      logger.info({ checked, termsEnding }, 'Compliance check');
-      return { checked, termsEnding };
+      // Temporary passwords nobody revealed within REVEAL_TTL_DAYS are erased.
+      const revealsErased = await revealReads.purgeExpired(new Date());
+      logger.info({ checked, termsEnding, revealsErased }, 'Compliance check');
+      return { checked, termsEnding, revealsErased };
     }
     default:
       throw new UnrecoverableError(`Unknown job ${String(job.name)}`);

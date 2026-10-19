@@ -1,4 +1,4 @@
-import type { OrganizationType } from '@orghive/shared';
+import type { DocumentVisibility, OrganizationType } from '@orghive/shared';
 import type { Prisma } from '#src/generated/prisma/client';
 
 /**
@@ -65,4 +65,16 @@ export function visibleVersionsWhere(viewer: DocumentViewer): Prisma.DocumentVer
   return {
     OR: [{ scanStatus: 'clean' }, { document: { organizationId: viewer.organizationId } }],
   };
+}
+
+/**
+ * File support in the /system console: the super admin sees an organization's file details
+ * (type, size, status, dates) without opening or downloading any file, and not even the
+ * title of a private one (docs/DOMAIN_RULES.md, "Accounts"). This is that one rule.
+ */
+export function supportTitleOf(doc: {
+  title: string;
+  visibility: DocumentVisibility;
+}): string | null {
+  return doc.visibility === 'private' ? null : doc.title;
 }

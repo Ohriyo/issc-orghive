@@ -3,12 +3,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AdminOrganizationTree,
   AuthResponse,
   AuthUser,
+  SupportDocumentList,
   SystemAuditListResponse,
   SystemOverview,
   SystemSecurity,
   SystemUser,
+  SystemUserDetail,
 } from '@orghive/shared';
 import { routes } from '@/app/router';
 import { landingFor } from '@/features/auth/presenters/use-auth';
@@ -57,7 +60,12 @@ const studentRow: SystemUser = {
   systemRole: 'NONE',
   mfaEnabledAt: null,
   disabledAt: null,
-  organization: { slug: 'jpice', acronym: 'JPICE', type: 'SBO' },
+  lockedAt: null,
+  lockReason: null,
+  mustChangePassword: false,
+  lastLoginAt: null,
+  organization: { slug: 'jpice', acronym: 'JPICE', name: 'JPICE', type: 'SBO', college: 'CEA' },
+  officerInCharge: { name: 'Ana Reyes', position: 'President', email: 'ana@nwssu.test' },
   createdAt: NOW,
 };
 
@@ -104,6 +112,82 @@ const SECURITY: SystemSecurity = {
 
 const CODES = Array.from({ length: 10 }, (_, i) => `abcd${i}-efgh${i}`);
 
+const DETAIL: SystemUserDetail = {
+  account: studentRow,
+  terms: [
+    {
+      officerName: 'Ana Reyes',
+      officerPosition: 'President',
+      officerEmail: 'ana@nwssu.test',
+      termStart: '2026-08-01',
+      termEnd: '2027-07-31',
+      endedAt: null,
+    },
+  ],
+  logins: [{ at: NOW, succeeded: true, ip: '203.0.113.9', userAgent: 'Firefox' }],
+  sessions: [],
+  audit: [],
+};
+
+const FILES: SupportDocumentList = {
+  organization: { slug: 'jpice', acronym: 'JPICE', name: 'JPICE' },
+  items: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000d1',
+      title: null,
+      type: 'Resolution',
+      status: 'scanning',
+      visibility: 'private',
+      isTestData: true,
+      sizeBytes: 2048,
+      scanStatus: 'pending',
+      stuck: true,
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+  ],
+};
+
+const iecep = {
+  type: 'SBO' as const,
+  slug: 'iecep',
+  acronym: 'IECEP',
+  name: 'Institute of Electronics Engineers',
+  description: null,
+  logoUrl: null,
+  active: true,
+  documentCount: 0,
+  hasAccount: false,
+};
+const TREE: AdminOrganizationTree = {
+  issc: { ...iecep, type: 'ISSC', slug: 'issc', acronym: 'ISSC', name: 'ISSC', hasAccount: true },
+  colleges: [
+    {
+      code: 'CEA',
+      slug: 'cea',
+      name: 'College of Engineering and Architecture',
+      motto: null,
+      description: null,
+      csc: {
+        ...iecep,
+        type: 'CSC',
+        slug: 'csc-cea',
+        acronym: 'CSC-CEA',
+        name: 'CSC of CEA',
+        hasAccount: true,
+      },
+      sbos: [iecep, { ...iecep, slug: 'jpice', acronym: 'JPICE', name: 'JPICE', hasAccount: true }],
+    },
+  ],
+};
+
+/** What the create-account and reset endpoints answer with; tests switch it. */
+let delivery:
+  { kind: 'reveal'; expiresAt: string } | { kind: 'shown_once'; temporaryPassword: string } = {
+  kind: 'reveal',
+  expiresAt: '2026-10-26T08:00:00.000Z',
+};
+
 const fetchMock = vi.fn<typeof fetch>();
 const calls: { method: string; path: string; body: unknown }[] = [];
 let stepUpDone = false;
@@ -126,10 +210,49 @@ function serve(refresh: AuthResponse = session()) {
     if (path === '/auth/refresh') return json(refresh);
     if (path === '/system/overview') return json(OVERVIEW);
     if (path === '/system/users' && method === 'GET') {
-      return json({ items: [studentRow], nextCursor: null });
+      const page = Number(new URL(url, 'http://localhost').searchParams.get('page') ?? '1');
+      return json({ items: [studentRow], total: 60, page, pageSize: 25 });
     }
+    if (path === `/system/users/${STUDENT}` && method === 'GET') return json(DETAIL);
     if (path === `/system/users/${STUDENT}/status`) {
       return stepUpDone ? json({ ...studentRow, disabledAt: NOW }) : stepUpRequired();
+    }
+    if (path === `/system/users/${STUDENT}/password-reset`) {
+      return stepUpDone ? json({ account: studentRow, delivery }) : stepUpRequired();
+    }
+    if (path === `/system/users/${STUDENT}/lock`) {
+      return json({ ...studentRow, lockedAt: NOW, lockReason: 'Suspicious' });
+    }
+    if (path === '/system/organizations') return json(TREE);
+    if (path === '/system/organizations/jpice/documents') return json(FILES);
+    if (path.endsWith('/rescan')) return Promise.resolve(new Response(null, { status: 204 }));
+    if (path === '/system/accounts') {
+      const organization = { ...studentRow.organization!, slug: 'iecep', acronym: 'IECEP' };
+      return json({ account: { ...studentRow, name: 'IECEP', organization }, delivery }, 201);
+    }
+    if (path === '/system/test-data') {
+      return json({
+        total: 2,
+        items: [
+          {
+            id: 'a'.repeat(8) + '-0000-7000-8000-000000000001',
+            organization: { slug: 'jpice', acronym: 'JPICE' },
+            type: 'Resolution',
+            status: 'available',
+            createdAt: NOW,
+          },
+          {
+            id: 'a'.repeat(8) + '-0000-7000-8000-000000000002',
+            organization: { slug: 'psme', acronym: 'PSME' },
+            type: 'Resolution',
+            status: 'archived',
+            createdAt: NOW,
+          },
+        ],
+      });
+    }
+    if (path === '/system/test-data/delete') {
+      return stepUpDone ? json({ deleted: 2 }) : stepUpRequired();
     }
     if (path === '/system/step-up') {
       stepUpDone = true;
@@ -165,6 +288,7 @@ function renderAt(url: string, signedIn: AuthResponse | null = session()) {
 beforeEach(() => {
   calls.length = 0;
   stepUpDone = false;
+  delivery = { kind: 'reveal', expiresAt: '2026-10-26T08:00:00.000Z' };
   vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => {
@@ -207,28 +331,170 @@ describe('/system', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/mfa-setup'));
   });
 
-  it('confirms a deactivation, asks for a step-up code, then retries it', async () => {
-    serve();
-    renderAt('/system/users');
-    const table = await screen.findByRole('table', { name: 'User accounts' });
-    fireEvent.click(within(table).getByRole('button', { name: 'Deactivate: Ana Reyes' }));
-
-    const confirm = await screen.findByRole('alertdialog', { name: 'Deactivate Ana Reyes?' });
-    fireEvent.click(within(confirm).getByRole('button', { name: 'Deactivate' }));
-
+  async function enterStepUp() {
     const stepUp = await screen.findByRole('dialog', { name: 'Confirm it’s you' });
     fireEvent.change(within(stepUp).getByLabelText('Authentication code'), {
       target: { value: '123 456' },
     });
     fireEvent.click(within(stepUp).getByRole('button', { name: 'Confirm' }));
+  }
 
+  it('lists organization accounts on numbered pages, each opening its account page', async () => {
+    serve();
+    renderAt('/system/users');
+    const table = await screen.findByRole('table', { name: 'Organization accounts' });
+    expect(within(table).getByRole('link', { name: 'Ana Reyes' })).toHaveAttribute(
+      'href',
+      `/system/users/${STUDENT}`,
+    );
+    expect(within(table).getByText('JPICE · CEA')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Create account' })).toHaveAttribute(
+      'href',
+      '/system/users/new',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Page 2' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input]) => typeof input === 'string' && input.includes('/system/users?page=2'),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('deactivates from the account page: confirm, step-up, then the retry', async () => {
+    serve();
+    renderAt(`/system/users/${STUDENT}`);
+    const actions = await screen.findByRole('group', { name: 'Account actions' });
+    fireEvent.click(within(actions).getByRole('button', { name: 'Deactivate' }));
+    const confirm = await screen.findByRole('alertdialog', { name: 'Deactivate JPICE?' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Deactivate' }));
+    await enterStepUp();
     await waitFor(() =>
       expect(
         calls.filter((c) => c.path === `/system/users/${STUDENT}/status`).map((c) => c.body),
       ).toEqual([{ active: false }, { active: false }]),
     );
     expect(calls.find((c) => c.path === '/system/step-up')?.body).toEqual({ code: '123456' });
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('shows the account’s terms and files (a private title hidden) and runs a stuck scan again', async () => {
+    serve();
+    renderAt(`/system/users/${STUDENT}`);
+    expect((await screen.findAllByText('Ana Reyes, President')).length).toBeGreaterThan(0);
+    const files = await screen.findByRole('list', { name: 'Files' });
+    expect(within(files).getByText('Private file')).toBeInTheDocument();
+    expect(within(files).getByText('Scan stuck')).toBeInTheDocument();
+    expect(within(files).getByText('Test data')).toBeInTheDocument();
+    fireEvent.click(within(files).getByRole('button', { name: 'Scan again: Private file' }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === `/system/documents/${FILES.items[0]!.id}/rescan`)).toBe(
+        true,
+      ),
+    );
+  });
+
+  it('issues a new password after a step-up: sent to the ISSC’s Reveal, or shown once', async () => {
+    serve();
+    renderAt(`/system/users/${STUDENT}`);
+    const actions = await screen.findByRole('group', { name: 'Account actions' });
+    fireEvent.click(within(actions).getByRole('button', { name: 'Issue new password' }));
+    fireEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Issue new password',
+      }),
+    );
+    await enterStepUp();
+    expect(await screen.findByText(/sent to the ISSC account’s Reveal/)).toBeInTheDocument();
+
+    delivery = { kind: 'shown_once', temporaryPassword: 'Abcd-Efgh-Jkmn-Pq23' };
+    fireEvent.click(within(actions).getByRole('button', { name: 'Issue new password' }));
+    fireEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Issue new password',
+      }),
+    );
+    const shown = await screen.findByRole('dialog', { name: 'Shown once: copy it now' });
+    expect(within(shown).getByText('Abcd-Efgh-Jkmn-Pq23')).toBeInTheDocument();
+  });
+
+  it('locks with a reason', async () => {
+    serve();
+    renderAt(`/system/users/${STUDENT}`);
+    const actions = await screen.findByRole('group', { name: 'Account actions' });
+    fireEvent.click(within(actions).getByRole('button', { name: 'Lock' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Lock this account?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lock account' }));
+    expect(await within(dialog).findByText('Say why, in a few words')).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText('Reason'), { target: { value: 'Suspicious' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lock account' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === `/system/users/${STUDENT}/lock`)?.body).toEqual({
+        locked: true,
+        reason: 'Suspicious',
+      }),
+    );
+  });
+
+  it('creates an account for an organization without one; the password goes to the Reveal', async () => {
+    serve();
+    renderAt('/system/users/new');
+    const college = await screen.findByLabelText('College');
+    fireEvent.change(college, { target: { value: 'cea' } });
+    // Only organizations without an account are offered.
+    const org = screen.getByLabelText('Organization');
+    expect(within(org).queryByRole('option', { name: /JPICE/ })).toBeNull();
+    fireEvent.change(org, { target: { value: 'iecep' } });
+    fireEvent.change(screen.getByLabelText('Account email'), {
+      target: { value: 'IECEP@nwssu.test' },
+    });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Rosa Lim' } });
+    fireEvent.change(screen.getByLabelText('Position'), { target: { value: 'President' } });
+    fireEvent.change(screen.getByLabelText('Contact email'), {
+      target: { value: 'rosa@nwssu.test' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'IECEP’s account is ready' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/one-time Reveal/)).toBeInTheDocument();
+    expect(calls.find((c) => c.path === '/system/accounts')?.body).toEqual({
+      organization: { kind: 'existing', slug: 'iecep' },
+      email: 'iecep@nwssu.test',
+      officerInCharge: { name: 'Rosa Lim', position: 'President', email: 'rosa@nwssu.test' },
+      termEnd: null,
+    });
+  });
+
+  it('shows the ISSC account’s own password once', async () => {
+    serve();
+    delivery = { kind: 'shown_once', temporaryPassword: 'Abcd-Efgh-Jkmn-Pq23' };
+    renderAt('/system/users/new');
+    const type = await screen.findByLabelText('Type');
+    fireEvent.change(type, { target: { value: 'ISSC' } });
+    expect(screen.queryByLabelText('College')).toBeNull();
+    expect(
+      within(screen.getByLabelText('Organization')).queryByRole('option', { name: 'ISSC' }),
+    ).toBeNull();
+  });
+
+  it('previews test data and deletes it after a step-up', async () => {
+    serve();
+    renderAt('/system/test-data');
+    expect(await screen.findByText('2 files')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete test data' }));
+    fireEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Delete test data',
+      }),
+    );
+    await enterStepUp();
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path === '/system/test-data/delete').map((c) => c.body)).toEqual(
+        [{ expectedCount: 2 }, { expectedCount: 2 }],
+      ),
+    );
   });
 
   it('lists audit events with their details', async () => {

@@ -52,6 +52,21 @@ const envSchema = z
       )
       .optional(),
 
+    /**
+     * Comma-separated email domains organization accounts may sign in with, e.g.
+     * "nwssu.edu.ph". Empty or unset: any domain. Checked when the super admin creates or
+     * edits an account.
+     */
+    ACCOUNT_EMAIL_DOMAINS: z
+      .string()
+      .default('')
+      .transform((value) =>
+        value
+          .split(',')
+          .map((domain) => domain.trim().toLowerCase().replace(/^@/, ''))
+          .filter(Boolean),
+      ),
+
     DATABASE_URL: z.url(),
     REDIS_URL: z.url(),
 

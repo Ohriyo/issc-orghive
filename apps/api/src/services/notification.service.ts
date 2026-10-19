@@ -27,6 +27,8 @@ export interface NotifyInput {
    * same event is skipped per user, so repeated checks are safe.
    */
   dedupeKey?: string;
+  /** The one-time Reveal it carries; only for a single recipient. */
+  revealId?: string;
 }
 
 export interface NotificationServiceDeps {
@@ -58,6 +60,7 @@ export function createNotificationService({
           body: input.body,
           link: input.link,
           dedupeKey: input.dedupeKey ? `${input.dedupeKey}:${userId}` : null,
+          revealId: input.revealId ?? null,
         })),
       );
       try {
@@ -104,6 +107,7 @@ export function createNotificationService({
           title: n.title,
           body: n.body,
           link: n.link,
+          revealId: n.revealId,
           readAt: n.readAt?.toISOString() ?? null,
           createdAt: n.createdAt.toISOString(),
         })),

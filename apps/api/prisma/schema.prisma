@@ -127,6 +127,21 @@ enum AuditAction {
   super_admin_lockout
   /// A super admin read a /system page; metadata has `route`.
   system_view
+  /// A super admin created an organization account (metadata: organization, delivery).
+  account_create
+  /// A super admin changed an account's email or officer in charge; metadata has before/after.
+  account_update
+  /// A super admin put an account on a temporary hold, or lifted it; metadata has the reason.
+  account_lock
+  account_unlock
+  /// A super admin issued a new temporary password (every session ended).
+  password_reset_issued
+  /// A super admin ended every session of an account.
+  sessions_revoke
+  /// The ISSC account (or a super admin) opened a one-time Reveal. Never the password.
+  password_reveal
+  /// A super admin queued a stuck virus scan again.
+  support_rescan
 }
 
 /// System-level role: SUPER_ADMIN is the developer's personal console account, the only
@@ -182,6 +197,15 @@ enum NotificationKind {
   upload_quarantined
   term_ending
   announcement_posted
+  password_reveal
+}
+
+/// Why a one-time Reveal holds temporary passwords.
+enum RevealPurpose {
+  account_created
+  password_reset
+  bulk_created
+  end_of_term
 }
 
 /// A Semestral End Report job: queued -> generating -> ready | failed (spec section 4).
@@ -257,33 +281,36 @@ model Organization {
 }
 
 model User {
-  id                 String    @id @default(uuid(7)) @db.Uuid
-  email              String    @unique
+  id                 String     @id @default(uuid(7)) @db.Uuid
+  email              String     @unique
   name               String
   /// Argon2id
-  passwordHash       String    @map("password_hash")
+  passwordHash       String     @map("password_hash")
   /// New accounts sign in with a temporary password and must replace it first.
-  mustChangePassword Boolean   @default(true) @map("must_change_password")
-  passwordChangedAt  DateTime? @map("password_changed_at")
-  disabledAt         DateTime? @map("disabled_at")
+  mustChangePassword Boolean    @default(true) @map("must_change_password")
+  passwordChangedAt  DateTime?  @map("password_changed_at")
+  disabledAt         DateTime?  @map("disabled_at")
   /// Only the create-super-admin command sets SUPER_ADMIN; never seed data or signup.
   systemRole         SystemRole @default(NONE) @map("system_role")
   /// TOTP secret, AES-256-GCM encrypted with MFA_ENCRYPTION_KEY (lib/secret-box.ts).
-  mfaSecret          String?   @map("mfa_secret")
+  mfaSecret          String?    @map("mfa_secret")
   /// Set once the super admin confirms the secret with a code; null while pending.
-  mfaEnabledAt       DateTime? @map("mfa_enabled_at")
+  mfaEnabledAt       DateTime?  @map("mfa_enabled_at")
   /// The last accepted TOTP time step: the same code (or an older one) never works twice.
-  mfaLastTimeStep    Int?      @map("mfa_last_time_step")
+  mfaLastTimeStep    Int?       @map("mfa_last_time_step")
   /// The organization this shared account belongs to (docs/DOMAIN_RULES.md, "Accounts").
   /// Null only for SUPER_ADMIN. At most one active (not disabled) account per organization:
   /// a partial unique index in the migration, which Prisma cannot express.
-  organizationId     String?   @map("organization_id") @db.Uuid
+  organizationId     String?    @map("organization_id") @db.Uuid
   /// A temporary hold (end of term, security): no sign-in until unlocked. Not deactivation.
-  lockedAt           DateTime? @map("locked_at")
-  lockReason         String?   @map("lock_reason")
-  lastLoginAt        DateTime? @map("last_login_at")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  lockedAt           DateTime?  @map("locked_at")
+  lockReason         String?    @map("lock_reason")
+  lastLoginAt        DateTime?  @map("last_login_at")
+  /// Access tokens issued before this (in whole seconds) are refused: a reset, a forced
+  /// sign-out, a lock or a deactivation ends live sessions at once, not when they expire.
+  sessionsRevokedAt  DateTime?  @map("sessions_revoked_at")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
 
   organization            Organization?            @relation(fields: [organizationId], references: [id])
   officerTerms            OfficerTerm[]
@@ -301,6 +328,8 @@ model User {
   appealFiles             AppealAttachment[]
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
+  revealsReceived         PasswordReveal[]         @relation("RevealRecipient")
+  revealsIssued           PasswordReveal[]         @relation("RevealIssuer")
   reportsRequested        SemestralReport[]
 
   @@index([systemRole])
@@ -692,14 +721,40 @@ model Notification {
   /// An app path, e.g. "/projects/<id>".
   link      String?
   dedupeKey String?          @unique @map("dedupe_key")
+  /// The one-time Reveal this notification carries (password_reveal).
+  revealId  String?          @unique @map("reveal_id") @db.Uuid
   readAt    DateTime?        @map("read_at")
   emailedAt DateTime?        @map("emailed_at")
   createdAt DateTime         @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reveal PasswordReveal? @relation(fields: [revealId], references: [id])
 
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+/// Temporary passwords waiting for the ISSC account's one-time Reveal (docs/DOMAIN_RULES.md,
+/// "Accounts"). The passwords themselves are stored only as hashes on the accounts; `sealed`
+/// is one AES-256-GCM copy (bound to this row's id), set to null once revealed or expired.
+model PasswordReveal {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  recipientId String        @map("recipient_id") @db.Uuid
+  purpose     RevealPurpose
+  entryCount  Int           @map("entry_count")
+  sealed      String?
+  issuedById  String?       @map("issued_by_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at")
+  expiresAt   DateTime      @map("expires_at")
+  revealedAt  DateTime?     @map("revealed_at")
+
+  recipient    User          @relation("RevealRecipient", fields: [recipientId], references: [id])
+  issuedBy     User?         @relation("RevealIssuer", fields: [issuedById], references: [id])
+  notification Notification?
+
+  @@index([recipientId, createdAt])
+  @@index([expiresAt])
+  @@map("password_reveals")
 }
 
 /// A user's email choice for one kind of notification. No row means email is on

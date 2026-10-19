@@ -27,7 +27,10 @@ import type {
   SystemAuditListResponse,
   SystemOverview,
   SystemSecurity,
+  SystemUserDetail,
   SystemUserListResponse,
+  SupportDocumentList,
+  TestDataPreview,
 } from '@orghive/shared';
 
 /*
@@ -275,6 +278,9 @@ const SUPER_ADMIN: AuthResponse = {
 export const SYSTEM_ROUTES = [
   '/system/overview',
   '/system/users',
+  '/system/users/new',
+  '/system/users/0195f3c0-0000-7000-8000-000000000001',
+  '/system/test-data',
   '/system/super-admins',
   '/system/audit',
   '/system/security',
@@ -306,6 +312,11 @@ const SYSTEM_USERS: SystemUserListResponse = {
       systemRole: 'SUPER_ADMIN',
       mfaEnabledAt: STAMP,
       disabledAt: null,
+      lockedAt: null,
+      lockReason: null,
+      mustChangePassword: false,
+      lastLoginAt: STAMP,
+      officerInCharge: null,
       organization: null,
       createdAt: STAMP,
     },
@@ -316,6 +327,11 @@ const SYSTEM_USERS: SystemUserListResponse = {
       systemRole: 'SUPER_ADMIN',
       mfaEnabledAt: null,
       disabledAt: null,
+      lockedAt: null,
+      lockReason: null,
+      mustChangePassword: false,
+      lastLoginAt: STAMP,
+      officerInCharge: null,
       organization: null,
       createdAt: STAMP,
     },
@@ -326,11 +342,132 @@ const SYSTEM_USERS: SystemUserListResponse = {
       systemRole: 'NONE',
       mfaEnabledAt: null,
       disabledAt: STAMP,
-      organization: { slug: 'jpice', acronym: 'JPICE', type: 'SBO' },
+      lockedAt: null,
+      lockReason: null,
+      mustChangePassword: false,
+      lastLoginAt: null,
+      organization: {
+        slug: 'jpice',
+        acronym: 'JPICE',
+        name: 'Junior Philippine Institute of Civil Engineers',
+        type: 'SBO',
+        college: 'CEA',
+      },
+      officerInCharge: {
+        name: 'Maria Concepcion Villanueva-Santos',
+        position: 'President',
+        email: 'maria.villanueva-santos@nwssu.test',
+      },
       createdAt: STAMP,
     },
   ],
-  nextCursor: '0195f3c0-0000-7000-8000-000000000001',
+  total: 61,
+  page: 1,
+  pageSize: 25,
+};
+
+const ACCOUNT_ID = '0195f3c0-0000-7000-8000-000000000001';
+
+/** /system/users/:id for JPICE's account. */
+const SYSTEM_ACCOUNT: SystemUserDetail = {
+  account: {
+    ...SYSTEM_USERS.items[2]!,
+    disabledAt: null,
+    lockedAt: STAMP,
+    lockReason: 'Suspicious sign-ins from a new device',
+  },
+  terms: [
+    {
+      officerName: 'Maria Concepcion Villanueva-Santos',
+      officerPosition: 'President',
+      officerEmail: 'maria.villanueva-santos@nwssu.test',
+      termStart: '2026-08-01',
+      termEnd: '2027-07-31',
+      endedAt: null,
+    },
+    {
+      officerName: 'Juan Dela Cruz',
+      officerPosition: 'President',
+      officerEmail: 'juan@nwssu.test',
+      termStart: '2025-08-01',
+      termEnd: '2026-07-31',
+      endedAt: '2026-07-31T15:59:59.000Z',
+    },
+  ],
+  logins: [
+    {
+      at: STAMP,
+      succeeded: true,
+      ip: '203.0.113.20',
+      userAgent: 'Mozilla/5.0 (Linux; Android 14) Chrome/130',
+    },
+    { at: STAMP, succeeded: false, ip: '2001:db8:85a3::8a2e:370:7334', userAgent: null },
+  ],
+  sessions: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000e1',
+      startedAt: STAMP,
+      expiresAt: STAMP,
+      ip: '203.0.113.20',
+    },
+  ],
+  audit: [],
+};
+
+const SUPPORT_DOCUMENTS: SupportDocumentList = {
+  organization: {
+    slug: 'jpice',
+    acronym: 'JPICE',
+    name: 'Junior Philippine Institute of Civil Engineers',
+  },
+  items: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000d1',
+      title: 'Inter-Year Bridge Design Competition 2026: Project Proposal with a very long title',
+      type: 'Project proposal',
+      status: 'scanning',
+      visibility: 'governing',
+      isTestData: false,
+      sizeBytes: 2_400_000,
+      scanStatus: 'pending',
+      stuck: true,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    },
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000d2',
+      title: null,
+      type: 'Resolution',
+      status: 'archived',
+      visibility: 'private',
+      isTestData: true,
+      sizeBytes: 81_000,
+      scanStatus: 'clean',
+      stuck: false,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    },
+  ],
+};
+
+const TEST_DATA: TestDataPreview = {
+  total: 2,
+  items: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000d2',
+      organization: { slug: 'jpice', acronym: 'JPICE' },
+      type: 'Resolution',
+      status: 'available',
+      createdAt: STAMP,
+    },
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000d3',
+      organization: { slug: 'icpep-se', acronym: 'ICpEP.SE' },
+      type: 'Activity proposal',
+      status: 'archived',
+      createdAt: STAMP,
+    },
+  ],
 };
 
 const SYSTEM_AUDIT: SystemAuditListResponse = {
@@ -653,6 +790,7 @@ const NOTIFICATIONS: NotificationListResponse = {
       title: `Appeal rejected: ${PROJECT.name}`,
       body: `CSC-CEA rejected your appeal about ${PROJECT.name}. Remarks: ${REMARKS}`,
       link: `/projects/${PROJECT.id}`,
+      revealId: null,
       readAt: null,
       createdAt: new Date().toISOString(),
     },
@@ -662,6 +800,7 @@ const NOTIFICATIONS: NotificationListResponse = {
       title: 'Project Proposal due Oct 20, 2026',
       body: 'The Project Proposal for Engineering Week Seminar Series is due at 11:59 PM.',
       link: '/projects/0195f3c0-0000-7000-8000-0000000000c2',
+      revealId: null,
       readAt: null,
       createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
     },
@@ -800,6 +939,12 @@ export async function stubApi(
           : SYSTEM_USERS,
       );
     }
+    if (superAdmin && path === `/system/users/${ACCOUNT_ID}`) return json(route, SYSTEM_ACCOUNT);
+    if (superAdmin && path === '/system/organizations') return json(route, ADMIN_TREE);
+    if (superAdmin && path === '/system/organizations/jpice/documents') {
+      return json(route, SUPPORT_DOCUMENTS);
+    }
+    if (superAdmin && path === '/system/test-data') return json(route, TEST_DATA);
     if (superAdmin && path === '/system/audit-logs') return json(route, SYSTEM_AUDIT);
     if (superAdmin && path === '/system/me/security') return json(route, SYSTEM_SECURITY);
     if (admin && path === '/auth/refresh') return json(route, ADMIN);
@@ -826,6 +971,7 @@ export async function stubApi(
           report_ready: true,
           upload_quarantined: true,
           term_ending: true,
+          password_reveal: true,
           announcement_posted: false,
         },
       } satisfies NotificationPreferences);

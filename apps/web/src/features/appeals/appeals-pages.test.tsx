@@ -441,6 +441,7 @@ describe('the notification bell', () => {
           title: 'Appeal rejected: Bridge Design Competition',
           body: 'CSC-CEA rejected your appeal.',
           link: `/projects/${PROJECT_ID}`,
+          revealId: null,
           readAt: null,
           createdAt: new Date().toISOString(),
         },

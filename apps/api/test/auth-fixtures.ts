@@ -17,9 +17,22 @@ import { createSystemRepository } from '#src/repositories/system.repository';
 import { createUserRepository } from '#src/repositories/user.repository';
 import { createAuthService } from '#src/services/auth.service';
 import { createSuperAdminService } from '#src/services/super-admin.service';
+import { createSessionGuard } from '#src/services/session-guard';
 import { createSystemService } from '#src/services/system.service';
+import { memoryCache } from '#src/lib/cache';
+import { createPublicUrl } from '#src/lib/public-url';
+import { createAccountAdminRepository } from '#src/repositories/account-admin.repository';
+import { createAdminOrganizationRepository } from '#src/repositories/admin-organization.repository';
+import { createNotificationRepository } from '#src/repositories/notification.repository';
+import { createRevealRepository } from '#src/repositories/reveal.repository';
+import { createSupportRepository } from '#src/repositories/support.repository';
+import { createAccountAdminService } from '#src/services/account-admin.service';
+import { createAdminOrganizationService } from '#src/services/admin-organization.service';
+import { createNotificationService } from '#src/services/notification.service';
+import { createRevealService } from '#src/services/reveal.service';
+import { createSupportService } from '#src/services/support.service';
 import { createTokenService } from '#src/services/token.service';
-import { buildTestApp, TEST_WEB_ORIGIN } from './helpers';
+import { buildTestApp, TEST_ASSET_BASE_URL, TEST_WEB_ORIGIN } from './helpers';
 import type { Redis } from 'ioredis';
 
 /** A fresh Ed25519 pair per test run; no key is ever committed. */
@@ -135,7 +148,14 @@ export function buildAuthApp(
     keys = testKeys(),
     trustProxy = false,
     now,
-  }: { keys?: ReturnType<typeof testKeys>; trustProxy?: boolean | number; now?: () => Date } = {},
+    emailDomains = [],
+  }: {
+    keys?: ReturnType<typeof testKeys>;
+    trustProxy?: boolean | number;
+    now?: () => Date;
+    /** ACCOUNT_EMAIL_DOMAINS for the /system account forms. */
+    emailDomains?: string[];
+  } = {},
 ) {
   const tokens = createTokenService(keys);
   const mailer = memoryMailer();
@@ -159,9 +179,10 @@ export function buildAuthApp(
     logger,
     now,
   });
+  const accounts = createAccountRepository(db);
   const auth = createAuthService({
     users,
-    accounts: createAccountRepository(db),
+    accounts,
     refreshTokens,
     resetTokens: createPasswordResetTokenRepository(db),
     audit,
@@ -173,23 +194,80 @@ export function buildAuthApp(
     webOrigin: TEST_WEB_ORIGIN,
     now,
   });
+  const accountAdminReads = createAccountAdminRepository(db);
   const system = createSystemService({
     system: systemReads,
+    accounts: accountAdminReads,
     refreshTokens,
     audit,
     queues: () => Promise.resolve([]),
     logger,
     now,
   });
+  /** What the services queued: notification emails and virus scans. */
+  const queued = { emails: [] as string[], processing: [] as string[] };
+  const notifications = createNotificationService({
+    notifications: createNotificationRepository(db),
+    queue: {
+      enqueueEmails: (ids) => {
+        queued.emails.push(...ids);
+        return Promise.resolve();
+      },
+    },
+    logger,
+  });
+  const reveals = createRevealService({
+    reveals: createRevealRepository(db),
+    secrets: testSecrets,
+    notifications,
+    audit,
+    now,
+  });
+  const cache = memoryCache();
+  const adminOrganizationReads = createAdminOrganizationRepository(db);
+  const adminOrganizations = createAdminOrganizationService({
+    admin: adminOrganizationReads,
+    audit,
+    cache,
+    storage: { put: () => Promise.resolve() },
+    publicUrl: createPublicUrl(TEST_ASSET_BASE_URL),
+    now,
+  });
+  const accountAdmin = createAccountAdminService({
+    accounts: accountAdminReads,
+    accountReads: accounts,
+    orgReads: adminOrganizationReads,
+    organizations: adminOrganizations,
+    audits: systemReads,
+    reveals,
+    passwords,
+    audit,
+    emailDomains,
+    now,
+  });
+  const support = createSupportService({
+    support: createSupportRepository(db),
+    queue: {
+      enqueueProcessing: (id) => {
+        queued.processing.push(id);
+        return Promise.resolve();
+      },
+    },
+    cache,
+    audit,
+    now,
+  });
   const app = buildTestApp(
     {
       auth,
+      notifications,
+      reveals,
+      adminOrganizations,
+      accountAdmin,
+      support,
       tokens: {
         verify: (token) => tokens.verify(token),
-        checkSession: (claims, activity) =>
-          claims.sessionId
-            ? superAdmins.checkSession(claims.sessionId, activity)
-            : Promise.resolve(),
+        checkSession: createSessionGuard({ accounts, superAdmins }),
       },
       superAdmins,
       system,
@@ -197,7 +275,7 @@ export function buildAuthApp(
     { TRUST_PROXY: trustProxy },
     redisRateLimitStore(redis),
   );
-  return { app, tokens, mailer, keys };
+  return { app, tokens, mailer, keys, queued, cache };
 }
 
 /** The refresh token from a response's Set-Cookie, or undefined when cleared. */

@@ -30,6 +30,8 @@ export const ErrorCode = {
   /** 403: an admin deactivated the organization; it cannot upload or create projects. */
   ORGANIZATION_INACTIVE: 'ORGANIZATION_INACTIVE',
   NOT_FOUND: 'NOT_FOUND',
+  /** 410: a one-time Reveal was already shown, or expired; its passwords are gone. */
+  REVEAL_GONE: 'REVEAL_GONE',
   CONFLICT: 'CONFLICT',
   RATE_LIMITED: 'RATE_LIMITED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',

@@ -2,7 +2,8 @@ import { pino } from 'pino';
 import { describe, expect, it, vi } from 'vitest';
 import { ErrorCode } from '@orghive/shared';
 import type { AuditEntry } from '#src/repositories/audit-log.repository';
-import type { SystemRepository, SystemUserRecord } from '#src/repositories/system.repository';
+import type { AccountRecord } from '#src/repositories/account-admin.repository';
+import type { SystemRepository } from '#src/repositories/system.repository';
 import type { AccountDecision, AccountState } from '#src/services/super-admin-rules';
 import { createSystemService } from '#src/services/system.service';
 
@@ -10,15 +11,21 @@ const T0 = new Date('2026-10-19T08:00:00Z');
 const ACTOR = 'actor';
 const ctx = { ip: '203.0.113.9', userAgent: 'vitest' };
 
-const userRecord = (account: AccountState): SystemUserRecord => ({
+const userRecord = (account: AccountState): AccountRecord => ({
   id: account.id,
   name: account.id,
   email: `${account.id}@nwssu.test`,
   systemRole: account.systemRole,
   mfaEnabledAt: account.mfaEnabledAt,
   disabledAt: account.disabledAt,
+  lockedAt: null,
+  lockReason: null,
+  mustChangePassword: false,
+  lastLoginAt: null,
   createdAt: T0,
+  organizationId: null,
   organization: null,
+  officerTerms: [],
 });
 
 function setup(accounts: AccountState[]) {
@@ -31,10 +38,6 @@ function setup(accounts: AccountState[]) {
 
   const repo = {
     findAccount: (id: string) => Promise.resolve(byId.get(id) ?? null),
-    findUser: (id: string) => {
-      const account = byId.get(id);
-      return Promise.resolve(account ? userRecord(account) : null);
-    },
     applyAccountChange: async (
       id: string,
       decide: (t: AccountState, active: string[]) => AccountDecision,
@@ -65,14 +68,6 @@ function setup(accounts: AccountState[]) {
         auditEventsSince: 40,
         failedLoginsSince: 6,
       }),
-    listUsers: (_q: unknown, take: number) =>
-      Promise.resolve(
-        ['c', 'b', 'a']
-          .slice(0, take + 1)
-          .map((id) =>
-            userRecord({ id, systemRole: 'NONE', disabledAt: null, mfaEnabledAt: null }),
-          ),
-      ),
     listAuditLogs: () =>
       Promise.resolve([
         {
@@ -85,6 +80,7 @@ function setup(accounts: AccountState[]) {
           organizationId: null,
           ip: null,
           userAgent: null,
+          actingAs: null,
           metadata: ['not', 'an', 'object'],
         },
       ]),
@@ -92,6 +88,12 @@ function setup(accounts: AccountState[]) {
 
   const service = createSystemService({
     system: repo,
+    accounts: {
+      find: (id: string) => {
+        const account = byId.get(id);
+        return Promise.resolve(account ? userRecord(account) : null);
+      },
+    },
     refreshTokens: { revokeAllForUser },
     audit: {
       record: (e) => {
@@ -213,12 +215,8 @@ describe('systemService reads', () => {
     expect((await s.service.overview()).queues).toEqual([]);
   });
 
-  it('pages users and audit entries', async () => {
+  it('pages audit entries', async () => {
     const s = setup([]);
-    const page = await s.service.listUsers({ limit: 2 });
-    expect(page.items.map((u) => u.id)).toEqual(['c', 'b']);
-    expect(page.nextCursor).toBe('b');
-
     const audit = await s.service.listAuditLogs({});
     expect(audit).toEqual({
       items: [expect.objectContaining({ id: 'log1', action: 'login', metadata: null })],

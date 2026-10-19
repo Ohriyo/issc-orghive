@@ -157,6 +157,13 @@ export const chrome = {
     return { section: null, trail: [system, here(label)], parent: toDestination(system) };
   },
 
+  /** /system/users/…: System › Users › screen, parent the Users list. */
+  systemAccount(label: string): PageChrome {
+    const system = { label: 'System', href: '/system/overview' };
+    const users = { label: 'Users', href: '/system/users' };
+    return { section: null, trail: [system, users, here(label)], parent: toDestination(users) };
+  },
+
   /** Workspace screens: Dashboard › [organization ›] screen, parent the Dashboard. */
   workspace(label: string, org?: { slug: string; acronym: string } | null): PageChrome {
     const orgCrumb = org

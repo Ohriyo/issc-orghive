@@ -18,6 +18,8 @@ export const NOTIFICATION_KINDS = [
   'term_ending',
   /** Their ISSC or CSC posted an update. */
   'announcement_posted',
+  /** A temporary password (or a handover list) waits behind a one-time Reveal. */
+  'password_reveal',
 ] as const;
 export const notificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
@@ -53,11 +55,15 @@ export const NOTIFICATION_KIND_INFO: Record<NotificationKind, { label: string; h
   },
   term_ending: {
     label: 'Term ending',
-    hint: `Your officer or adviser term ends within ${TERM_ENDING_SOON_DAYS} days.`,
+    hint: `This account's officer term ends within ${TERM_ENDING_SOON_DAYS} days.`,
   },
   announcement_posted: {
     label: 'Updates from your council',
     hint: 'The ISSC or your college’s CSC posted an update.',
+  },
+  password_reveal: {
+    label: 'Temporary passwords to hand over',
+    hint: 'A new account or password waits behind a one-time Reveal. The email never has the password.',
   },
 };
 
@@ -67,6 +73,7 @@ export const NOTIFICATION_KIND_GROUPS: { title: string; kinds: NotificationKind[
   { title: 'Appeals', kinds: ['appeal_submitted', 'appeal_decided'] },
   { title: 'Files and reports', kinds: ['upload_quarantined', 'report_ready'] },
   { title: 'Your organization', kinds: ['term_ending', 'announcement_posted'] },
+  { title: 'Accounts (ISSC)', kinds: ['password_reveal'] },
 ];
 
 export const notificationSchema = z
@@ -77,6 +84,8 @@ export const notificationSchema = z
     body: z.string(),
     /** An app path, e.g. "/projects/…". */
     link: z.string().nullable(),
+    /** A one-time Reveal this notification carries (`password_reveal`). */
+    revealId: z.uuid().nullable(),
     readAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
   })

@@ -218,6 +218,18 @@ function systemRoutes(): RouteObject[] {
       lazy: async () => ({ Component: (await systemPages()).SystemUsersPage }),
     },
     {
+      path: 'system/users/new',
+      lazy: async () => ({ Component: (await systemPages()).SystemNewAccountPage }),
+    },
+    {
+      path: 'system/users/:userId',
+      lazy: async () => ({ Component: (await systemPages()).SystemAccountPage }),
+    },
+    {
+      path: 'system/test-data',
+      lazy: async () => ({ Component: (await systemPages()).SystemTestDataPage }),
+    },
+    {
       path: 'system/super-admins',
       lazy: async () => ({ Component: (await systemPages()).SystemSuperAdminsPage }),
     },

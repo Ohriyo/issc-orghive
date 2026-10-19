@@ -62,6 +62,10 @@ export const queryKeys = {
     users: (filters: Record<string, string | undefined>) => ['system', 'users', filters] as const,
     audit: (filters: Record<string, string | undefined>) => ['system', 'audit', filters] as const,
     security: ['system', 'security'] as const,
+    account: (id: string) => ['system', 'account', id] as const,
+    organizations: ['system', 'organizations'] as const,
+    supportDocuments: (slug: string) => ['system', 'support', slug] as const,
+    testData: ['system', 'test-data'] as const,
   },
   /** /admin screens. Never shared with the public reads they manage. */
   admin: {

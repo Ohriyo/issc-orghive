@@ -15,6 +15,9 @@ import { toGroups } from './presenters/use-notification-settings';
 
 const NOW = new Date('2026-10-18T06:00:00.000Z');
 const PROJECT_ID = '0195f3c0-0000-7000-8000-0000000000c1';
+const REVEAL_ID = '0195f3c0-0000-7000-8000-0000000000e9';
+let withReveal = false;
+let revealed = false;
 
 function notification(n: number, overrides: Partial<Notification> = {}): Notification {
   return {
@@ -23,6 +26,7 @@ function notification(n: number, overrides: Partial<Notification> = {}): Notific
     title: `Reminder ${n}`,
     body: 'The Project Proposal is due in 3 days.',
     link: `/projects/${PROJECT_ID}`,
+    revealId: null,
     readAt: null,
     createdAt: new Date(NOW.getTime() - n * 3_600_000).toISOString(),
     ...overrides,
@@ -79,11 +83,17 @@ function serve() {
     if (path === '/me/notifications') {
       const unread = url.searchParams.get('unread') === 'true';
       const cursor = url.searchParams.get('cursor');
-      const all = [
-        notification(1),
-        notification(2, { readAt: NOW.toISOString() }),
-        notification(3),
-      ];
+      const all = withReveal
+        ? [
+            notification(1, {
+              kind: 'password_reveal',
+              title: 'New account for IECEP',
+              body: 'Reveal IECEP’s temporary password once, within 7 days.',
+              link: `/dashboard/notifications?reveal=${REVEAL_ID}`,
+              revealId: REVEAL_ID,
+            }),
+          ]
+        : [notification(1), notification(2, { readAt: NOW.toISOString() }), notification(3)];
       const list = unread ? all.filter((n) => !n.readAt) : all;
       const page: NotificationListResponse = cursor
         ? { items: list.slice(2), unreadCount: 2, nextCursor: null }
@@ -93,6 +103,36 @@ function serve() {
             nextCursor: list.length > 2 ? list[1]!.id : null,
           };
       return json(page);
+    }
+    if (path === `/me/reveals/${REVEAL_ID}`) {
+      return json({
+        id: REVEAL_ID,
+        status: revealed ? 'revealed' : 'available',
+        purpose: 'account_created',
+        entryCount: 1,
+        createdAt: NOW.toISOString(),
+        expiresAt: '2026-10-25T06:00:00.000Z',
+        revealedAt: revealed ? NOW.toISOString() : null,
+      });
+    }
+    if (path === `/me/reveals/${REVEAL_ID}/reveal`) {
+      if (revealed) {
+        return json(
+          { error: { code: 'REVEAL_GONE', message: 'These passwords were already revealed.' } },
+          410,
+        );
+      }
+      revealed = true;
+      return json({
+        entries: [
+          {
+            organization: { acronym: 'IECEP', name: 'IECEP', type: 'SBO' },
+            email: 'iecep@nwssu.test',
+            temporaryPassword: 'Abcd-Efgh-Jkmn-Pq23',
+            officerInCharge: { name: 'Rosa Lim', position: 'President', email: 'rosa@nwssu.test' },
+          },
+        ],
+      });
     }
     if (path.startsWith('/me/notifications/') || path === '/me/notifications/read-all') {
       return json(null, 204);
@@ -133,6 +173,8 @@ beforeEach(() => {
   serve();
 });
 afterEach(() => {
+  withReveal = false;
+  revealed = false;
   fetchMock.mockReset();
   vi.unstubAllGlobals();
   authStore.reset();
@@ -140,7 +182,11 @@ afterEach(() => {
 
 describe('shaping', () => {
   it('labels each notification with its kind and a relative time', () => {
-    const item = toCenterItem(notification(2), NOW, { open: vi.fn(), markRead: vi.fn() });
+    const item = toCenterItem(notification(2), NOW, {
+      open: vi.fn(),
+      markRead: vi.fn(),
+      openReveal: null,
+    });
     expect(item).toMatchObject({
       kindLabel: 'Deadline reminders',
       when: '2 hours ago',
@@ -162,6 +208,31 @@ describe('shaping', () => {
     expect(term.email).toBe(false);
     term.toggle(true);
     expect(toggle).toHaveBeenCalledWith('term_ending', true);
+  });
+});
+
+describe('the one-time Reveal (ISSC account)', () => {
+  it('reveals the temporary password once; afterwards it is gone', async () => {
+    withReveal = true;
+    revealed = false;
+    renderAt('/dashboard/notifications');
+    const list = await screen.findByRole('region', { name: 'Notifications' });
+    fireEvent.click(await within(list).findByRole('button', { name: 'Reveal' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Temporary passwords' });
+    expect(await within(dialog).findByText(/shown/)).toBeInTheDocument();
+    expect(within(dialog).queryByText('Abcd-Efgh-Jkmn-Pq23')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reveal' }));
+    expect(await within(dialog).findByText('Abcd-Efgh-Jkmn-Pq23')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Hand to Rosa Lim/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'I have handed them over' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    // Opened again, the passwords are gone.
+    fireEvent.click(within(list).getByRole('button', { name: 'Reveal' }));
+    const again = await screen.findByRole('dialog', { name: 'Temporary passwords' });
+    expect(await within(again).findByText(/already revealed/)).toBeInTheDocument();
+    expect(within(again).queryByText('Abcd-Efgh-Jkmn-Pq23')).toBeNull();
   });
 });
 

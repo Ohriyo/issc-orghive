@@ -1,24 +1,30 @@
-import { Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, UserPlus } from 'lucide-react';
+import { Link } from 'react-router';
 import { DataTable } from '@/components/data-table';
 import type { DataTableColumn } from '@/components/data-table-features';
 import { SelectField } from '@/components/form-fields';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
 import { TextField } from '@/components/text-field';
+import { OriginLink } from '@/navigation/origin-link';
 import { cn } from '@/lib/utils';
-import type { SystemUsersModel, UserRow } from '../presenters/use-system-users';
+import {
+  LAST_LOGIN_OPTIONS,
+  STATUS_OPTIONS,
+  TYPE_OPTIONS,
+  type AccountStanding,
+  type SystemUsersModel,
+  type UserRow,
+} from '../presenters/use-system-users';
 import { ConfirmDialog, StepUpDialog } from './system-dialogs';
 import { SystemLoading } from './system-layout';
 
 const ROW_ACTION =
   'tap-area cursor-pointer rounded-sm text-small font-semibold whitespace-nowrap text-ink underline decoration-transparent decoration-1 underline-offset-4 transition-colors hover:decoration-ink focus-visible:decoration-ink disabled:cursor-default disabled:opacity-50';
+const NAME_LINK =
+  'tap-area rounded-sm font-medium text-ink underline decoration-transparent underline-offset-4 transition-colors hover:decoration-ink focus-visible:decoration-ink';
 
-const STATUS_OPTIONS = [
-  { value: 'active', label: 'Active' },
-  { value: 'disabled', label: 'Deactivated' },
-];
-
-function Badge({
+export function Badge({
   children,
   tone,
 }: {
@@ -39,19 +45,28 @@ function Badge({
   );
 }
 
-function Identity({ row }: { row: UserRow }) {
+export function StandingBadge({ standing }: { standing: AccountStanding }) {
+  return <Badge tone={standing === 'Active' ? 'plain' : 'caution'}>{standing}</Badge>;
+}
+
+function Identity({ row, linked }: { row: UserRow; linked: boolean }) {
   return (
     <span className="flex min-w-0 flex-col whitespace-normal">
-      <span className="font-medium text-ink">
-        {row.name}
-        {row.isSelf ? <span className="text-ink-muted"> (you)</span> : null}
-      </span>
+      {linked ? (
+        <OriginLink to={row.href} className={NAME_LINK}>
+          {row.name}
+        </OriginLink>
+      ) : (
+        <span className="font-medium text-ink">
+          {row.name}
+          {row.isSelf ? <span className="text-ink-muted"> (you)</span> : null}
+        </span>
+      )}
       <span className="text-small break-all text-ink-muted">{row.email}</span>
     </span>
   );
 }
 
-/** Role, and for super admins whether their authenticator is set up. */
 function Access({ row }: { row: UserRow }) {
   return (
     <span className="flex flex-wrap items-center gap-1.5">
@@ -65,8 +80,13 @@ function Access({ row }: { row: UserRow }) {
   );
 }
 
-function Status({ row }: { row: UserRow }) {
-  return <Badge tone={row.status === 'Active' ? 'plain' : 'caution'}>{row.status}</Badge>;
+function Organization({ row }: { row: UserRow }) {
+  return (
+    <span className="flex min-w-0 flex-col whitespace-normal">
+      <span className="text-ink">{row.organization ?? '—'}</span>
+      {row.officer ? <span className="text-small text-ink-muted">{row.officer}</span> : null}
+    </span>
+  );
 }
 
 function Actions({ row, model }: { row: UserRow; model: SystemUsersModel }) {
@@ -88,46 +108,63 @@ function Actions({ row, model }: { row: UserRow; model: SystemUsersModel }) {
   );
 }
 
-function columns(model: SystemUsersModel): DataTableColumn<UserRow>[] {
-  return [
+function columns(model: SystemUsersModel, superAdmins: boolean): DataTableColumn<UserRow>[] {
+  const cols: DataTableColumn<UserRow>[] = [
     {
       id: 'user',
-      header: 'User',
+      header: 'Account',
       cell: ({ row }) => (
         <span className="block max-w-80 min-w-48">
-          <Identity row={row.original} />
+          <Identity row={row.original} linked={!superAdmins} />
         </span>
       ),
     },
-    { id: 'access', header: 'Access', cell: ({ row }) => <Access row={row.original} /> },
-    { id: 'status', header: 'Status', cell: ({ row }) => <Status row={row.original} /> },
+    superAdmins
+      ? { id: 'access', header: 'Access', cell: ({ row }) => <Access row={row.original} /> }
+      : {
+          id: 'organization',
+          header: 'Organization',
+          cell: ({ row }) => (
+            <span className="block max-w-72 min-w-40">
+              <Organization row={row.original} />
+            </span>
+          ),
+        },
     {
-      id: 'organization',
-      header: 'Organization',
-      cell: ({ row }) => row.original.organization ?? '—',
+      id: 'status',
+      header: 'Status',
+      cell: ({ row }) => <StandingBadge standing={row.original.standing} />,
     },
-    {
+    { id: 'lastLogin', header: 'Last sign-in', cell: ({ row }) => row.original.lastLogin },
+  ];
+  if (superAdmins) {
+    cols.push({
       id: 'actions',
       header: () => <span className="sr-only">Actions</span>,
       cell: ({ row }) => <Actions row={row.original} model={model} />,
-    },
-  ];
+    });
+  }
+  return cols;
 }
 
-/** Phones: one card per account, actions included, instead of a sideways-scrolling table. */
+const EMPTY = 'No accounts match. Try another name or clear the filters.';
+
+/** Phones: one card per account instead of a sideways-scrolling table. */
 function UserCards({
   rows,
   model,
   label,
+  superAdmins,
 }: {
   rows: UserRow[];
   model: SystemUsersModel;
   label: string;
+  superAdmins: boolean;
 }) {
   if (rows.length === 0) {
     return (
       <p className="rounded-xl bg-white px-5 py-6 text-body text-ink-muted ring-1 ring-border">
-        No accounts match. Try another name or clear the filters.
+        {EMPTY}
       </p>
     );
   }
@@ -135,14 +172,13 @@ function UserCards({
     <ul aria-label={label} className="flex flex-col gap-3">
       {rows.map((row) => (
         <li key={row.id} className="flex flex-col gap-3 rounded-xl bg-white p-4 ring-1 ring-border">
-          <Identity row={row} />
+          <Identity row={row} linked={!superAdmins} />
           <span className="flex flex-wrap items-center gap-1.5">
-            <Access row={row} />
-            <Status row={row} />
-            <span className="text-small text-ink-muted">
-              {row.organization ?? 'No organization'}
-            </span>
+            {superAdmins ? <Access row={row} /> : null}
+            <StandingBadge standing={row.standing} />
           </span>
+          {superAdmins ? null : <Organization row={row} />}
+          <span className="text-small text-ink-muted">Last sign-in: {row.lastLogin}</span>
           {row.actions.length > 0 ? (
             <span className="flex justify-start border-t border-border pt-3">
               <Actions row={row} model={model} />
@@ -151,6 +187,87 @@ function UserCards({
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Numbered pages: the current one and its neighbours, with the first and last. */
+function pagesAround(page: number, count: number): (number | 'gap')[] {
+  const wanted = new Set([1, count, page - 1, page, page + 1].filter((p) => p >= 1 && p <= count));
+  const sorted = [...wanted].sort((a, b) => a - b);
+  const out: (number | 'gap')[] = [];
+  sorted.forEach((p, i) => {
+    if (i > 0 && p - sorted[i - 1]! > 1) out.push('gap');
+    out.push(p);
+  });
+  return out;
+}
+
+const PAGE_BUTTON =
+  'grid size-11 cursor-pointer place-items-center rounded-full text-body font-medium text-ink transition-colors hover:bg-white focus-visible:bg-white disabled:cursor-default disabled:opacity-40 aria-[current=page]:bg-forest-band aria-[current=page]:text-white';
+
+export function Pager({
+  page,
+  pageCount,
+  goTo,
+  label,
+}: {
+  page: number;
+  pageCount: number;
+  goTo: (page: number) => void;
+  label: string;
+}) {
+  if (pageCount <= 1) return null;
+  return (
+    <nav aria-label={label} className="flex flex-wrap items-center justify-center gap-1">
+      <button
+        type="button"
+        className={PAGE_BUTTON}
+        disabled={page === 1}
+        onClick={() => goTo(page - 1)}
+        aria-label="Previous page"
+      >
+        <ChevronLeft aria-hidden="true" className="size-5" />
+      </button>
+      {pagesAround(page, pageCount).map((p, i) =>
+        p === 'gap' ? (
+          <span key={`gap-${i}`} aria-hidden="true" className="px-1 text-ink-muted">
+            …
+          </span>
+        ) : (
+          <button
+            key={p}
+            type="button"
+            className={PAGE_BUTTON}
+            aria-current={p === page ? 'page' : undefined}
+            aria-label={`Page ${p}`}
+            onClick={() => goTo(p)}
+          >
+            {p}
+          </button>
+        ),
+      )}
+      <button
+        type="button"
+        className={PAGE_BUTTON}
+        disabled={page === pageCount}
+        onClick={() => goTo(page + 1)}
+        aria-label="Next page"
+      >
+        <ChevronRight aria-hidden="true" className="size-5" />
+      </button>
+    </nav>
+  );
+}
+
+/** "Create account", for the Users page header. */
+export function CreateAccountButton() {
+  return (
+    <PillButton asChild>
+      <Link to="/system/users/new">
+        <UserPlus aria-hidden="true" />
+        Create account
+      </Link>
+    </PillButton>
   );
 }
 
@@ -163,32 +280,48 @@ export function UsersView({
   superAdmins: boolean;
 }) {
   const { filters, list } = model;
+  const label = superAdmins ? 'Super admins' : 'Organization accounts';
   return (
     <div className="flex flex-col gap-6">
       <form
         role="search"
-        className="flex flex-col gap-4 sm:flex-row sm:items-end"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))_auto] lg:items-end"
         onSubmit={(event) => {
           event.preventDefault();
           filters.search();
         }}
       >
         <TextField
-          label="Name or email"
+          label={superAdmins ? 'Name or email' : 'Name, email or organization'}
           type="search"
-          className="min-w-0 sm:flex-1"
+          className="min-w-0 sm:col-span-2 lg:col-span-1"
           value={filters.query}
           onChange={(event) => filters.setQuery(event.target.value)}
         />
+        {superAdmins ? null : (
+          <SelectField
+            label="Type"
+            placeholder="Any"
+            options={TYPE_OPTIONS}
+            value={filters.type}
+            onChange={(event) => filters.setType(event.target.value as typeof filters.type)}
+          />
+        )}
         <SelectField
           label="Status"
-          className="sm:w-48"
           placeholder="Any"
           options={STATUS_OPTIONS}
           value={filters.status}
           onChange={(event) => filters.setStatus(event.target.value as typeof filters.status)}
         />
-        <PillButton type="submit" className="self-start sm:self-auto">
+        <SelectField
+          label="Last sign-in"
+          placeholder="Any time"
+          options={LAST_LOGIN_OPTIONS}
+          value={filters.lastLogin}
+          onChange={(event) => filters.setLastLogin(event.target.value as typeof filters.lastLogin)}
+        />
+        <PillButton type="submit" className="self-start sm:self-end">
           <Search aria-hidden="true" />
           Search
         </PillButton>
@@ -200,37 +333,29 @@ export function UsersView({
         <SectionError message="The accounts could not be loaded." onRetry={list.retry} />
       ) : (
         <>
-          <div className="md:hidden">
-            <UserCards
-              rows={list.rows}
-              model={model}
-              label={superAdmins ? 'Super admins' : 'User accounts'}
-            />
+          <p aria-live="polite" className="text-small text-ink-muted">
+            {list.total === 1 ? '1 account' : `${list.total} accounts`}
+            {list.pageCount > 1 ? `, page ${list.page} of ${list.pageCount}` : ''}
+          </p>
+          <div className={cn('md:hidden', list.isFetching && 'opacity-60')}>
+            <UserCards rows={list.rows} model={model} label={label} superAdmins={superAdmins} />
           </div>
-          <div className="hidden md:block">
+          <div className={cn('hidden md:block', list.isFetching && 'opacity-60')}>
             <DataTable
-              columns={columns(model)}
+              columns={columns(model, superAdmins)}
               data={list.rows}
               getRowId={(row) => row.id}
-              caption={superAdmins ? 'Super admins' : 'User accounts'}
-              empty={
-                <p className="py-6 text-center text-body text-ink-muted">
-                  No accounts match. Try another name or clear the filters.
-                </p>
-              }
+              caption={label}
+              empty={<p className="py-6 text-center text-body text-ink-muted">{EMPTY}</p>}
               cellClassName={{ actions: 'text-right' }}
             />
           </div>
-          {list.hasMore ? (
-            <PillButton
-              variant="light"
-              className="self-center"
-              onClick={list.loadMore}
-              disabled={list.isLoadingMore}
-            >
-              {list.isLoadingMore ? 'Loading…' : 'Show more'}
-            </PillButton>
-          ) : null}
+          <Pager
+            page={list.page}
+            pageCount={list.pageCount}
+            goTo={list.goTo}
+            label={`${label} pages`}
+          />
         </>
       )}
 

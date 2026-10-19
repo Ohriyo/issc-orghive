@@ -4,18 +4,17 @@ import {
   type SystemAuditQuery,
   type SystemOverview,
   type SystemUser,
-  type SystemUserListQuery,
-  type SystemUserListResponse,
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 import type { Logger } from '#src/logger';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
+import {
+  DuplicateAccountError,
+  type AccountAdminRepository,
+} from '#src/repositories/account-admin.repository';
 import type { RefreshTokenRepository } from '#src/repositories/refresh-token.repository';
-import type {
-  SystemAuditRecord,
-  SystemRepository,
-  SystemUserRecord,
-} from '#src/repositories/system.repository';
+import type { SystemRepository } from '#src/repositories/system.repository';
+import { toAuditEntry, toSystemUser } from '#src/services/account-admin.service';
 import type { RequestContext } from '#src/services/auth.service';
 import {
   decideAccountChange,
@@ -36,6 +35,7 @@ export interface QueueCounts {
 
 export interface SystemServiceDeps {
   system: SystemRepository;
+  accounts: Pick<AccountAdminRepository, 'find'>;
   refreshTokens: Pick<RefreshTokenRepository, 'revokeAllForUser'>;
   audit: Pick<AuditLogRepository, 'record'>;
   /** Counts per queue; may throw when Redis is down (the overview then shows none). */
@@ -60,39 +60,6 @@ const REFUSALS: Record<AccountRefusal, () => AppError> = {
     ),
   not_super_admin: () => new AppError(409, ErrorCode.CONFLICT, 'This account is not a super admin'),
 };
-
-function toUser(record: SystemUserRecord): SystemUser {
-  return {
-    id: record.id,
-    name: record.name,
-    email: record.email,
-    systemRole: record.systemRole,
-    mfaEnabledAt: record.mfaEnabledAt?.toISOString() ?? null,
-    disabledAt: record.disabledAt?.toISOString() ?? null,
-    organization: record.organization,
-    createdAt: record.createdAt.toISOString(),
-  };
-}
-
-function toAuditEntry(record: SystemAuditRecord) {
-  const metadata = record.metadata;
-  return {
-    id: record.id,
-    createdAt: record.createdAt.toISOString(),
-    action: record.action,
-    actor: record.actor,
-    entityType: record.entityType,
-    entityId: record.entityId,
-    organizationId: record.organizationId,
-    ip: record.ip,
-    userAgent: record.userAgent,
-    actingAs: record.actingAs,
-    metadata:
-      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-        ? (metadata as Record<string, unknown>)
-        : null,
-  };
-}
 
 /** What an audit entry records about an account, before and after a change. */
 function snapshot(account: AccountState) {
@@ -121,9 +88,18 @@ export function createSystemService(deps: SystemServiceDeps) {
     ctx: RequestContext,
   ): Promise<SystemUser> {
     const at = now();
-    const { decision, before } = await system.applyAccountChange(targetId, (target, active) =>
-      decideAccountChange({ actorId, target, change: kind, activeSuperAdminIds: active, at }),
-    );
+    const { decision, before } = await system
+      .applyAccountChange(targetId, (target, active) =>
+        decideAccountChange({ actorId, target, change: kind, activeSuperAdminIds: active, at }),
+      )
+      .catch((err: unknown) => {
+        if (err instanceof DuplicateAccountError) {
+          throw AppError.conflict(
+            'This organization already has another active account. Deactivate that one first.',
+          );
+        }
+        throw err;
+      });
     if (!before) throw AppError.notFound('User not found');
     if (decision.kind === 'refuse') throw REFUSALS[decision.reason]();
 
@@ -147,9 +123,9 @@ export function createSystemService(deps: SystemServiceDeps) {
       });
     }
 
-    const user = await system.findUser(targetId);
+    const user = await deps.accounts.find(targetId);
     if (!user) throw AppError.notFound('User not found');
-    return toUser(user);
+    return toSystemUser(user);
   }
 
   return {
@@ -198,13 +174,6 @@ export function createSystemService(deps: SystemServiceDeps) {
         failedLoginsLast24h: counts.failedLoginsSince,
         generatedAt: at.toISOString(),
       };
-    },
-
-    async listUsers({ limit, ...query }: SystemUserListQuery): Promise<SystemUserListResponse> {
-      const take = limit ?? DEFAULT_PAGE;
-      const rows = await system.listUsers(query, take);
-      const { items, nextCursor } = page(rows, take);
-      return { items: items.map(toUser), nextCursor };
     },
 
     async listAuditLogs({ limit, ...query }: SystemAuditQuery): Promise<SystemAuditListResponse> {

@@ -1,4 +1,4 @@
-import { BellOff, CheckCheck, Settings } from 'lucide-react';
+import { BellOff, CheckCheck, Eye, Settings } from 'lucide-react';
 import { Container } from '@/components/container';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
@@ -10,6 +10,7 @@ import type {
   NotificationCenterModel,
   NotificationShow,
 } from '../presenters/use-notification-center';
+import { RevealDialog } from './reveal-dialog';
 
 const TABS: { key: NotificationShow; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -57,6 +58,12 @@ function Row({ item }: { item: CenterItem }) {
           )}
         </h2>
         <p className="mt-1 max-w-prose text-small break-words text-ink-muted">{item.body}</p>
+        {item.openReveal ? (
+          <PillButton variant="light" size="md" className="mt-3" onClick={item.openReveal}>
+            <Eye aria-hidden="true" />
+            Reveal
+          </PillButton>
+        ) : null}
         {item.unread ? (
           <button
             type="button"
@@ -186,6 +193,7 @@ export function NotificationCenterView({ model }: { model: NotificationCenterMod
           </div>
         ) : null}
       </Container>
+      <RevealDialog state={model.reveal} onClose={model.closeReveal} />
     </div>
   );
 }

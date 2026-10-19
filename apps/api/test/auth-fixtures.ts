@@ -37,6 +37,8 @@ import { createOrganizationRepository } from '#src/repositories/organization.rep
 import { createProjectRepository } from '#src/repositories/project.repository';
 import { createAccessService } from '#src/services/access.service';
 import { createAccountRequestService } from '#src/services/account-request.service';
+import { createAccountImportRepository } from '#src/repositories/account-import.repository';
+import { createAccountImportService } from '#src/services/account-import.service';
 import { createTokenService } from '#src/services/token.service';
 import { buildTestApp, TEST_ASSET_BASE_URL, TEST_WEB_ORIGIN } from './helpers';
 import type { Redis } from 'ioredis';
@@ -285,6 +287,14 @@ export function buildAuthApp(
       adminOrganizations,
       accountAdmin,
       accountRequests,
+      accountImports: createAccountImportService({
+        imports: createAccountImportRepository(db),
+        reveals,
+        passwords,
+        audit,
+        emailDomains,
+        now,
+      }),
       access: createAccessService({
         accounts,
         organizations: createOrganizationRepository(db),

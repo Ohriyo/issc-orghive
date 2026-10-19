@@ -66,6 +66,8 @@ import { createAccountAdminRepository } from '#src/repositories/account-admin.re
 import { createRevealRepository } from '#src/repositories/reveal.repository';
 import { createAccountRequestRepository } from '#src/repositories/account-request.repository';
 import { createAccountRequestService } from '#src/services/account-request.service';
+import { createAccountImportRepository } from '#src/repositories/account-import.repository';
+import { createAccountImportService } from '#src/services/account-import.service';
 import { createSupportRepository } from '#src/repositories/support.repository';
 import { createAccountAdminService } from '#src/services/account-admin.service';
 import { createRevealService } from '#src/services/reveal.service';
@@ -324,6 +326,13 @@ const app = createApp({
       audit,
       logger,
       webOrigin: config.WEB_ORIGIN,
+      emailDomains: config.ACCOUNT_EMAIL_DOMAINS,
+    }),
+    accountImports: createAccountImportService({
+      imports: createAccountImportRepository(db),
+      reveals,
+      passwords,
+      audit,
       emailDomains: config.ACCOUNT_EMAIL_DOMAINS,
     }),
     support: createSupportService({

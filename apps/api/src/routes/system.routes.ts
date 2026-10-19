@@ -9,6 +9,7 @@ import {
   requireSuperAdmin,
 } from '#src/middleware/require-super-admin';
 import type { AccountAdminService } from '#src/services/account-admin.service';
+import type { AccountImportService } from '#src/services/account-import.service';
 import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { SuperAdminService } from '#src/services/super-admin.service';
@@ -22,6 +23,7 @@ export interface SystemRouterDeps {
   organizations: Pick<AdminOrganizationService, 'tree' | 'setLogo'>;
   support: SupportService;
   requests: AccountRequestService;
+  imports: AccountImportService;
   tokens: AccessVerifier;
 }
 
@@ -37,6 +39,7 @@ export function systemRouter({
   organizations,
   support,
   requests,
+  imports,
   tokens,
 }: SystemRouterDeps): Router {
   const router = Router();
@@ -46,6 +49,7 @@ export function systemRouter({
     organizations,
     support,
     requests,
+    imports,
   );
   const stepUp = requireStepUp(superAdmins);
 
@@ -65,6 +69,11 @@ export function systemRouter({
   router.patch('/users/:userId/status', stepUp, controller.setUserStatus);
   router.patch('/users/:userId/system-role', stepUp, controller.setSystemRole);
   router.post('/accounts', consoleController.create);
+  // CSV imports: a preview changes nothing; the end of term needs a fresh step-up code.
+  router.post('/accounts/bulk/preview', consoleController.previewBulk);
+  router.post('/accounts/bulk', consoleController.bulkCreate);
+  router.post('/end-of-term/preview', consoleController.previewEndOfTerm);
+  router.post('/end-of-term', stepUp, consoleController.endOfTerm);
   router.get('/account-requests', consoleController.listRequests);
   router.get('/account-requests/count', consoleController.countRequests);
   router.get('/account-requests/:requestId', consoleController.getRequest);

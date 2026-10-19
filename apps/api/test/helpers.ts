@@ -59,6 +59,9 @@ const unwiredServices: AppServices = {
   support: new Proxy({} as AppServices['support'], {
     get: (_t, key) => () => unwired(`support.${String(key)}`),
   }),
+  accountImports: new Proxy({} as AppServices['accountImports'], {
+    get: (_t, key) => () => unwired(`accountImports.${String(key)}`),
+  }),
   accountRequests: new Proxy({} as AppServices['accountRequests'], {
     get: (_t, key) => () => unwired(`accountRequests.${String(key)}`),
   }),

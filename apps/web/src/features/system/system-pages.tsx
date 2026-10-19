@@ -7,6 +7,7 @@ import { chrome } from '@/navigation/trails';
 import { useSystemAccess } from './presenters/use-system-access';
 import { useAccountRequests, useOpenRequestCount } from './presenters/use-account-requests';
 import { useCreateAccount } from './presenters/use-create-account';
+import { useCsvImport } from './presenters/use-csv-import';
 import { useSystemAccount } from './presenters/use-system-account';
 import { useSystemAudit } from './presenters/use-system-audit';
 import { useSystemOverview } from './presenters/use-system-overview';
@@ -25,8 +26,9 @@ import {
   type SystemLayoutProps,
 } from './views/system-layout';
 import { AccountRequestsView } from './views/account-requests-view';
+import { ImportView } from './views/import-view';
 import { TestDataView } from './views/test-data-view';
-import { CreateAccountButton, UsersView } from './views/users-view';
+import { BulkCreateButton, CreateAccountButton, UsersView } from './views/users-view';
 
 /** Signed in (with MFA confirmed), then super admins only; everyone else sees why not. */
 function SystemGate({ children }: { children: React.ReactNode }) {
@@ -48,6 +50,32 @@ function Gated({ children }: { children: React.ReactNode }) {
 function Console(props: Omit<SystemLayoutProps, 'requestCount'>) {
   const requestCount = useOpenRequestCount();
   return <SystemLayout {...props} requestCount={requestCount} />;
+}
+
+function BulkAccounts() {
+  usePageChrome(chrome.systemAccount('Bulk create'));
+  const model = useCsvImport('bulk');
+  return (
+    <Console
+      title="Bulk create accounts"
+      description="Accounts for many existing organizations at once, from a CSV file."
+    >
+      <ImportView model={model} />
+    </Console>
+  );
+}
+
+function EndOfTerm() {
+  usePageChrome(chrome.system('End of term'));
+  const model = useCsvImport('end-of-term');
+  return (
+    <Console
+      title="End of term"
+      description="Hand every organization account to its incoming officers. Accounts not in the file are locked until assigned."
+    >
+      <ImportView model={model} />
+    </Console>
+  );
 }
 
 function AccountRequests() {
@@ -84,7 +112,12 @@ function Users() {
     <Console
       title="Users"
       description="One shared account per organization. Open one to manage it."
-      actions={<CreateAccountButton />}
+      actions={
+        <div className="flex flex-wrap gap-3">
+          <BulkCreateButton />
+          <CreateAccountButton />
+        </div>
+      }
     >
       <UsersView model={model} superAdmins={false} />
     </Console>
@@ -213,6 +246,22 @@ export function SystemTestDataPage() {
   return (
     <Gated>
       <TestData />
+    </Gated>
+  );
+}
+
+export function SystemBulkAccountsPage() {
+  return (
+    <Gated>
+      <BulkAccounts />
+    </Gated>
+  );
+}
+
+export function SystemEndOfTermPage() {
+  return (
+    <Gated>
+      <EndOfTerm />
     </Gated>
   );
 }

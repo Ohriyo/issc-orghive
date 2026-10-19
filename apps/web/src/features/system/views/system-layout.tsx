@@ -1,4 +1,13 @@
-import { FlaskConical, Gauge, Inbox, KeyRound, ScrollText, ShieldCheck, Users } from 'lucide-react';
+import {
+  CalendarClock,
+  FlaskConical,
+  Gauge,
+  Inbox,
+  KeyRound,
+  ScrollText,
+  ShieldCheck,
+  Users,
+} from 'lucide-react';
 import { NavLink } from 'react-router';
 import { Container } from '@/components/container';
 import { cn } from '@/lib/utils';
@@ -9,6 +18,7 @@ const SECTIONS = [
   { to: '/system/users', label: 'Users', icon: Users },
   { to: '/system/account-requests', label: 'Account requests', icon: Inbox },
   { to: '/system/super-admins', label: 'Super admins', icon: ShieldCheck },
+  { to: '/system/end-of-term', label: 'End of term', icon: CalendarClock },
   { to: '/system/test-data', label: 'Test data', icon: FlaskConical },
   { to: '/system/audit', label: 'Audit log', icon: ScrollText },
   { to: '/system/security', label: 'My security', icon: KeyRound },

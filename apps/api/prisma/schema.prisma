@@ -146,6 +146,8 @@ enum AuditAction {
   account_request
   /// A super admin declined an account request; metadata has the reason.
   account_request_decline
+  /// The end of term: one entry per account (metadata: runId, change) and one for the run.
+  end_of_term
 }
 
 /// System-level role: SUPER_ADMIN is the developer's personal console account, the only

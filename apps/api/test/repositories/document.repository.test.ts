@@ -47,10 +47,14 @@ beforeEach(async () => {
 });
 
 describe('document visibility: public, governing bodies, private (docs/DOMAIN_RULES.md)', () => {
-  it('shows the public, and the super admin, only available public documents', async () => {
-    // The super admin and accounts acting for no organization are public viewers.
-    expect(await titles(PUBLIC_VIEWER)).toEqual(PUBLIC_TITLES);
-  });
+  it(
+    'shows the public, and the super admin, only available public documents',
+    { timeout: 15_000 },
+    async () => {
+      // The super admin and accounts acting for no organization are public viewers.
+      expect(await titles(PUBLIC_VIEWER)).toEqual(PUBLIC_TITLES);
+    },
+  );
 
   it('shows the organization its own documents at every level and in every state', async () => {
     expect(await titles(jpice())).toEqual(

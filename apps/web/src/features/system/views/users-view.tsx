@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Search, UserPlus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileUp, Search, UserPlus } from 'lucide-react';
 import { Link } from 'react-router';
 import { DataTable } from '@/components/data-table';
 import type { DataTableColumn } from '@/components/data-table-features';
@@ -256,6 +256,18 @@ export function Pager({
         <ChevronRight aria-hidden="true" className="size-5" />
       </button>
     </nav>
+  );
+}
+
+/** "Bulk create", for the Users page header. */
+export function BulkCreateButton() {
+  return (
+    <PillButton asChild variant="light">
+      <Link to="/system/accounts/bulk">
+        <FileUp aria-hidden="true" />
+        Bulk create
+      </Link>
+    </PillButton>
   );
 }
 

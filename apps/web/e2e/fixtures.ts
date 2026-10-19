@@ -283,6 +283,8 @@ export const SYSTEM_ROUTES = [
   '/system/users/0195f3c0-0000-7000-8000-000000000001',
   '/system/test-data',
   '/system/account-requests',
+  '/system/accounts/bulk',
+  '/system/end-of-term',
   '/system/super-admins',
   '/system/audit',
   '/system/security',

@@ -25,6 +25,7 @@ import { systemRouter } from '#src/routes/system.routes';
 import type { AccessVerifier } from '#src/middleware/require-auth';
 import type { AccessService } from '#src/services/access.service';
 import type { AccountAdminService } from '#src/services/account-admin.service';
+import type { AccountImportService } from '#src/services/account-import.service';
 import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { AnnouncementService } from '#src/services/announcement.service';
@@ -73,6 +74,8 @@ export interface AppServices {
   reveals: RevealService;
   /** The ISSC account's account requests (/admin asks, /system decides). */
   accountRequests: AccountRequestService;
+  /** /system CSV imports: bulk creation and the end of term. */
+  accountImports: AccountImportService;
 }
 
 export interface AppDeps {
@@ -90,6 +93,12 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
 
   app.use(helmet());
   app.use(cors({ origin: config.WEB_ORIGIN, credentials: true }));
+  // CSV imports (/system: bulk accounts, end of term) carry up to 200 KB of text; everything
+  // else stays at 100 KB. A body parsed here is not parsed again below.
+  app.use(
+    ['/api/v1/system/accounts/bulk', '/api/v1/system/end-of-term'],
+    express.json({ limit: '256kb' }),
+  );
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
 
@@ -154,6 +163,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       organizations: services.adminOrganizations,
       support: services.support,
       requests: services.accountRequests,
+      imports: services.accountImports,
       tokens: services.tokens,
     }),
   );

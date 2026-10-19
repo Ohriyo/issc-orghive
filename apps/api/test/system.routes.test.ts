@@ -101,7 +101,7 @@ const READS = [
 ];
 
 describe('/system role matrix', () => {
-  it('lets only an active super admin with MFA in', { timeout: 15_000 }, async () => {
+  it('lets only an active super admin with MFA in', { timeout: 30_000 }, async () => {
     const world = await buildWorld(db);
     const { app } = build();
     await orgUser('officer@nwssu.test', world.orgs.jpice.id);

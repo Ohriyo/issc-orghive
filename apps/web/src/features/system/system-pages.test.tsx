@@ -249,6 +249,74 @@ function serve(refresh: AuthResponse = session()) {
       return json({ ...studentRow, lockedAt: NOW, lockReason: 'Suspicious' });
     }
     if (path === '/system/organizations') return json(TREE);
+    if (path === '/system/accounts/bulk/preview' || path === '/system/accounts/bulk') {
+      const done = path === '/system/accounts/bulk';
+      return json(
+        {
+          runId: done ? '0195f3c0-0000-7000-8000-0000000000c9' : null,
+          problems: [],
+          rows: [
+            {
+              line: 2,
+              organization: 'IECEP',
+              action: 'create',
+              messages: [],
+              accountEmail: 'iecep@nwssu.test',
+              officerName: 'Rosa Lim',
+            },
+            {
+              line: 3,
+              organization: 'JPICE',
+              action: 'skip',
+              messages: ['JPICE already has an account'],
+              accountEmail: 'j@nwssu.test',
+              officerName: 'Ana',
+            },
+            {
+              line: 4,
+              organization: 'Nope',
+              action: 'error',
+              messages: ['No organization "Nope"'],
+              accountEmail: null,
+              officerName: 'X',
+            },
+          ],
+          counts: { create: 1, skip: 1, error: 1 },
+          revealExpiresAt: done ? '2026-10-27T08:00:00.000Z' : null,
+        },
+        done ? 201 : 200,
+      );
+    }
+    if (path === '/system/end-of-term/preview' || path === '/system/end-of-term') {
+      const done = path === '/system/end-of-term';
+      if (done && !stepUpDone) return stepUpRequired();
+      return json({
+        runId: done ? '0195f3c0-0000-7000-8000-0000000000c8' : null,
+        problems: [],
+        rows: [
+          {
+            line: 2,
+            organization: 'ISSC',
+            action: 'assign',
+            messages: [],
+            accountEmail: 'issc@nwssu.test',
+            officerName: 'Maria Santos',
+          },
+          {
+            line: 3,
+            organization: 'JPICE',
+            action: 'assign',
+            messages: [],
+            accountEmail: 'jpice@nwssu.test',
+            officerName: 'Ana Cruz',
+          },
+        ],
+        toLock: [{ organization: 'PSME', email: 'psme@nwssu.test' }],
+        counts: { assign: 2, lock: 1, error: 0 },
+        isscTemporaryPassword: done ? 'Abcd-Efgh-Jkmn-Pq23' : null,
+        revealExpiresAt: done ? '2026-10-27T08:00:00.000Z' : null,
+      });
+    }
     if (path === '/system/account-requests/count') return json({ open: 1 });
     if (path === '/system/account-requests') return json({ items: [REQUEST], openCount: 1 });
     if (path === `/system/account-requests/${REQUEST_ID}`) return json(REQUEST);
@@ -556,6 +624,55 @@ describe('/system', () => {
         requestId: REQUEST_ID,
       }),
     );
+  });
+
+  it('bulk creates from a CSV: preview first, then a report without passwords', async () => {
+    serve();
+    renderAt('/system/accounts/bulk');
+    const input = await screen.findByLabelText('CSV file');
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(['Organization,College\nIECEP,CEA'], 'accounts.csv', { type: 'text/csv' }),
+        ],
+      },
+    });
+    expect(await screen.findByText('1 to create · 1 skipped · 1 with errors')).toBeInTheDocument();
+    expect(screen.getByText('No organization "Nope"')).toBeInTheDocument();
+    expect(calls.find((c) => c.path === '/system/accounts/bulk/preview')?.body).toEqual({
+      csv: 'Organization,College\nIECEP,CEA',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create 1 account' }));
+    expect(await screen.findByText(/one handover list/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download the report' })).toBeInTheDocument();
+  });
+
+  it('runs the end of term after a confirmation and a step-up; the ISSC password is shown once', async () => {
+    serve();
+    renderAt('/system/end-of-term');
+    fireEvent.change(await screen.findByLabelText('Incoming term ends (optional)'), {
+      target: { value: '2027-07-31' },
+    });
+    fireEvent.change(screen.getByLabelText('CSV file'), {
+      target: { files: [new File(['Organization\nISSC'], 'term.csv', { type: 'text/csv' })] },
+    });
+    expect(
+      await screen.findByText('2 to reassign · 1 to lock · 0 with errors'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Will be locked until assigned')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Run the end of term' }));
+    fireEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Run the end of term',
+      }),
+    );
+    await enterStepUp();
+    const shown = await screen.findByRole('dialog', { name: 'Shown once: copy it now' });
+    expect(within(shown).getByText('Abcd-Efgh-Jkmn-Pq23')).toBeInTheDocument();
+    expect(calls.filter((c) => c.path === '/system/end-of-term').map((c) => c.body)).toEqual([
+      { csv: 'Organization\nISSC', termEnd: '2027-07-31' },
+      { csv: 'Organization\nISSC', termEnd: '2027-07-31' },
+    ]);
   });
 
   it('previews test data and deletes it after a step-up', async () => {

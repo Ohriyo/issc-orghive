@@ -1,6 +1,8 @@
 import type { Request, RequestHandler, Response } from 'express';
 import {
+  accountCsvRequestSchema,
   accountRequestIdParamsSchema,
+  endOfTermRequestSchema,
   createAccountRequestSchema,
   declineAccountRequestSchema,
   systemAccountRequestListQuerySchema,
@@ -17,6 +19,7 @@ import { AppError } from '#src/errors/app-error';
 import { authOf } from '#src/middleware/require-auth';
 import { requestContext } from '#src/middleware/require-super-admin';
 import type { AccountAdminService, ConsoleActor } from '#src/services/account-admin.service';
+import type { AccountImportService } from '#src/services/account-import.service';
 import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { SupportService } from '#src/services/support.service';
@@ -31,6 +34,7 @@ export function createAccountAdminController(
   organizations: Pick<AdminOrganizationService, 'tree' | 'setLogo'>,
   support: SupportService,
   requests: AccountRequestService,
+  imports: AccountImportService,
 ) {
   const list: RequestHandler = async (req, res) => {
     res.json(await accounts.list(systemUserListQuerySchema.parse(req.query)));
@@ -129,7 +133,32 @@ export function createAccountAdminController(
     res.json(await requests.decline(actorOf(req, res), requestId, body));
   };
 
+  const previewBulk: RequestHandler = async (req, res) => {
+    const { csv } = accountCsvRequestSchema.parse(req.body);
+    res.json(await imports.previewBulk(csv));
+  };
+
+  const bulkCreate: RequestHandler = async (req, res) => {
+    const { csv } = accountCsvRequestSchema.parse(req.body);
+    res.status(201).json(await imports.bulkCreate(actorOf(req, res), csv));
+  };
+
+  const previewEndOfTerm: RequestHandler = async (req, res) => {
+    const { csv } = endOfTermRequestSchema.parse(req.body);
+    res.json(await imports.previewEndOfTerm(csv));
+  };
+
+  /** Shows the ISSC account's new password once: never cached. */
+  const endOfTerm: RequestHandler = async (req, res) => {
+    const { csv, termEnd } = endOfTermRequestSchema.parse(req.body);
+    res.json(await imports.endOfTerm(actorOf(req, res), csv, termEnd ?? null));
+  };
+
   return {
+    previewBulk,
+    bulkCreate,
+    previewEndOfTerm,
+    endOfTerm,
     listRequests,
     countRequests,
     getRequest,

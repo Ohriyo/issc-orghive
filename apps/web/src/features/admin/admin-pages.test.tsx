@@ -18,6 +18,7 @@ const org = (slug: string, acronym: string, type: AdminOrganization['type'], act
   active,
   documentCount: 4,
   hasAccount: true,
+  accountRequest: null,
 });
 
 const TREE: AdminOrganizationTree = {
@@ -44,6 +45,41 @@ const TREE: AdminOrganizationTree = {
   ],
 };
 
+/** The same tree, with CAT's SBOs in each account-request state. */
+const TREE_WITH_REQUESTS: AdminOrganizationTree = {
+  ...TREE,
+  colleges: [
+    {
+      ...TREE.colleges[0]!,
+      sbos: [
+        {
+          ...org('ass', 'ASS', 'SBO'),
+          hasAccount: false,
+          accountRequest: {
+            id: '0195f3c0-0000-7000-8000-0000000000b9',
+            status: 'declined',
+            requestedAt: '2026-10-19T00:00:00.000Z',
+            decidedAt: '2026-10-20T00:00:00.000Z',
+            declineReason: 'Use the official email address',
+          },
+        },
+        {
+          ...org('ags', 'AGS', 'SBO'),
+          hasAccount: false,
+          accountRequest: {
+            id: '0195f3c0-0000-7000-8000-0000000000b8',
+            status: 'requested',
+            requestedAt: '2026-10-19T00:00:00.000Z',
+            decidedAt: null,
+            declineReason: null,
+          },
+        },
+      ],
+    },
+    TREE.colleges[1]!,
+  ],
+};
+
 /** The ISSC account administers; any other organization's account does not. */
 function session(admin: boolean): AuthResponse {
   return accountSession(admin ? 'issc' : 'own');
@@ -58,7 +94,7 @@ function json(body: unknown, status = 200) {
   );
 }
 
-function serve({ admin = true } = {}) {
+function serve({ admin = true, tree = TREE } = {}) {
   asAdmin = admin;
   fetchMock.mockImplementation((input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -67,7 +103,7 @@ function serve({ admin = true } = {}) {
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body;
     calls.push({ method, path, body });
     if (path === '/auth/refresh') return json(session(admin));
-    if (path === '/admin/organizations' && method === 'GET') return json(TREE);
+    if (path === '/admin/organizations' && method === 'GET') return json(tree);
     if (path === '/admin/organizations/psme/active') {
       return json({ ...TREE.colleges[1]!.sbos[1]!, active: true });
     }
@@ -75,6 +111,18 @@ function serve({ admin = true } = {}) {
       return json({ ...TREE.colleges[1]!.sbos[0]!, ...(body as object) });
     }
     if (path.endsWith('/order')) return json({});
+    if (path === '/admin/organizations/ass/account-request') {
+      return json(
+        {
+          id: '0195f3c0-0000-7000-8000-0000000000ba',
+          status: 'requested',
+          requestedAt: '2026-10-20T00:00:00.000Z',
+          decidedAt: null,
+          declineReason: null,
+        },
+        201,
+      );
+    }
     return json({ items: [] });
   });
 }
@@ -137,6 +185,51 @@ describe('toRows', () => {
   it('swaps neighbours', () => {
     expect(moved(['a', 'b', 'c'], 1, 1)).toEqual(['a', 'c', 'b']);
   });
+});
+
+describe('/admin account requests', () => {
+  it(
+    'shows each organization’s account state, and requests one for the ISSC',
+    { timeout: 15_000 },
+    async () => {
+      serve({ tree: TREE_WITH_REQUESTS });
+      renderAt('/admin/organizations');
+      const table = await screen.findByRole('table', {}, { timeout: 5000 });
+      expect(within(table).getByText('Declined')).toBeInTheDocument();
+      expect(within(table).getByText('Use the official email address')).toBeInTheDocument();
+      expect(within(table).getByText('Requested')).toBeInTheDocument();
+      // An open request, or an account, hides the button.
+      expect(within(table).queryByRole('button', { name: 'Request account for AGS' })).toBeNull();
+      expect(within(table).queryByRole('button', { name: 'Request account for JPICE' })).toBeNull();
+
+      fireEvent.click(within(table).getByRole('button', { name: 'Request account for ASS' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Request an account for ASS' });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Request account' }));
+      expect(await within(dialog).findAllByText('Enter a valid email')).not.toHaveLength(0);
+      fireEvent.change(within(dialog).getByLabelText('Account email'), {
+        target: { value: 'ass@nwssu.test' },
+      });
+      fireEvent.change(within(dialog).getByLabelText('Officer in charge'), {
+        target: { value: 'Rosa Lim' },
+      });
+      fireEvent.change(within(dialog).getByLabelText('Position'), {
+        target: { value: 'President' },
+      });
+      fireEvent.change(within(dialog).getByLabelText('Officer’s contact email'), {
+        target: { value: 'rosa@nwssu.test' },
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Request account' }));
+      await waitFor(() =>
+        expect(
+          calls.find((c) => c.path === '/admin/organizations/ass/account-request')?.body,
+        ).toEqual({
+          accountEmail: 'ass@nwssu.test',
+          officerInCharge: { name: 'Rosa Lim', position: 'President', email: 'rosa@nwssu.test' },
+          note: '',
+        }),
+      );
+    },
+  );
 });
 
 describe('/admin', () => {

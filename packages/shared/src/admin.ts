@@ -79,6 +79,21 @@ export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 export const LOGO_MIN_WIDTH = 128;
 export const LOGO_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
 
+/** Account requests (account-request.ts): the ISSC asks, the super admin creates or declines. */
+export const ACCOUNT_REQUEST_STATUSES = ['requested', 'created', 'declined'] as const;
+export const accountRequestStatusSchema = z.enum(ACCOUNT_REQUEST_STATUSES);
+export type AccountRequestStatus = z.infer<typeof accountRequestStatusSchema>;
+
+/** An organization's latest account request, as /admin shows it on its row. */
+export const accountRequestSummarySchema = z.object({
+  id: z.uuid(),
+  status: accountRequestStatusSchema,
+  requestedAt: z.iso.datetime(),
+  decidedAt: z.iso.datetime().nullable(),
+  declineReason: z.string().nullable(),
+});
+export type AccountRequestSummary = z.infer<typeof accountRequestSummarySchema>;
+
 export const adminOrganizationSchema = z
   .object({
     type: organizationTypeSchema,
@@ -92,6 +107,8 @@ export const adminOrganizationSchema = z
     documentCount: z.number().int(),
     /** It has an active shared account (docs/DOMAIN_RULES.md, "Accounts"). */
     hasAccount: z.boolean(),
+    /** Its latest account request, if any (the ISSC asks the super admin for accounts). */
+    accountRequest: accountRequestSummarySchema.nullable(),
   })
   .meta({ id: 'AdminOrganization' });
 export type AdminOrganization = z.infer<typeof adminOrganizationSchema>;

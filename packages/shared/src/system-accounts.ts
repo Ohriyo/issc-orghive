@@ -150,6 +150,8 @@ export const createAccountRequestSchema = z.strictObject({
   officerInCharge: officerInChargeInputSchema,
   /** The planned last day of this officer term, if known. */
   termEnd: z.iso.date().nullable().optional(),
+  /** The ISSC's account request this fulfils; it must be open and for this organization. */
+  requestId: z.uuid().optional(),
 });
 export type CreateAccountRequest = z.infer<typeof createAccountRequestSchema>;
 

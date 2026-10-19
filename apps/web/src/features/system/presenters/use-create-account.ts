@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm, useWatch } from 'react-hook-form';
@@ -19,6 +20,7 @@ import {
 import { api, apiFetch } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import { formatDate, messageOf } from './system-format';
+import { useAccountRequest } from './use-account-requests';
 
 /*
  * The form's own shape: which organization (by type and college, existing or new), then
@@ -83,6 +85,7 @@ export function slugFromAcronym(acronym: string): string {
 
 export function toCreateRequest(
   form: z.output<typeof createAccountFormSchema>,
+  requestId: string | null = null,
 ): CreateAccountRequest {
   const organization: CreateAccountRequest['organization'] =
     form.mode === 'new' && form.type !== 'ISSC'
@@ -101,6 +104,7 @@ export function toCreateRequest(
     email: form.email,
     officerInCharge: form.officerInCharge,
     termEnd: form.termEnd || null,
+    ...(requestId && { requestId }),
   };
 }
 
@@ -134,6 +138,11 @@ export function useCreateAccount() {
   const [result, setResult] = useState<CreatedResult | null>(null);
   const [logo, setLogoState] = useState<File | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
+  // From the ISSC's account request (/system/account-requests): the form starts filled in.
+  const [params] = useSearchParams();
+  const requestId = params.get('request');
+  const request = useAccountRequest(requestId);
+  const openRequest = request.data?.status === 'requested' ? request.data : null;
 
   const tree = useQuery({
     queryKey: queryKeys.system.organizations,
@@ -143,6 +152,20 @@ export function useCreateAccount() {
 
   const form = useForm<CreateAccountForm, unknown, z.output<typeof createAccountFormSchema>>({
     resolver: zodResolver(createAccountFormSchema),
+    // An open request fills the form in once it loads (React Hook Form resets to `values`).
+    values: openRequest
+      ? {
+          type: openRequest.organization.type,
+          collegeSlug: openRequest.organization.collegeSlug ?? '',
+          mode: 'existing',
+          existingSlug: openRequest.organization.slug,
+          newOrg: { slug: '', acronym: '', name: '', description: '' },
+          email: openRequest.accountEmail,
+          officerInCharge: openRequest.officerInCharge,
+          termEnd: '',
+        }
+      : undefined,
+    resetOptions: { keepDirtyValues: true },
     defaultValues: {
       type: 'SBO',
       collegeSlug: '',
@@ -159,7 +182,10 @@ export function useCreateAccount() {
     mutationFn: async (values: z.output<typeof createAccountFormSchema>) => {
       const response: CreateAccountResponse = await api.post(
         '/system/accounts',
-        toCreateRequest(values),
+        toCreateRequest(
+          values,
+          requestId && request.data?.status === 'requested' ? requestId : null,
+        ),
         { schema: createAccountResponseSchema },
       );
       let failedLogo: string | null = null;
@@ -211,7 +237,17 @@ export function useCreateAccount() {
   const canCreateNew =
     values.type === 'SBO' || (values.type === 'CSC' && !!college && college.csc === null);
 
+  const fromRequest = request.data
+    ? {
+        organization: request.data.organization.acronym,
+        note: request.data.note,
+        requestedBy: request.data.requestedBy?.name ?? null,
+        stillOpen: request.data.status === 'requested',
+      }
+    : null;
+
   return {
+    fromRequest,
     tree: tree.isPending
       ? ({ status: 'loading' } as const)
       : tree.isError
@@ -220,6 +256,8 @@ export function useCreateAccount() {
     form,
     colleges,
     existingChoices,
+    /** Controlled: its options load after the form may be filled in from a request. */
+    existingSlug: values.existingSlug ?? '',
     canCreateNew,
     showCollege: values.type !== 'ISSC',
     mode: canCreateNew ? values.mode : 'existing',

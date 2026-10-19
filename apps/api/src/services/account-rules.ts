@@ -55,3 +55,13 @@ export function complianceScopeOf(org: OrgPlace | null): ComplianceScope | null 
 export function passwordRecipientOf(org: { type: OrganizationType }): 'issc_reveal' | 'shown_once' {
   return org.type === 'ISSC' ? 'shown_once' : 'issc_reveal';
 }
+
+/**
+ * ACCOUNT_EMAIL_DOMAINS: an organization account's email must be at one of these domains;
+ * an empty list allows any. Returns the refusal message, or null when allowed.
+ */
+export function accountEmailRefusal(email: string, domains: string[]): string | null {
+  if (domains.length === 0) return null;
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  return domains.includes(domain) ? null : `Use an address at ${domains.join(' or ')}`;
+}

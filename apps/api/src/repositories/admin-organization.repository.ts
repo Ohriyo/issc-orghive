@@ -15,6 +15,12 @@ const ADMIN_ORG_SELECT = {
   collegeId: true,
   parentId: true,
   deactivatedAt: true,
+  /** Its latest account request (the ISSC asks the super admin for accounts). */
+  accountRequests: {
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { id: true, status: true, createdAt: true, decidedAt: true, declineReason: true },
+  },
   _count: {
     select: {
       documents: { where: { deletedAt: null } },

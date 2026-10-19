@@ -1,7 +1,12 @@
 import { useState } from 'react';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
+import type { z } from 'zod';
 import {
+  accountRequestSummarySchema,
+  requestAccountRequestSchema,
   adminCollegeSchema,
   adminOrganizationSchema,
   adminOrganizationTreeSchema,
@@ -32,6 +37,10 @@ export interface HierarchyRow {
   documentCount: number | null;
   /** It has an active shared account; null for colleges. */
   hasAccount: boolean | null;
+  /** Its account, as the Account column says it; null for colleges. */
+  account: AccountStatusView | null;
+  /** The ISSC can ask the super admin for this organization's account. */
+  canRequestAccount: boolean;
   /** Set where the row can move within its carousel (colleges, and SBOs in a college). */
   move: { up: (() => void) | null; down: (() => void) | null; position: number; of: number } | null;
   /** True for the last row of a college group, to end its tree guide. */
@@ -39,6 +48,23 @@ export interface HierarchyRow {
   /** College rows: what can be added (a CSC until it has one; SBOs once it has a CSC). */
   adds: ('CSC' | 'SBO')[];
 }
+
+/** An organization's account: active, requested, declined (with why), or none yet. */
+export interface AccountStatusView {
+  label: 'Active' | 'Requested' | 'Declined' | 'None';
+  /** The decline's reason. */
+  detail: string | null;
+}
+
+export function accountStatusOf(o: AdminOrganization): AccountStatusView {
+  if (o.hasAccount) return { label: 'Active', detail: null };
+  const request = o.accountRequest;
+  if (request?.status === 'requested') return { label: 'Requested', detail: null };
+  if (request?.status === 'declined') return { label: 'Declined', detail: request.declineReason };
+  return { label: 'None', detail: null };
+}
+
+export type RequestAccountForm = z.input<typeof requestAccountRequestSchema>;
 
 /** What the side sheet is editing; null when it is closed. */
 export type Editing =
@@ -72,6 +98,18 @@ export type AdminOrganizationsState =
       setActive: (slug: string, active: boolean) => void;
       uploadLogo: (slug: string, file: File) => Promise<string | null>;
       pending: boolean;
+      /** Asks the super admin for an organization's account. */
+      requestAccount: (slug: string) => void;
+      requestDialog: {
+        open: boolean;
+        organization: string;
+        register: ReturnType<typeof useForm<RequestAccountForm>>['register'];
+        errors: ReturnType<typeof useForm<RequestAccountForm>>['formState']['errors'];
+        onSubmit: (event?: React.BaseSyntheticEvent) => Promise<void>;
+        isSubmitting: boolean;
+        formError: string | undefined;
+        onCancel: () => void;
+      };
     };
 
 /** Moves `slugs[index]` one place up or down. */
@@ -105,6 +143,8 @@ export function toRows(
     active: o.active,
     documentCount: o.documentCount,
     hasAccount: o.hasAccount,
+    account: accountStatusOf(o),
+    canRequestAccount: kind !== 'issc' && !o.hasAccount && o.accountRequest?.status !== 'requested',
     move: null,
     lastInGroup: false,
     adds: [],
@@ -124,6 +164,8 @@ export function toRows(
       active: null,
       documentCount: null,
       hasAccount: null,
+      account: null,
+      canRequestAccount: false,
       move: {
         position: i + 1,
         of: collegeSlugs.length,
@@ -165,6 +207,19 @@ export function toRows(
 export function useAdminOrganizations(): AdminOrganizationsState {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Editing>(null);
+  const [requesting, setRequesting] = useState<{ slug: string; acronym: string } | null>(null);
+  const requestForm = useForm<
+    RequestAccountForm,
+    unknown,
+    z.output<typeof requestAccountRequestSchema>
+  >({
+    resolver: zodResolver(requestAccountRequestSchema),
+    defaultValues: {
+      accountEmail: '',
+      officerInCharge: { name: '', position: '', email: '' },
+      note: '',
+    },
+  });
   const tree = useQuery({
     queryKey: queryKeys.admin.organizations,
     queryFn: () => api.get('/admin/organizations', { schema: adminOrganizationTreeSchema }),
@@ -209,6 +264,27 @@ export function useAdminOrganizations(): AdminOrganizationsState {
     onSettled: refresh,
   });
 
+  const askForAccount = useMutation({
+    mutationFn: ({
+      slug,
+      body,
+    }: {
+      slug: string;
+      body: z.output<typeof requestAccountRequestSchema>;
+    }) =>
+      api.post(`/admin/organizations/${slug}/account-request`, body, {
+        schema: accountRequestSummarySchema,
+      }),
+    onSuccess: () => {
+      toast.success(
+        `Account requested for ${requesting?.acronym ?? 'the organization'}. Its temporary password will come to your notifications, behind a one-time Reveal.`,
+      );
+      setRequesting(null);
+      requestForm.reset();
+    },
+    onSettled: refresh,
+  });
+
   if (tree.isPending) return { status: 'loading' };
   if (tree.isError) return { status: 'error', retry: () => void tree.refetch() };
   const data = tree.data;
@@ -217,12 +293,30 @@ export function useAdminOrganizations(): AdminOrganizationsState {
       (o): o is AdminOrganization => o?.slug === slug,
     ) ?? null;
 
+  const openRequest = (slug: string) => {
+    const org = findOrg(slug);
+    if (!org) return;
+    requestForm.reset();
+    askForAccount.reset();
+    setRequesting({ slug, acronym: org.acronym });
+  };
+
   /** Runs a save; returns an error message for the form, or null once saved and closed. */
-  async function attempt(run: () => Promise<unknown>, done: string): Promise<string | null> {
+  async function attempt(
+    run: () => Promise<unknown>,
+    done: string,
+    requestFor?: string,
+  ): Promise<string | null> {
     try {
       await run();
       await refresh();
-      toast.success(done);
+      // A new CSC or SBO: its account can be requested right away.
+      toast.success(
+        done,
+        requestFor
+          ? { action: { label: 'Request account', onClick: () => openRequest(requestFor) } }
+          : undefined,
+      );
       setEditing(null);
       return null;
     } catch (error) {
@@ -272,6 +366,7 @@ export function useAdminOrganizations(): AdminOrganizationsState {
             ? api.patch(`/admin/organizations/${slug}`, patch, { schema: adminOrganizationSchema })
             : api.post('/admin/organizations', values, { schema: adminOrganizationSchema }),
         slug ? `${values.acronym} saved.` : `${values.acronym} added.`,
+        slug ? undefined : values.slug,
       );
     },
     setActive: (slug, active) => activation.mutate({ slug, active }),
@@ -290,5 +385,18 @@ export function useAdminOrganizations(): AdminOrganizationsState {
       }
     },
     pending: reorder.isPending || activation.isPending,
+    requestAccount: openRequest,
+    requestDialog: {
+      open: requesting !== null,
+      organization: requesting?.acronym ?? '',
+      register: requestForm.register,
+      errors: requestForm.formState.errors,
+      onSubmit: requestForm.handleSubmit((body) => {
+        if (requesting) askForAccount.mutate({ slug: requesting.slug, body });
+      }),
+      isSubmitting: askForAccount.isPending,
+      formError: askForAccount.error ? messageOf(askForAccount.error) : undefined,
+      onCancel: () => setRequesting(null),
+    },
   };
 }

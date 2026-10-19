@@ -142,6 +142,10 @@ enum AuditAction {
   password_reveal
   /// A super admin queued a stuck virus scan again.
   support_rescan
+  /// The ISSC account asked for an organization's account.
+  account_request
+  /// A super admin declined an account request; metadata has the reason.
+  account_request_decline
 }
 
 /// System-level role: SUPER_ADMIN is the developer's personal console account, the only
@@ -198,6 +202,14 @@ enum NotificationKind {
   term_ending
   announcement_posted
   password_reveal
+  account_request_declined
+}
+
+/// requested -> created (the super admin made the account) | declined (with a reason).
+enum AccountRequestStatus {
+  requested
+  created
+  declined
 }
 
 /// Why a one-time Reveal holds temporary passwords.
@@ -258,21 +270,22 @@ model Organization {
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @updatedAt @map("updated_at")
 
-  parent        Organization?      @relation("OrganizationHierarchy", fields: [parentId], references: [id])
-  children      Organization[]     @relation("OrganizationHierarchy")
-  college       College?           @relation(fields: [collegeId], references: [id])
+  parent          Organization?      @relation("OrganizationHierarchy", fields: [parentId], references: [id])
+  children        Organization[]     @relation("OrganizationHierarchy")
+  college         College?           @relation(fields: [collegeId], references: [id])
   /// Its shared account (at most one active: users_one_active_account_per_org).
-  accounts      User[]
-  officerTerms  OfficerTerm[]
-  uploadIntents UploadIntent[]
-  documents     Document[]
-  announcements Announcement[]
-  auditLogs     AuditLog[]
-  projects      Project[]
-  freezes       OrgFreeze[]
-  appeals       Appeal[]
-  appealFiles   AppealAttachment[]
-  reports       SemestralReport[]
+  accounts        User[]
+  officerTerms    OfficerTerm[]
+  accountRequests AccountRequest[]
+  uploadIntents   UploadIntent[]
+  documents       Document[]
+  announcements   Announcement[]
+  auditLogs       AuditLog[]
+  projects        Project[]
+  freezes         OrgFreeze[]
+  appeals         Appeal[]
+  appealFiles     AppealAttachment[]
+  reports         SemestralReport[]
 
   @@index([parentId])
   @@index([collegeId])
@@ -330,6 +343,9 @@ model User {
   notificationPreferences NotificationPreference[]
   revealsReceived         PasswordReveal[]         @relation("RevealRecipient")
   revealsIssued           PasswordReveal[]         @relation("RevealIssuer")
+  accountRequestsMade     AccountRequest[]         @relation("AccountRequestBy")
+  accountRequestsDecided  AccountRequest[]         @relation("AccountRequestDecider")
+  accountRequestsCreated  AccountRequest[]         @relation("AccountRequestAccount")
   reportsRequested        SemestralReport[]
 
   @@index([systemRole])
@@ -732,6 +748,35 @@ model Notification {
 
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+/// The ISSC account's request for an organization's account (docs/DOMAIN_RULES.md,
+/// "Accounts"). At most one open (`requested`) request per organization: a partial unique
+/// index in the migration.
+model AccountRequest {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  organizationId   String               @map("organization_id") @db.Uuid
+  requestedById    String?              @map("requested_by_id") @db.Uuid
+  accountEmail     String               @map("account_email")
+  officerName      String               @map("officer_name")
+  officerPosition  String               @map("officer_position")
+  officerEmail     String               @map("officer_email")
+  note             String?
+  status           AccountRequestStatus @default(requested)
+  declineReason    String?              @map("decline_reason")
+  decidedById      String?              @map("decided_by_id") @db.Uuid
+  decidedAt        DateTime?            @map("decided_at")
+  createdAccountId String?              @map("created_account_id") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  requestedBy    User?        @relation("AccountRequestBy", fields: [requestedById], references: [id])
+  decidedBy      User?        @relation("AccountRequestDecider", fields: [decidedById], references: [id])
+  createdAccount User?        @relation("AccountRequestAccount", fields: [createdAccountId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([status, createdAt])
+  @@map("account_requests")
 }
 
 /// Temporary passwords waiting for the ISSC account's one-time Reveal (docs/DOMAIN_RULES.md,

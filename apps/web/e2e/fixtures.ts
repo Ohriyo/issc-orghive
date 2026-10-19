@@ -30,6 +30,7 @@ import type {
   SystemUserDetail,
   SystemUserListResponse,
   SupportDocumentList,
+  SystemAccountRequestList,
   TestDataPreview,
 } from '@orghive/shared';
 
@@ -281,6 +282,7 @@ export const SYSTEM_ROUTES = [
   '/system/users/new',
   '/system/users/0195f3c0-0000-7000-8000-000000000001',
   '/system/test-data',
+  '/system/account-requests',
   '/system/super-admins',
   '/system/audit',
   '/system/security',
@@ -450,6 +452,37 @@ const SUPPORT_DOCUMENTS: SupportDocumentList = {
   ],
 };
 
+const ACCOUNT_REQUESTS: SystemAccountRequestList = {
+  openCount: 1,
+  items: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000b8',
+      status: 'requested',
+      organization: {
+        slug: 'icpep-se',
+        acronym: 'ICpEP.SE',
+        name: 'Institute of Computer Engineers of the Philippines Student Edition',
+        type: 'SBO',
+        collegeSlug: 'cea',
+        college: 'CEA',
+        hasAccount: false,
+      },
+      accountEmail: 'icpep.se.official.account@nwssu.test',
+      officerInCharge: {
+        name: 'Maria Concepcion Villanueva-Santos',
+        position: 'President',
+        email: 'maria.villanueva-santos@nwssu.test',
+      },
+      note: 'New officers took over in August; please send the password before the first general assembly.',
+      requestedAt: STAMP,
+      requestedBy: { name: 'ISSC', email: 'issc@orghive.local' },
+      decidedAt: null,
+      declineReason: null,
+      createdAccountId: null,
+    },
+  ],
+};
+
 const TEST_DATA: TestDataPreview = {
   total: 2,
   items: [
@@ -534,6 +567,26 @@ const adminOrg = (o: OrganizationSummary, n: number, active = true): AdminOrgani
   active,
   documentCount: n * 3,
   hasAccount: n % 3 !== 2,
+  // Organizations without an account show each request state.
+  accountRequest:
+    n % 3 !== 2
+      ? null
+      : n % 2 === 0
+        ? {
+            id: '0195f3c0-0000-7000-8000-0000000000b8',
+            status: 'requested',
+            requestedAt: STAMP,
+            decidedAt: null,
+            declineReason: null,
+          }
+        : {
+            id: '0195f3c0-0000-7000-8000-0000000000b9',
+            status: 'declined',
+            requestedAt: STAMP,
+            decidedAt: STAMP,
+            declineReason:
+              'Use the organization’s official NwSSU email address, not a personal one.',
+          },
 });
 
 const ADMIN_TREE: AdminOrganizationTree = {
@@ -945,6 +998,8 @@ export async function stubApi(
       return json(route, SUPPORT_DOCUMENTS);
     }
     if (superAdmin && path === '/system/test-data') return json(route, TEST_DATA);
+    if (superAdmin && path === '/system/account-requests/count') return json(route, { open: 1 });
+    if (superAdmin && path === '/system/account-requests') return json(route, ACCOUNT_REQUESTS);
     if (superAdmin && path === '/system/audit-logs') return json(route, SYSTEM_AUDIT);
     if (superAdmin && path === '/system/me/security') return json(route, SYSTEM_SECURITY);
     if (admin && path === '/auth/refresh') return json(route, ADMIN);
@@ -972,6 +1027,7 @@ export async function stubApi(
           upload_quarantined: true,
           term_ending: true,
           password_reveal: true,
+          account_request_declined: true,
           announcement_posted: false,
         },
       } satisfies NotificationPreferences);

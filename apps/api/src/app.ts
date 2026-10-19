@@ -25,6 +25,7 @@ import { systemRouter } from '#src/routes/system.routes';
 import type { AccessVerifier } from '#src/middleware/require-auth';
 import type { AccessService } from '#src/services/access.service';
 import type { AccountAdminService } from '#src/services/account-admin.service';
+import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { AnnouncementService } from '#src/services/announcement.service';
 import type { ComplianceOverviewService } from '#src/services/compliance-overview.service';
@@ -70,6 +71,8 @@ export interface AppServices {
   support: SupportService;
   /** One-time Reveals of temporary passwords (/me/reveals). */
   reveals: RevealService;
+  /** The ISSC account's account requests (/admin asks, /system decides). */
+  accountRequests: AccountRequestService;
 }
 
 export interface AppDeps {
@@ -137,6 +140,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     '/admin',
     adminRouter({
       organizations: services.adminOrganizations,
+      accountRequests: services.accountRequests,
       access: services.access,
       tokens: services.tokens,
     }),
@@ -149,6 +153,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       accounts: services.accountAdmin,
       organizations: services.adminOrganizations,
       support: services.support,
+      requests: services.accountRequests,
       tokens: services.tokens,
     }),
   );

@@ -111,6 +111,19 @@ export function CreateAccountView({ model }: { model: CreateAccountModel }) {
       className="flex max-w-3xl flex-col gap-6"
     >
       <FormAlert message={model.submitError ?? undefined} />
+      {model.fromRequest ? (
+        <p
+          role="note"
+          className="rounded-xl bg-forest-500/10 px-4 py-3 text-body text-ink ring-1 ring-forest-500/20"
+        >
+          {model.fromRequest.stillOpen
+            ? `Filled in from the ISSC's request for ${model.fromRequest.organization}${
+                model.fromRequest.requestedBy ? ` (${model.fromRequest.requestedBy})` : ''
+              }. Creating the account fulfils it.`
+            : `The request for ${model.fromRequest.organization} was already decided; this creates an account without it.`}
+          {model.fromRequest.note ? ` Note: ${model.fromRequest.note}` : ''}
+        </p>
+      ) : null}
 
       <fieldset className={FIELDSET}>
         <legend className={LEGEND}>Organization</legend>
@@ -147,6 +160,7 @@ export function CreateAccountView({ model }: { model: CreateAccountModel }) {
             options={model.existingChoices}
             error={errors.existingSlug?.message}
             {...form.register('existingSlug')}
+            value={model.existingSlug}
           />
         ) : (
           <div className="grid gap-5 md:grid-cols-2">

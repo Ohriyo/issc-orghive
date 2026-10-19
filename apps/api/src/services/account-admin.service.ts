@@ -25,13 +25,14 @@ import {
   type AccountRecord,
 } from '#src/repositories/account-admin.repository';
 import type { AccountRepository } from '#src/repositories/account.repository';
+import type { AccountRequestRepository } from '#src/repositories/account-request.repository';
 import type {
   AdminOrganizationRepository,
   AdminOrgRecord,
 } from '#src/repositories/admin-organization.repository';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import type { SystemAuditRecord, SystemRepository } from '#src/repositories/system.repository';
-import { passwordRecipientOf } from '#src/services/account-rules';
+import { accountEmailRefusal, passwordRecipientOf } from '#src/services/account-rules';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { RequestContext } from '#src/services/auth.service';
 import type { RevealService } from '#src/services/reveal.service';
@@ -49,6 +50,8 @@ export interface AccountAdminServiceDeps {
   orgReads: Pick<AdminOrganizationRepository, 'findOrganization' | 'issc'>;
   organizations: Pick<AdminOrganizationService, 'createOrganization'>;
   audits: Pick<SystemRepository, 'listAuditLogs'>;
+  /** The ISSC's account requests a creation can fulfil. */
+  requests: Pick<AccountRequestRepository, 'find' | 'markCreated'>;
   reveals: Pick<RevealService, 'deliver'>;
   passwords: { hash(password: string): Promise<string> };
   audit: Pick<AuditLogRepository, 'record'>;
@@ -122,15 +125,8 @@ export function createAccountAdminService(deps: AccountAdminServiceDeps) {
   const now = deps.now ?? (() => new Date());
 
   function checkDomain(email: string) {
-    if (deps.emailDomains.length === 0) return;
-    const domain = email.split('@')[1] ?? '';
-    if (!deps.emailDomains.includes(domain)) {
-      throw new AppError(
-        400,
-        ErrorCode.VALIDATION_ERROR,
-        `email: Use an address at ${deps.emailDomains.join(' or ')}`,
-      );
-    }
+    const refusal = accountEmailRefusal(email, deps.emailDomains);
+    if (refusal) throw new AppError(400, ErrorCode.VALIDATION_ERROR, `email: ${refusal}`);
   }
 
   async function load(userId: string): Promise<AccountRecord> {
@@ -180,6 +176,7 @@ export function createAccountAdminService(deps: AccountAdminServiceDeps) {
     entry: Omit<RevealEntry, 'organization'>,
     purpose: RevealPurpose,
     recipientId: string | null,
+    requested = false,
   ): Promise<PasswordDelivery> {
     if (recipientId === null) {
       return { kind: 'shown_once', temporaryPassword: entry.temporaryPassword };
@@ -199,8 +196,9 @@ export function createAccountAdminService(deps: AccountAdminServiceDeps) {
           },
         },
       ],
-      title:
-        purpose === 'account_created'
+      title: requested
+        ? `The account you requested for ${organization.acronym} is ready`
+        : purpose === 'account_created'
           ? `New account for ${organization.acronym}`
           : `New temporary password for ${organization.acronym}`,
       body: `Reveal ${organization.acronym}’s temporary password once, within 7 days, and hand it to ${
@@ -304,6 +302,16 @@ export function createAccountAdminService(deps: AccountAdminServiceDeps) {
       if (input.organization.kind === 'existing' && !existing) {
         throw AppError.notFound('Organization not found');
       }
+      if (input.requestId) {
+        const request = await deps.requests.find(input.requestId);
+        if (!request) throw AppError.notFound('Account request not found');
+        if (request.status !== 'requested') {
+          throw AppError.conflict('This account request was already decided');
+        }
+        if (input.organization.kind !== 'existing' || request.organizationId !== existing!.id) {
+          throw AppError.conflict('This account request is for another organization');
+        }
+      }
       const recipientId = await recipientFor({ type: newType ?? existing!.type });
 
       const org = await resolveOrganization(actor, input.organization);
@@ -323,6 +331,9 @@ export function createAccountAdminService(deps: AccountAdminServiceDeps) {
           at,
         )
         .catch(duplicate);
+      if (input.requestId) {
+        await deps.requests.markCreated(input.requestId, userId, actor.userId, at);
+      }
 
       const delivery = await deliver(
         actor,
@@ -334,6 +345,7 @@ export function createAccountAdminService(deps: AccountAdminServiceDeps) {
         },
         'account_created',
         recipientId,
+        input.requestId !== undefined,
       );
       await audit.record({
         action: 'account_create',
@@ -345,6 +357,7 @@ export function createAccountAdminService(deps: AccountAdminServiceDeps) {
           organization: org.slug,
           newOrganization: input.organization.kind === 'new',
           delivery: delivery.kind,
+          ...(input.requestId && { requestId: input.requestId }),
         },
         ip: actor.ctx.ip,
         userAgent: actor.ctx.userAgent,

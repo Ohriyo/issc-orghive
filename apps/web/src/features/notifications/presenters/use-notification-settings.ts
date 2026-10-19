@@ -30,7 +30,7 @@ export type NotificationSettingsModel =
     };
 
 /** Only the ISSC account receives temporary passwords to hand over. */
-const ISSC_ONLY: NotificationKind[] = ['password_reveal'];
+const ISSC_ONLY: NotificationKind[] = ['password_reveal', 'account_request_declined'];
 
 /** Pure: the settings page's groups, in the shared order; ISSC-only kinds for the ISSC. */
 export function toGroups(

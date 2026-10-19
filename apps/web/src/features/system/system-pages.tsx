@@ -5,6 +5,7 @@ import { AuthSkeleton } from '@/features/auth/views/auth-skeleton';
 import { usePageChrome } from '@/navigation/page-chrome';
 import { chrome } from '@/navigation/trails';
 import { useSystemAccess } from './presenters/use-system-access';
+import { useAccountRequests, useOpenRequestCount } from './presenters/use-account-requests';
 import { useCreateAccount } from './presenters/use-create-account';
 import { useSystemAccount } from './presenters/use-system-account';
 import { useSystemAudit } from './presenters/use-system-audit';
@@ -17,7 +18,13 @@ import { AuditView } from './views/audit-view';
 import { CreateAccountView } from './views/create-account-view';
 import { OverviewView, RefreshButton } from './views/overview-view';
 import { SecurityView } from './views/security-view';
-import { SystemForbidden, SystemLayout, SystemLoading } from './views/system-layout';
+import {
+  SystemForbidden,
+  SystemLayout,
+  SystemLoading,
+  type SystemLayoutProps,
+} from './views/system-layout';
+import { AccountRequestsView } from './views/account-requests-view';
 import { TestDataView } from './views/test-data-view';
 import { CreateAccountButton, UsersView } from './views/users-view';
 
@@ -37,17 +44,36 @@ function Gated({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** The console's layout, with the open account requests' badge. */
+function Console(props: Omit<SystemLayoutProps, 'requestCount'>) {
+  const requestCount = useOpenRequestCount();
+  return <SystemLayout {...props} requestCount={requestCount} />;
+}
+
+function AccountRequests() {
+  usePageChrome(chrome.system('Account requests'));
+  const model = useAccountRequests();
+  return (
+    <Console
+      title="Account requests"
+      description="What the ISSC asked for. Creating one sends its temporary password to the ISSC's one-time Reveal."
+    >
+      <AccountRequestsView model={model} />
+    </Console>
+  );
+}
+
 function Overview() {
   usePageChrome(chrome.system(null));
   const state = useSystemOverview();
   return (
-    <SystemLayout
+    <Console
       title="Overview"
       description="Accounts, documents and background work across Orghive."
       actions={<RefreshButton state={state} />}
     >
       <OverviewView state={state} />
-    </SystemLayout>
+    </Console>
   );
 }
 
@@ -55,13 +81,13 @@ function Users() {
   usePageChrome(chrome.system('Users'));
   const model = useSystemUsers({ superAdminsOnly: false });
   return (
-    <SystemLayout
+    <Console
       title="Users"
       description="One shared account per organization. Open one to manage it."
       actions={<CreateAccountButton />}
     >
       <UsersView model={model} superAdmins={false} />
-    </SystemLayout>
+    </Console>
   );
 }
 
@@ -69,12 +95,12 @@ function SuperAdmins() {
   usePageChrome(chrome.system('Super admins'));
   const model = useSystemUsers({ superAdminsOnly: true });
   return (
-    <SystemLayout
+    <Console
       title="Super admins"
       description="Added only with the create-super-admin command. At least one must stay active."
     >
       <UsersView model={model} superAdmins />
-    </SystemLayout>
+    </Console>
   );
 }
 
@@ -82,12 +108,12 @@ function NewAccount() {
   usePageChrome(chrome.systemAccount('Create account'));
   const model = useCreateAccount();
   return (
-    <SystemLayout
+    <Console
       title="Create account"
       description="The shared account of one organization: an existing one, or a new CSC or SBO."
     >
       <CreateAccountView model={model} />
-    </SystemLayout>
+    </Console>
   );
 }
 
@@ -97,10 +123,7 @@ function Account() {
   const title = model.status === 'ready' ? model.summary.name : 'Account';
   usePageChrome(chrome.systemAccount(title));
   return (
-    <SystemLayout
-      title={title}
-      description={model.status === 'ready' ? model.summary.email : undefined}
-    >
+    <Console title={title} description={model.status === 'ready' ? model.summary.email : undefined}>
       {model.status === 'loading' ? (
         <SystemLoading label="Loading the account" />
       ) : model.status === 'not-found' ? (
@@ -112,7 +135,7 @@ function Account() {
       ) : (
         <AccountView model={model} />
       )}
-    </SystemLayout>
+    </Console>
   );
 }
 
@@ -120,12 +143,9 @@ function TestData() {
   usePageChrome(chrome.system('Test data'));
   const model = useTestData();
   return (
-    <SystemLayout
-      title="Test data"
-      description="Review, then delete the files flagged as test data."
-    >
+    <Console title="Test data" description="Review, then delete the files flagged as test data.">
       <TestDataView model={model} />
-    </SystemLayout>
+    </Console>
   );
 }
 
@@ -133,9 +153,9 @@ function Audit() {
   usePageChrome(chrome.system('Audit log'));
   const model = useSystemAudit();
   return (
-    <SystemLayout title="Audit log" description="Newest first. Times are Manila time.">
+    <Console title="Audit log" description="Newest first. Times are Manila time.">
       <AuditView model={model} />
-    </SystemLayout>
+    </Console>
   );
 }
 
@@ -143,9 +163,9 @@ function Security() {
   usePageChrome(chrome.system('My security'));
   const model = useSystemSecurity();
   return (
-    <SystemLayout title="My security" description="This session and your two-step sign-in.">
+    <Console title="My security" description="This session and your two-step sign-in.">
       <SecurityView model={model} />
-    </SystemLayout>
+    </Console>
   );
 }
 
@@ -193,6 +213,14 @@ export function SystemTestDataPage() {
   return (
     <Gated>
       <TestData />
+    </Gated>
+  );
+}
+
+export function SystemAccountRequestsPage() {
+  return (
+    <Gated>
+      <AccountRequests />
     </Gated>
   );
 }

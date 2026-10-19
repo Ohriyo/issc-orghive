@@ -7,11 +7,14 @@ import {
   slugParamsSchema,
   updateCollegeRequestSchema,
   updateOrganizationRequestSchema,
+  requestAccountRequestSchema,
 } from '@orghive/shared';
 import { z } from 'zod';
 import { AppError } from '#src/errors/app-error';
 import { authOf } from '#src/middleware/require-auth';
+import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
+import { requestContext } from '#src/middleware/require-super-admin';
 import type { Actor } from '#src/services/document.service';
 
 const activeBodySchema = z.strictObject({ active: z.boolean() });
@@ -20,7 +23,25 @@ function actorOf(req: Request, res: Response): Actor {
   return { userId: authOf(res).userId, ip: req.ip };
 }
 
-export function createAdminController(organizations: AdminOrganizationService) {
+export function createAdminController(
+  organizations: AdminOrganizationService,
+  accountRequests: AccountRequestService,
+) {
+  /** The ISSC account asks the super admin for an organization's account. */
+  const requestAccount: RequestHandler = async (req, res) => {
+    const { slug } = slugParamsSchema.parse(req.params);
+    const body = requestAccountRequestSchema.parse(req.body);
+    res
+      .status(201)
+      .json(
+        await accountRequests.request(
+          { userId: authOf(res).userId, ctx: requestContext(req) },
+          slug,
+          body,
+        ),
+      );
+  };
+
   const tree: RequestHandler = async (_req, res) => {
     res.json(await organizations.tree());
   };
@@ -74,6 +95,7 @@ export function createAdminController(organizations: AdminOrganizationService) {
   };
 
   return {
+    requestAccount,
     tree,
     createCollege,
     updateCollege,

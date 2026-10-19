@@ -31,6 +31,12 @@ import { createAdminOrganizationService } from '#src/services/admin-organization
 import { createNotificationService } from '#src/services/notification.service';
 import { createRevealService } from '#src/services/reveal.service';
 import { createSupportService } from '#src/services/support.service';
+import { createAccountRequestRepository } from '#src/repositories/account-request.repository';
+import { createDocumentRepository } from '#src/repositories/document.repository';
+import { createOrganizationRepository } from '#src/repositories/organization.repository';
+import { createProjectRepository } from '#src/repositories/project.repository';
+import { createAccessService } from '#src/services/access.service';
+import { createAccountRequestService } from '#src/services/account-request.service';
 import { createTokenService } from '#src/services/token.service';
 import { buildTestApp, TEST_ASSET_BASE_URL, TEST_WEB_ORIGIN } from './helpers';
 import type { Redis } from 'ioredis';
@@ -233,7 +239,21 @@ export function buildAuthApp(
     publicUrl: createPublicUrl(TEST_ASSET_BASE_URL),
     now,
   });
+  const accountRequestReads = createAccountRequestRepository(db);
+  const accountRequests = createAccountRequestService({
+    requests: accountRequestReads,
+    orgReads: adminOrganizationReads,
+    superAdmins: systemReads,
+    mailer,
+    notifications,
+    audit,
+    logger,
+    webOrigin: TEST_WEB_ORIGIN,
+    emailDomains,
+    now,
+  });
   const accountAdmin = createAccountAdminService({
+    requests: accountRequestReads,
     accounts: accountAdminReads,
     accountReads: accounts,
     orgReads: adminOrganizationReads,
@@ -264,6 +284,13 @@ export function buildAuthApp(
       reveals,
       adminOrganizations,
       accountAdmin,
+      accountRequests,
+      access: createAccessService({
+        accounts,
+        organizations: createOrganizationRepository(db),
+        documents: createDocumentRepository(db),
+        projects: createProjectRepository(db),
+      }),
       support,
       tokens: {
         verify: (token) => tokens.verify(token),

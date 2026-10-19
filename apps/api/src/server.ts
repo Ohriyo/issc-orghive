@@ -64,6 +64,8 @@ import { createSuperAdminService } from '#src/services/super-admin.service';
 import { createSessionGuard } from '#src/services/session-guard';
 import { createAccountAdminRepository } from '#src/repositories/account-admin.repository';
 import { createRevealRepository } from '#src/repositories/reveal.repository';
+import { createAccountRequestRepository } from '#src/repositories/account-request.repository';
+import { createAccountRequestService } from '#src/services/account-request.service';
 import { createSupportRepository } from '#src/repositories/support.repository';
 import { createAccountAdminService } from '#src/services/account-admin.service';
 import { createRevealService } from '#src/services/reveal.service';
@@ -176,6 +178,7 @@ if (!config.MFA_ENCRYPTION_KEY) {
 }
 const secrets = config.MFA_ENCRYPTION_KEY ? createSecretBox(config.MFA_ENCRYPTION_KEY) : null;
 const accountAdminReads = createAccountAdminRepository(db);
+const accountRequestReads = createAccountRequestRepository(db);
 const reveals = createRevealService({
   reveals: createRevealRepository(db),
   secrets,
@@ -306,9 +309,21 @@ const app = createApp({
       orgReads: adminOrganizationReads,
       organizations: adminOrganizations,
       audits: systemReads,
+      requests: accountRequestReads,
       reveals,
       passwords,
       audit,
+      emailDomains: config.ACCOUNT_EMAIL_DOMAINS,
+    }),
+    accountRequests: createAccountRequestService({
+      requests: accountRequestReads,
+      orgReads: adminOrganizationReads,
+      superAdmins: systemReads,
+      mailer,
+      notifications,
+      audit,
+      logger,
+      webOrigin: config.WEB_ORIGIN,
       emailDomains: config.ACCOUNT_EMAIL_DOMAINS,
     }),
     support: createSupportService({

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AccountRequestSummary,
   AdminOrganizationTree,
   AuthResponse,
   AuthUser,
@@ -158,6 +159,7 @@ const iecep = {
   active: true,
   documentCount: 0,
   hasAccount: false,
+  accountRequest: null as AccountRequestSummary | null,
 };
 const TREE: AdminOrganizationTree = {
   issc: { ...iecep, type: 'ISSC', slug: 'issc', acronym: 'ISSC', name: 'ISSC', hasAccount: true },
@@ -179,6 +181,29 @@ const TREE: AdminOrganizationTree = {
       sbos: [iecep, { ...iecep, slug: 'jpice', acronym: 'JPICE', name: 'JPICE', hasAccount: true }],
     },
   ],
+};
+
+const REQUEST_ID = '0195f3c0-0000-7000-8000-0000000000b1';
+const REQUEST = {
+  id: REQUEST_ID,
+  status: 'requested' as const,
+  organization: {
+    slug: 'iecep',
+    acronym: 'IECEP',
+    name: 'Institute of Electronics Engineers',
+    type: 'SBO' as const,
+    collegeSlug: 'cea',
+    college: 'CEA',
+    hasAccount: false,
+  },
+  accountEmail: 'iecep@nwssu.test',
+  officerInCharge: { name: 'Rosa Lim', position: 'President', email: 'rosa@nwssu.test' },
+  note: 'New this year',
+  requestedAt: NOW,
+  requestedBy: { name: 'ISSC', email: 'issc@nwssu.test' },
+  decidedAt: null,
+  declineReason: null,
+  createdAccountId: null,
 };
 
 /** What the create-account and reset endpoints answer with; tests switch it. */
@@ -224,6 +249,12 @@ function serve(refresh: AuthResponse = session()) {
       return json({ ...studentRow, lockedAt: NOW, lockReason: 'Suspicious' });
     }
     if (path === '/system/organizations') return json(TREE);
+    if (path === '/system/account-requests/count') return json({ open: 1 });
+    if (path === '/system/account-requests') return json({ items: [REQUEST], openCount: 1 });
+    if (path === `/system/account-requests/${REQUEST_ID}`) return json(REQUEST);
+    if (path === `/system/account-requests/${REQUEST_ID}/decline`) {
+      return json({ ...REQUEST, status: 'declined', declineReason: 'Use the official address' });
+    }
     if (path === '/system/organizations/jpice/documents') return json(FILES);
     if (path.endsWith('/rescan')) return Promise.resolve(new Response(null, { status: 204 }));
     if (path === '/system/accounts') {
@@ -477,6 +508,54 @@ describe('/system', () => {
     expect(
       within(screen.getByLabelText('Organization')).queryByRole('option', { name: 'ISSC' }),
     ).toBeNull();
+  });
+
+  it('queues account requests with a badge; declining needs a reason', async () => {
+    serve();
+    renderAt('/system/account-requests');
+    const nav = await screen.findByRole('navigation', { name: 'System console' });
+    expect(await within(nav).findByText('1')).toBeInTheDocument();
+    const list = await screen.findByRole('list', { name: 'Account requests' });
+    expect(within(list).getByText('iecep@nwssu.test')).toBeInTheDocument();
+    expect(within(list).getByText('New this year')).toBeInTheDocument();
+    expect(within(list).getByRole('link', { name: /Create account: IECEP/ })).toHaveAttribute(
+      'href',
+      `/system/users/new?request=${REQUEST_ID}`,
+    );
+
+    fireEvent.click(within(list).getByRole('button', { name: /Decline: IECEP/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Decline this request?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Decline request' }));
+    expect(await within(dialog).findByText('Say why, so the ISSC can fix it')).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText('Reason'), {
+      target: { value: 'Use the official address' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Decline request' }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.path === `/system/account-requests/${REQUEST_ID}/decline`)?.body,
+      ).toEqual({ reason: 'Use the official address' }),
+    );
+  });
+
+  it('starts the create form from a request, and fulfils it', async () => {
+    serve();
+    renderAt(`/system/users/new?request=${REQUEST_ID}`);
+    expect(
+      await screen.findByText(/Filled in from the ISSC's request for IECEP/),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByLabelText('Account email')).toHaveValue('iecep@nwssu.test'),
+    );
+    expect(screen.getByLabelText('Organization')).toHaveValue('iecep');
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === '/system/accounts')?.body).toMatchObject({
+        organization: { kind: 'existing', slug: 'iecep' },
+        email: 'iecep@nwssu.test',
+        requestId: REQUEST_ID,
+      }),
+    );
   });
 
   it('previews test data and deletes it after a step-up', async () => {

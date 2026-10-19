@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/skeleton';
 import { cn } from '@/lib/utils';
 import type { AdminOrganizationsState, HierarchyRow } from '../presenters/use-admin-organizations';
 import { OrganizationSheet } from './organization-sheet';
+import { RequestAccountDialog } from './request-account-dialog';
 
 type Ready = Extract<AdminOrganizationsState, { status: 'ready' }>;
 
@@ -115,8 +116,7 @@ function columnsFor(state: Ready): DataTableColumn<HierarchyRow>[] {
     {
       id: 'account',
       header: 'Account',
-      cell: ({ row }) =>
-        row.original.hasAccount === null ? null : row.original.hasAccount ? 'Active' : 'None',
+      cell: ({ row }) => <AccountCell row={row.original} />,
     },
     { id: 'status', header: 'Status', cell: ({ row }) => <StatusCell row={row.original} /> },
     {
@@ -127,9 +127,39 @@ function columnsFor(state: Ready): DataTableColumn<HierarchyRow>[] {
   ];
 }
 
+/** Active, Requested, Declined (with the super admin's reason), or None. */
+function AccountCell({ row }: { row: HierarchyRow }) {
+  if (!row.account) return null;
+  return (
+    <span className="flex max-w-56 flex-col whitespace-normal">
+      <span
+        className={cn(
+          'font-medium',
+          row.account.label === 'Declined' ? 'text-caution' : 'text-ink',
+        )}
+      >
+        {row.account.label}
+      </span>
+      {row.account.detail ? (
+        <span className="text-small text-ink-muted">{row.account.detail}</span>
+      ) : null}
+    </span>
+  );
+}
+
 function RowActions({ row, state }: { row: HierarchyRow; state: Ready }) {
   return (
-    <span className="flex items-center justify-end gap-5">
+    <span className="flex flex-wrap items-center justify-end gap-x-5 gap-y-6 py-1">
+      {row.canRequestAccount ? (
+        <button
+          type="button"
+          className={ROW_ACTION}
+          aria-label={`Request account for ${row.label}`}
+          onClick={() => state.requestAccount(row.slug)}
+        >
+          Request account
+        </button>
+      ) : null}
       {row.adds.map((type) => (
         <button
           key={type}
@@ -188,8 +218,8 @@ function HierarchyList({ rows, state }: { rows: HierarchyRow[]; state: Ready }) 
               <StatusCell row={row} />
               {row.documentCount !== null ? (
                 <span className="text-ink-muted">
-                  {row.documentCount} documents,{' '}
-                  {row.hasAccount ? 'account active' : 'no account yet'}
+                  {row.documentCount} documents, account: {row.account?.label.toLowerCase()}
+                  {row.account?.detail ? ` (${row.account.detail})` : ''}
                 </span>
               ) : null}
             </span>
@@ -262,6 +292,7 @@ export function OrganizationsView({ state }: { state: AdminOrganizationsState })
               />
             </div>
             <OrganizationSheet state={state} />
+            <RequestAccountDialog dialog={state.requestDialog} />
           </>
         )}
       </section>

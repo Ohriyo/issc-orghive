@@ -9,6 +9,7 @@ import {
   requireSuperAdmin,
 } from '#src/middleware/require-super-admin';
 import type { AccountAdminService } from '#src/services/account-admin.service';
+import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { SuperAdminService } from '#src/services/super-admin.service';
 import type { SupportService } from '#src/services/support.service';
@@ -20,6 +21,7 @@ export interface SystemRouterDeps {
   accounts: AccountAdminService;
   organizations: Pick<AdminOrganizationService, 'tree' | 'setLogo'>;
   support: SupportService;
+  requests: AccountRequestService;
   tokens: AccessVerifier;
 }
 
@@ -34,11 +36,17 @@ export function systemRouter({
   accounts,
   organizations,
   support,
+  requests,
   tokens,
 }: SystemRouterDeps): Router {
   const router = Router();
   const controller = createSystemController(system, superAdmins);
-  const consoleController = createAccountAdminController(accounts, organizations, support);
+  const consoleController = createAccountAdminController(
+    accounts,
+    organizations,
+    support,
+    requests,
+  );
   const stepUp = requireStepUp(superAdmins);
 
   router.use(requireAuth(tokens), requireSuperAdmin(system), auditSystemReads(system));
@@ -57,6 +65,10 @@ export function systemRouter({
   router.patch('/users/:userId/status', stepUp, controller.setUserStatus);
   router.patch('/users/:userId/system-role', stepUp, controller.setSystemRole);
   router.post('/accounts', consoleController.create);
+  router.get('/account-requests', consoleController.listRequests);
+  router.get('/account-requests/count', consoleController.countRequests);
+  router.get('/account-requests/:requestId', consoleController.getRequest);
+  router.post('/account-requests/:requestId/decline', consoleController.declineRequest);
   router.get('/organizations', consoleController.organizationTree);
   // Small images only, as raw bytes, like /admin's logo upload.
   router.put(

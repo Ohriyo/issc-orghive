@@ -1,4 +1,4 @@
-import { FlaskConical, Gauge, KeyRound, ScrollText, ShieldCheck, Users } from 'lucide-react';
+import { FlaskConical, Gauge, Inbox, KeyRound, ScrollText, ShieldCheck, Users } from 'lucide-react';
 import { NavLink } from 'react-router';
 import { Container } from '@/components/container';
 import { cn } from '@/lib/utils';
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 const SECTIONS = [
   { to: '/system/overview', label: 'Overview', icon: Gauge },
   { to: '/system/users', label: 'Users', icon: Users },
+  { to: '/system/account-requests', label: 'Account requests', icon: Inbox },
   { to: '/system/super-admins', label: 'Super admins', icon: ShieldCheck },
   { to: '/system/test-data', label: 'Test data', icon: FlaskConical },
   { to: '/system/audit', label: 'Audit log', icon: ScrollText },
@@ -14,7 +15,7 @@ const SECTIONS = [
 ] as const;
 
 const NAV_LINK = cn(
-  'flex min-h-11 shrink-0 items-center gap-2.5 rounded-lg px-3 text-body font-medium whitespace-nowrap text-ink-muted',
+  'relative flex min-h-11 shrink-0 items-center gap-2.5 rounded-lg px-3 text-body font-medium whitespace-nowrap text-ink-muted',
   'transition-colors duration-300 hover:bg-white/70 hover:text-ink focus-visible:bg-white/70 focus-visible:text-ink',
   'aria-[current=page]:bg-white aria-[current=page]:text-ink aria-[current=page]:ring-1 aria-[current=page]:ring-border',
 );
@@ -25,6 +26,8 @@ export interface SystemLayoutProps {
   description?: string;
   /** Right of the title, e.g. a Refresh button. */
   actions?: React.ReactNode;
+  /** Open account requests: a badge on that section. */
+  requestCount?: number;
   children: React.ReactNode;
 }
 
@@ -32,7 +35,13 @@ export interface SystemLayoutProps {
  * /system: the super admin console. Calm and dense: a sidebar of sections from lg up (a
  * row that scrolls sideways on phones), and the full remaining width for tables.
  */
-export function SystemLayout({ title, description, actions, children }: SystemLayoutProps) {
+export function SystemLayout({
+  title,
+  description,
+  actions,
+  requestCount = 0,
+  children,
+}: SystemLayoutProps) {
   return (
     <div className="min-h-page bg-surface">
       <title>{`${title} | System | Orghive`}</title>
@@ -49,6 +58,12 @@ export function SystemLayout({ title, description, actions, children }: SystemLa
                   <NavLink to={to} className={NAV_LINK}>
                     <Icon aria-hidden="true" className="size-4.5 shrink-0" />
                     {label}
+                    {to === '/system/account-requests' && requestCount > 0 ? (
+                      <span className="ml-auto rounded-full bg-destructive px-2 py-0.5 text-caption font-semibold text-white tabular-nums">
+                        {requestCount}
+                        <span className="sr-only"> open</span>
+                      </span>
+                    ) : null}
                   </NavLink>
                 </li>
               ))}

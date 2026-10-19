@@ -1,6 +1,9 @@
 import type { Request, RequestHandler, Response } from 'express';
 import {
+  accountRequestIdParamsSchema,
   createAccountRequestSchema,
+  declineAccountRequestSchema,
+  systemAccountRequestListQuerySchema,
   ErrorCode,
   deleteTestDataRequestSchema,
   documentIdParamsSchema,
@@ -14,6 +17,7 @@ import { AppError } from '#src/errors/app-error';
 import { authOf } from '#src/middleware/require-auth';
 import { requestContext } from '#src/middleware/require-super-admin';
 import type { AccountAdminService, ConsoleActor } from '#src/services/account-admin.service';
+import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { SupportService } from '#src/services/support.service';
 
@@ -26,6 +30,7 @@ export function createAccountAdminController(
   accounts: AccountAdminService,
   organizations: Pick<AdminOrganizationService, 'tree' | 'setLogo'>,
   support: SupportService,
+  requests: AccountRequestService,
 ) {
   const list: RequestHandler = async (req, res) => {
     res.json(await accounts.list(systemUserListQuerySchema.parse(req.query)));
@@ -104,7 +109,31 @@ export function createAccountAdminController(
     res.json(await support.deleteTestData(actorOf(req, res), expectedCount));
   };
 
+  const listRequests: RequestHandler = async (req, res) => {
+    const { status } = systemAccountRequestListQuerySchema.parse(req.query);
+    res.json(await requests.list(status));
+  };
+
+  const countRequests: RequestHandler = async (_req, res) => {
+    res.json(await requests.count());
+  };
+
+  const getRequest: RequestHandler = async (req, res) => {
+    const { requestId } = accountRequestIdParamsSchema.parse(req.params);
+    res.json(await requests.get(requestId));
+  };
+
+  const declineRequest: RequestHandler = async (req, res) => {
+    const { requestId } = accountRequestIdParamsSchema.parse(req.params);
+    const body = declineAccountRequestSchema.parse(req.body);
+    res.json(await requests.decline(actorOf(req, res), requestId, body));
+  };
+
   return {
+    listRequests,
+    countRequests,
+    getRequest,
+    declineRequest,
     list,
     detail,
     create,

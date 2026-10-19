@@ -1,3 +1,4 @@
+import { BACKGROUND_REQUEST_HEADER } from '@orghive/shared';
 import type { Request, RequestHandler } from 'express';
 import { AppError } from '#src/errors/app-error';
 import type { RequestContext } from '#src/services/auth.service';
@@ -43,11 +44,12 @@ export function requireStepUp(
 
 /**
  * Audits every /system read (`system_view`). Writes are audited by their service, with
- * before and after values, so they are skipped here.
+ * before and after values, so they are skipped here; so are background polls (the sidebar's
+ * request count), which nobody reads as a page.
  */
 export function auditSystemReads(system: Pick<SystemService, 'recordView'>): RequestHandler {
   return async (req, res, next) => {
-    if (req.method === 'GET') {
+    if (req.method === 'GET' && req.get(BACKGROUND_REQUEST_HEADER) !== '1') {
       // The route pattern is not known yet at router level; the path never holds secrets.
       await system.recordView(authOf(res).userId, `${req.baseUrl}${req.path}`, requestContext(req));
     }

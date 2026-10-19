@@ -61,6 +61,15 @@ export function createAdminOrganizationService({
       active: org.deactivatedAt === null,
       documentCount: org._count.documents,
       hasAccount: org._count.accounts > 0,
+      accountRequest: org.accountRequests[0]
+        ? {
+            id: org.accountRequests[0].id,
+            status: org.accountRequests[0].status,
+            requestedAt: org.accountRequests[0].createdAt.toISOString(),
+            decidedAt: org.accountRequests[0].decidedAt?.toISOString() ?? null,
+            declineReason: org.accountRequests[0].declineReason,
+          }
+        : null,
     };
   }
 

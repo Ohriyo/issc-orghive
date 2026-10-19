@@ -222,7 +222,7 @@ export function ComponentsPage() {
             thumbnailSrc={pagePreview}
             isNew
             org={{ name: 'JPICE', logoSrc: ceaOrganizations[0]!.logoSrc }}
-            status="approved"
+            status="archived"
           />
           <DocumentCard
             title="Resolution no. 4: Adopting the revised constitution and by-laws of the council for academic year 2026 to 2027"
@@ -231,7 +231,7 @@ export function ComponentsPage() {
             href="#document-card"
             fileType="docx"
             org={{ name: 'CSC-CEA', logoSrc: colleges[0]!.logoSrc }}
-            status="pending"
+            status="scanning"
           />
           <DocumentCard
             title="Engineering week budget"
@@ -240,7 +240,7 @@ export function ComponentsPage() {
             href="#document-card"
             fileType="xlsx"
             org={{ name: 'PSME', shortName: 'PSME' }}
-            status="rejected"
+            status="quarantined"
           />
           <DocumentCardSkeleton />
         </div>

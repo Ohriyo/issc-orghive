@@ -66,9 +66,9 @@ describe('DocumentCard', () => {
 
   it('shows a status only when given, labelled in words', () => {
     renderCard();
-    expect(screen.queryByText('Pending review')).not.toBeInTheDocument();
-    renderCard({ status: 'pending' });
-    expect(screen.getByText('Pending review')).toBeInTheDocument();
+    expect(screen.queryByText('Scanning')).not.toBeInTheDocument();
+    renderCard({ status: 'scanning' });
+    expect(screen.getByText('Scanning')).toBeInTheDocument();
   });
 
   it('hides the loading skeleton from assistive technology', () => {

@@ -9,6 +9,7 @@ function sbo(acronym: string) {
     acronym,
     name: `${acronym} full name`,
     logoUrl: null,
+    logoSrcSet: null,
   };
 }
 
@@ -25,6 +26,7 @@ const CEA: CollegeDetail = {
     name: 'Collegiate Student Council of the College of Engineering and Architecture',
     description: 'The CSC-CEA unites all CEA-tizens.',
     logoUrl: 'https://cdn.test/csc-cea.png',
+    logoSrcSet: null,
   },
   sbos: ['JPICE', 'IECEP', 'ICpEP.SE', 'PSME', 'UAPSA', 'JIIEE'].map(sbo),
 };

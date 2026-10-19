@@ -7,14 +7,15 @@
     "node": ">=22.22.0"
   },
   "scripts": {
-    "dev": "pnpm -r --parallel run dev",
+    "dev": "pnpm -r --parallel run \"/^dev(:worker)?$/\"",
     "build": "pnpm -r run build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:headers": "node scripts/check-headers.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

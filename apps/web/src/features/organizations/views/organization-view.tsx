@@ -1,4 +1,6 @@
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
+import { Container } from '@/components/container';
+import { LOGO_SIZES } from '@/components/logo-sizes';
 import { EmphasizedText } from '@/components/emphasized-text';
 import { HexFrame } from '@/components/hex-frame';
 import { OrgLogo } from '@/components/org-logo';
@@ -15,17 +17,20 @@ import type {
 
 export type OrganizationViewProps = Exclude<OrganizationPageState, { status: 'not-found' }>;
 
-const HEX = 'mx-auto w-full max-w-[18rem] sm:max-w-[24rem] lg:max-w-[35rem]';
-const ACRONYM = 'text-h1 font-bold text-ink lg:text-display';
+const HEX = 'mx-auto w-full max-w-[14rem] sm:max-w-[20rem] lg:max-w-[35rem]';
+/** Below lg the logo leads and the text is centred under it. */
+const TEXT_COLUMN = 'order-last max-lg:text-center';
+const ACRONYM = 'text-display font-bold text-ink';
 
 /**
  * /orgs/:slug, from design/sbo-jpice.png (and jiiee, uapsa): the organization's logo in a
- * large framed hexagon, then its acronym, full name, description and Paperworks pill. The
+ * large framed hexagon, then its acronym, full name, description and Paperworks pill.
+ * Side by side from lg; below it the logo sits on top and the text is centred. The
  * prototype's wave bands frame the page top and bottom; they settle in once on arrival.
  */
 export function OrganizationView(props: OrganizationViewProps) {
   return (
-    <div className="bg-surface-sweep relative isolate flex min-h-dvh flex-col overflow-hidden">
+    <div className="bg-surface-sweep relative isolate flex min-h-page flex-col overflow-hidden">
       {props.status === 'ready' ? (
         <Seo seo={props.page.seo} />
       ) : (
@@ -34,7 +39,10 @@ export function OrganizationView(props: OrganizationViewProps) {
       <WaveDivider className="pointer-events-none absolute inset-x-0 top-0 -z-10 -translate-y-[38%]" />
       <WaveDivider className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 translate-y-[48%] rotate-180" />
 
-      <main className="mx-auto grid w-full max-w-7xl flex-1 content-center items-center gap-10 px-4 pt-[calc(14vw+2rem)] pb-[calc(11vw+3rem)] sm:px-8 lg:grid-cols-2 lg:gap-16 lg:px-20">
+      <Container
+        as="main"
+        className="grid flex-1 content-center items-center gap-10 pt-[calc(14vw+2rem)] pb-[calc(11vw+3rem)] lg:grid-cols-2 lg:gap-16"
+      >
         {props.status === 'ready' ? (
           <OrganizationProfile page={props.page} />
         ) : props.status === 'error' ? (
@@ -49,7 +57,7 @@ export function OrganizationView(props: OrganizationViewProps) {
         ) : (
           <ProfileSkeleton />
         )}
-      </main>
+      </Container>
     </div>
   );
 }
@@ -57,30 +65,30 @@ export function OrganizationView(props: OrganizationViewProps) {
 function OrganizationProfile({ page }: { page: OrganizationPageModel }) {
   return (
     <>
-      <Reveal className="lg:order-last">
+      <Reveal className={TEXT_COLUMN}>
         <h1 className={ACRONYM}>
           <span className="block">{page.acronym}</span>{' '}
-          <span className="mt-3 block max-w-[30rem] text-body-lg font-normal tracking-normal text-pretty sm:text-lead">
+          <span className="mt-3 block max-w-[30rem] text-lead font-normal tracking-normal text-pretty max-lg:mx-auto">
             {page.name}
           </span>
         </h1>
         {page.description ? (
-          <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink">
+          <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink max-lg:mx-auto">
             <EmphasizedText segments={page.description} />
           </p>
         ) : null}
         <PillButton asChild size="lg" className="mt-10">
-          <Link to={page.paperworksHref}>Paperworks</Link>
+          <OriginLink to={page.paperworksHref}>Paperworks</OriginLink>
         </PillButton>
         {page.context ? (
-          <p className="mt-10 max-w-[30rem] text-body text-ink">
+          <p className="mt-10 max-w-[30rem] text-body text-ink max-lg:mx-auto">
             {page.context.lead}{' '}
-            <Link
+            <OriginLink
               to={page.context.college.href}
-              className="font-medium underline decoration-1 underline-offset-4 transition-colors duration-300 hover:decoration-leaf"
+              className="font-medium underline decoration-1 underline-offset-4 transition-colors duration-300 tap-area hover:decoration-leaf focus-visible:decoration-leaf"
             >
               {page.context.college.name}
-            </Link>
+            </OriginLink>
           </p>
         ) : null}
       </Reveal>
@@ -89,6 +97,8 @@ function OrganizationProfile({ page }: { page: OrganizationPageModel }) {
           <OrgLogo
             name={page.name}
             src={page.logoSrc}
+            srcSet={page.logoSrcSet}
+            sizes={LOGO_SIZES.feature}
             alt=""
             fallbackText={page.acronym}
             priority
@@ -103,7 +113,10 @@ function OrganizationProfile({ page }: { page: OrganizationPageModel }) {
 function ProfileSkeleton() {
   return (
     <>
-      <div aria-busy="true" className="lg:order-last">
+      <div
+        aria-busy="true"
+        className={`${TEXT_COLUMN} max-lg:flex max-lg:flex-col max-lg:items-center`}
+      >
         <h1 className="sr-only">Loading the organization</h1>
         <Skeleton className="h-12 w-48 lg:h-[4.5rem] lg:w-64" />
         <Skeleton className="mt-4 h-5 w-80 max-w-full" />

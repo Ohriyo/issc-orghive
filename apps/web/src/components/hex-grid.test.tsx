@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HexGrid, type HexGridCell } from './hex-grid';
 
 const cells: HexGridCell[] = [
@@ -78,5 +78,51 @@ describe('HexGrid', () => {
     renderGrid({ cells: [], emptyState: <p>No colleges yet.</p> });
     expect(screen.getByText('No colleges yet.')).toBeInTheDocument();
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
+  });
+});
+
+describe('HexGrid responsive columns', () => {
+  /** Emulates a viewport width for useBreakpoint's (width >= Nrem) queries. */
+  function atWidth(px: number) {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: px >= Number(/([\d.]+)rem/.exec(query)?.[1]) * 16,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  const six = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id, label: `Org ${id}` }));
+  /** Distinct column offsets (`left`) used by the placed cells. */
+  function columnCount() {
+    const lefts = [...screen.getByRole('list').querySelectorAll('li')].map((li) => li.style.left);
+    return new Set(lefts).size;
+  }
+
+  it('uses 2 columns on phones, 3 on tablets and the full honeycomb from lg', () => {
+    atWidth(360);
+    const { unmount } = renderGrid({ cells: six });
+    expect(columnCount()).toBe(2);
+    unmount();
+
+    atWidth(768);
+    const tablet = renderGrid({ cells: six });
+    expect(columnCount()).toBe(3);
+    tablet.unmount();
+
+    atWidth(1366);
+    renderGrid({ cells: six });
+    expect(columnCount()).toBe(4);
+  });
+
+  it('drops decorative fillers below lg, where they would leave holes', () => {
+    atWidth(768);
+    const { unmount } = renderGrid();
+    expect(screen.getByRole('list').querySelectorAll('li[aria-hidden="true"]')).toHaveLength(0);
+    unmount();
+
+    atWidth(1366);
+    renderGrid();
+    expect(screen.getByRole('list').querySelectorAll('li[aria-hidden="true"]')).toHaveLength(2);
   });
 });

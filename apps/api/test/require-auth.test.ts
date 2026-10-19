@@ -1,84 +1,195 @@
 import express from 'express';
 import request from 'supertest';
 import { pino } from 'pino';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ErrorCode } from '@orghive/shared';
+import { AppError } from '#src/errors/app-error';
 import { createErrorHandler } from '#src/middleware/error-handler';
-import { authOf, requireAuth, requireOrgRole } from '#src/middleware/require-auth';
+import {
+  authOf,
+  createOrgGuards,
+  maybeAuthOf,
+  optionalAuth,
+  orgOf,
+  requireAuth,
+} from '#src/middleware/require-auth';
+import type { AccessService } from '#src/services/access.service';
 import { createTokenService } from '#src/services/token.service';
 import { testKeys } from './auth-fixtures';
 
 const USER = '0195f3c0-0000-7000-8000-000000000001';
-const JPICE = '0195f3c0-0000-7000-8000-0000000000aa';
-const PSME = '0195f3c0-0000-7000-8000-0000000000bb';
+const DOC = '0195f3c0-0000-7000-8000-0000000000d1';
+const PROJECT = '0195f3c0-0000-7000-8000-0000000000c1';
+const UPDATE = '0195f3c0-0000-7000-8000-0000000000a9';
+const JPICE = { id: '0195f3c0-0000-7000-8000-0000000000aa', slug: 'jpice' };
 const tokens = createTokenService(testKeys());
 
-/** A mutating route guarded the way CLAUDE.md requires. */
-function guardedApp() {
+/** An access service that knows one organization and one document, and allows `allow`. */
+function fakeAccess(allow: boolean) {
+  const decide = () => (allow ? Promise.resolve() : Promise.reject(AppError.forbidden()));
+  return {
+    resolveBySlug: vi.fn((slug: string) => Promise.resolve(slug === 'jpice' ? JPICE : null)),
+    resolveByDocument: vi.fn((id: string) => Promise.resolve(id === DOC ? JPICE : null)),
+    resolveByProject: vi.fn((id: string) => Promise.resolve(id === PROJECT ? JPICE : null)),
+    resolveByAnnouncement: vi.fn((id: string) => Promise.resolve(id === UPDATE ? JPICE : null)),
+    requireOrgAccess: vi.fn(decide),
+    requireAdmin: vi.fn(() => (allow ? Promise.resolve() : Promise.reject(AppError.forbidden()))),
+    requireActive: vi.fn(() => Promise.resolve()),
+  } satisfies AccessService;
+}
+
+/** Mutating routes guarded the way CLAUDE.md requires. */
+function guardedApp(access: AccessService) {
   const app = express();
-  app.post(
-    '/orgs/:orgId/documents',
-    requireAuth(tokens),
-    requireOrgRole('officer', (req) => req.params.orgId as string),
-    (_req, res) => {
-      res.json({ userId: authOf(res).userId });
-    },
-  );
+  const { requireOwnOrg, requireOrgOrGoverning } = createOrgGuards(access);
+  const ok: express.RequestHandler = (_req, res) => {
+    res.json({ userId: authOf(res).userId, org: orgOf(res).slug });
+  };
+  app.post('/orgs/:slug/documents', requireAuth(tokens), requireOwnOrg, ok);
+  app.patch('/documents/:documentId', requireAuth(tokens), requireOrgOrGoverning, ok);
+  app.patch('/projects/:projectId', requireAuth(tokens), requireOwnOrg, ok);
+  app.patch('/documents/:documentId/visibility', requireAuth(tokens), requireOwnOrg, ok);
+  app.get('/maybe', optionalAuth(tokens), (_req, res) => {
+    res.json({ userId: maybeAuthOf(res)?.userId ?? null });
+  });
   app.use(createErrorHandler(pino({ level: 'silent' })));
   return app;
 }
 
-async function tokenFor(
-  opts: {
-    roles?: { orgId: string; role: 'officer' | 'adviser' }[];
-    isAdmin?: boolean;
-    passwordChangeRequired?: boolean;
-  } = {},
-) {
+async function tokenFor(opts: { passwordChangeRequired?: boolean } = {}) {
   const { token } = await tokens.sign({
     userId: USER,
-    roles: (opts.roles ?? []).map((r) => ({ ...r, isHead: false })),
-    isAdmin: opts.isAdmin ?? false,
     passwordChangeRequired: opts.passwordChangeRequired ?? false,
   });
   return token;
 }
 
-describe('requireAuth + requireOrgRole', () => {
-  const app = guardedApp();
-  const post = (orgId: string, token?: string) => {
-    const req = request(app).post(`/orgs/${orgId}/documents`);
-    return token ? req.set('Authorization', `Bearer ${token}`) : req;
-  };
+describe('requireAuth', () => {
+  const app = guardedApp(fakeAccess(true));
 
   it('401: no token, a malformed header, or an invalid token', async () => {
-    await post(JPICE).expect(401);
+    await request(app).post('/orgs/jpice/documents').expect(401);
+    await request(app).post('/orgs/jpice/documents').set('Authorization', 'Basic abc').expect(401);
     await request(app)
-      .post(`/orgs/${JPICE}/documents`)
-      .set('Authorization', 'Basic abc')
+      .post('/orgs/jpice/documents')
+      .set('Authorization', 'Bearer abc.def.ghi')
       .expect(401);
-    await post(JPICE, 'abc.def.ghi').expect(401);
   });
 
   it('403: a temporary-password token on any normal route', async () => {
-    const res = await post(
-      JPICE,
-      await tokenFor({ roles: [{ orgId: JPICE, role: 'officer' }], passwordChangeRequired: true }),
-    ).expect(403);
+    const res = await request(app)
+      .post('/orgs/jpice/documents')
+      .set('Authorization', `Bearer ${await tokenFor({ passwordChangeRequired: true })}`)
+      .expect(403);
     expect(res.body.error.code).toBe(ErrorCode.PASSWORD_CHANGE_REQUIRED);
   });
+});
 
-  it('403: the role is held in another organization, or is a different role', async () => {
-    await post(JPICE, await tokenFor({ roles: [{ orgId: PSME, role: 'officer' }] })).expect(403);
-    await post(JPICE, await tokenFor({ roles: [{ orgId: JPICE, role: 'adviser' }] })).expect(403);
+describe('optionalAuth', () => {
+  const app = guardedApp(fakeAccess(true));
+
+  it('treats a request without a header as signed out', async () => {
+    expect((await request(app).get('/maybe').expect(200)).body).toEqual({ userId: null });
   });
 
-  it('200: the officer of that organization, or an ISSC admin', async () => {
-    const res = await post(
-      JPICE,
-      await tokenFor({ roles: [{ orgId: JPICE, role: 'officer' }] }),
-    ).expect(200);
+  it('rejects a header that is present but invalid instead of downgrading to public', async () => {
+    await request(app).get('/maybe').set('Authorization', 'Bearer abc.def.ghi').expect(401);
+  });
+
+  it('attaches the claims of a valid token', async () => {
+    const res = await request(app)
+      .get('/maybe')
+      .set('Authorization', `Bearer ${await tokenFor()}`)
+      .expect(200);
     expect(res.body).toEqual({ userId: USER });
-    await post(JPICE, await tokenFor({ isAdmin: true })).expect(200);
+  });
+});
+
+describe('org guards', () => {
+  const auth = async () => `Bearer ${await tokenFor()}`;
+
+  it('resolves the organization from :slug and checks the account against it', async () => {
+    const access = fakeAccess(true);
+    const res = await request(guardedApp(access))
+      .post('/orgs/jpice/documents')
+      .set('Authorization', await auth())
+      .expect(200);
+    expect(res.body).toEqual({ userId: USER, org: 'jpice' });
+    expect(access.requireOrgAccess).toHaveBeenCalledWith(USER, JPICE, 'own');
+  });
+
+  it("resolves the organization from the document's organization", async () => {
+    const access = fakeAccess(true);
+    await request(guardedApp(access))
+      .patch(`/documents/${DOC}`)
+      .set('Authorization', await auth())
+      .expect(200);
+    expect(access.resolveByDocument).toHaveBeenCalledWith(DOC);
+    expect(access.requireOrgAccess).toHaveBeenCalledWith(USER, JPICE, 'governing');
+  });
+
+  it("resolves the organization from the project's organization", async () => {
+    const access = fakeAccess(true);
+    const app = guardedApp(access);
+    await request(app)
+      .patch(`/projects/${PROJECT}`)
+      .set('Authorization', await auth())
+      .expect(200);
+    expect(access.resolveByProject).toHaveBeenCalledWith(PROJECT);
+    await request(app)
+      .patch(`/projects/${crypto.randomUUID()}`)
+      .set('Authorization', await auth())
+      .expect(404);
+    await request(app)
+      .patch('/projects/not-a-uuid')
+      .set('Authorization', await auth())
+      .expect(400);
+  });
+
+  it('404s an unknown organization or document before checking roles', async () => {
+    const access = fakeAccess(true);
+    const app = guardedApp(access);
+    await request(app)
+      .post('/orgs/psme/documents')
+      .set('Authorization', await auth())
+      .expect(404);
+    await request(app)
+      .patch(`/documents/${crypto.randomUUID()}`)
+      .set('Authorization', await auth())
+      .expect(404);
+    expect(access.requireOrgAccess).not.toHaveBeenCalled();
+  });
+
+  it('400s a malformed :documentId or :slug', async () => {
+    const app = guardedApp(fakeAccess(true));
+    await request(app)
+      .patch('/documents/not-a-uuid')
+      .set('Authorization', await auth())
+      .expect(400);
+    await request(app)
+      .post('/orgs/Bad_Slug/documents')
+      .set('Authorization', await auth())
+      .expect(400);
+  });
+
+  it('403s when the access service refuses', async () => {
+    const app = guardedApp(fakeAccess(false));
+    await request(app)
+      .post('/orgs/jpice/documents')
+      .set('Authorization', await auth())
+      .expect(403);
+    await request(app)
+      .patch(`/documents/${DOC}/visibility`)
+      .set('Authorization', await auth())
+      .expect(403);
+  });
+
+  it('asks for the organization’s own account on a visibility change', async () => {
+    const access = fakeAccess(true);
+    await request(guardedApp(access))
+      .patch(`/documents/${DOC}/visibility`)
+      .set('Authorization', await auth())
+      .expect(200);
+    expect(access.requireOrgAccess).toHaveBeenCalledWith(USER, JPICE, 'own');
   });
 });

@@ -6,7 +6,7 @@ import type {
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 import { type Cache, cacheKeys, PUBLIC_READ_TTL_SECONDS } from '#src/lib/cache';
-import type { PublicUrl } from '#src/lib/public-url';
+import { logoSrcSet, type PublicUrl } from '#src/lib/public-url';
 import type { CollegeRecord, CollegeRepository } from '#src/repositories/college.repository';
 import type { OrganizationRepository } from '#src/repositories/organization.repository';
 
@@ -19,6 +19,7 @@ export interface CollegeServiceDeps {
 
 type OrgFields = Pick<OrganizationSummary, 'type' | 'slug' | 'acronym' | 'name'> & {
   logoKey: string | null;
+  logoWidths: number[];
 };
 
 export function toOrganizationSummary(org: OrgFields, publicUrl: PublicUrl): OrganizationSummary {
@@ -28,6 +29,7 @@ export function toOrganizationSummary(org: OrgFields, publicUrl: PublicUrl): Org
     acronym: org.acronym,
     name: org.name,
     logoUrl: publicUrl(org.logoKey),
+    logoSrcSet: logoSrcSet(publicUrl, org.logoKey, org.logoWidths),
   };
 }
 
@@ -38,8 +40,12 @@ export function createCollegeService({
   cache,
   publicUrl,
 }: CollegeServiceDeps) {
+  /** A deactivated CSC is hidden from browsing; its SBOs still show (they are active). */
+  const activeCsc = (college: CollegeRecord) =>
+    college.organizations.find((org) => org.deactivatedAt === null);
+
   function summary(college: CollegeRecord): CollegeSummary {
-    const csc = college.organizations[0];
+    const csc = activeCsc(college);
     return {
       code: college.code,
       slug: college.slug,
@@ -67,8 +73,9 @@ export function createCollegeService({
         async () => {
           const college = await colleges.findBySlug(slug);
           if (!college) return null;
-          const csc = college.organizations[0];
-          const sbos = csc ? await organizations.listChildren(csc.id) : [];
+          const csc = activeCsc(college);
+          const parent = college.organizations[0];
+          const sbos = parent ? await organizations.listChildren(parent.id) : [];
           return {
             ...summary(college),
             description: college.description,

@@ -1,4 +1,7 @@
 import { useParams } from 'react-router';
+import { usePageChrome } from '@/navigation/page-chrome';
+import { chrome } from '@/navigation/trails';
+import { useCollegePlace } from '@/navigation/use-places';
 import { useSboCarousel } from './presenters/use-sbo-carousel';
 import { CarouselPage } from './views/carousel-page';
 import { CollegeNotFound } from './views/college-not-found';
@@ -7,6 +10,7 @@ import { CollegeNotFound } from './views/college-not-found';
 export function SboCarouselPage() {
   const { slug = '' } = useParams();
   const sbo = useSboCarousel(slug);
+  usePageChrome(chrome.collegeOrganizations(slug, useCollegePlace(slug)));
 
   if (sbo.isNotFound) return <CollegeNotFound />;
 

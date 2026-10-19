@@ -9,12 +9,14 @@ import { HomeView } from './home-view';
 vi.mock('../hooks/use-animated-hero', () => ({ useAnimatedHero: () => false }));
 
 const ISSC: OrganizationDetail = {
+  id: '0195f3c0-0000-7000-8000-0000000000b1',
   type: 'ISSC',
   slug: 'issc',
   acronym: 'ISSC',
   name: 'Institutional Supreme Student Council',
   description: 'The ISSC is the highest student governing body in the university.',
   logoUrl: null,
+  logoSrcSet: null,
   parent: null,
   college: null,
 };
@@ -50,12 +52,8 @@ function renderView(data: HomeData) {
 }
 
 describe('HomeView', () => {
-  it('renders the header, hero, About Us, ISSC and contact sections', () => {
+  it('renders the hero, About Us, ISSC and contact sections (the header is the shell’s)', () => {
     renderView(props());
-
-    const nav = screen.getByRole('navigation', { name: 'Main' });
-    expect(within(nav).getByRole('link', { name: 'Search' })).toHaveAttribute('href', '/search');
-    expect(within(nav).getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/login');
 
     expect(
       screen.getByRole('heading', { level: 1, name: 'Organizing Unity, Archiving Transparency' }),
@@ -93,10 +91,7 @@ describe('HomeView', () => {
       '/orgs/issc/paperworks',
     );
     expect(links.getByRole('link', { name: 'CSC' })).toHaveAttribute('href', '/colleges');
-    expect(links.getByRole('link', { name: 'Updates' })).toHaveAttribute(
-      'href',
-      '/orgs/issc/updates',
-    );
+    expect(links.getByRole('link', { name: 'Updates' })).toHaveAttribute('href', '/updates');
   });
 
   it('shows loading placeholders while data is on its way', () => {

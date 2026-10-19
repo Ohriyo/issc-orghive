@@ -18,6 +18,8 @@ const collegeSelect = {
       name: true,
       description: true,
       logoKey: true,
+      logoWidths: true,
+      deactivatedAt: true,
     },
   },
 } satisfies Prisma.CollegeSelect;
@@ -26,9 +28,12 @@ export type CollegeRecord = Prisma.CollegeGetPayload<{ select: typeof collegeSel
 
 export function createCollegeRepository(db: Db) {
   return {
-    /** Every college with its CSC, in name order. */
+    /** Every college with its CSC, in carousel order (set by admins). */
     list(): Promise<CollegeRecord[]> {
-      return db.college.findMany({ orderBy: { name: 'asc' }, select: collegeSelect });
+      return db.college.findMany({
+        orderBy: [{ position: 'asc' }, { name: 'asc' }],
+        select: collegeSelect,
+      });
     },
 
     findBySlug(slug: string): Promise<CollegeRecord | null> {

@@ -9,10 +9,12 @@ import {
 } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
 import { motion } from 'motion/react';
-import { Link, useNavigate } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
+import { useOriginNavigate } from '@/navigation/use-origin-navigate';
 import { cn } from '@/lib/utils';
 import { HexFrame } from '../hex-frame';
 import { OrgLogo } from '../org-logo';
+import { LOGO_SIZES } from '../logo-sizes';
 import { focusReveal, fadeReveal, usePrefersReducedMotion } from '../motion';
 import { PillButton } from '../pill-button';
 import { useSpotlightTween, type SpotlightVariant } from './use-spotlight-tween';
@@ -22,6 +24,7 @@ export interface SpotlightItem {
   name: string;
   motto?: string;
   logoSrc?: string;
+  logoSrcSet?: string;
   /** Defaults to "<name> logo". */
   logoAlt?: string;
   /** Where "Proceed" goes. */
@@ -51,8 +54,9 @@ export interface SpotlightCarouselProps {
 /**
  * A looping carousel that spotlights the centered item: it is full size and sharp, shows its
  * name, motto and "Proceed", while its neighbours shrink, fade and blur behind it.
- * Arrow buttons, swipe, the ← → Home End keys, and clicks all move it; clicking the centered
- * item proceeds. With prefers-reduced-motion, slides jump instead of gliding and nothing blurs.
+ * Swipe, the ← → Home End keys and clicks move it everywhere; arrow buttons appear from lg
+ * up, and below lg dot indicators (or a counter, for long lists) show and set the position.
+ * Clicking the centered item proceeds. With prefers-reduced-motion, slides jump instead of gliding and nothing blurs.
  * One item renders as a still spotlight with no controls; two items do not loop.
  */
 export function SpotlightCarousel({
@@ -69,7 +73,7 @@ export function SpotlightCarousel({
   className,
 }: SpotlightCarouselProps) {
   const reduced = usePrefersReducedMotion();
-  const navigate = useNavigate();
+  const navigate = useOriginNavigate();
   const viewportId = useId();
   const hintId = useId();
   const [emblaRef, emblaApi] = useEmblaCarousel({
@@ -143,7 +147,7 @@ export function SpotlightCarousel({
   const onSlideClick = (event: MouseEvent, index: number, item: SpotlightItem) => {
     // The Proceed link handles its own click.
     if ((event.target as HTMLElement).closest('a')) return;
-    if (index === selected) void navigate(item.href);
+    if (index === selected) navigate(item.href);
     else goTo(index);
   };
 
@@ -204,9 +208,14 @@ export function SpotlightCarousel({
                 onClick={(event) => onSlideClick(event, index, item)}
                 className={cn(
                   'relative min-w-0 shrink-0 grow-0 cursor-pointer',
+                  // Width follows the carousel; max-w also caps it by the screen height
+                  // (a slide is about 2.4x as tall as wide for towers, 1.9x for hexagons),
+                  // so on short laptop screens (1366x768) the selected slide and its
+                  // Proceed button stay above the fold. It has no effect on phones in
+                  // portrait or on screens 1080px tall and up.
                   variant === 'tower'
-                    ? 'basis-[64%] @xl:basis-[40%] @3xl:basis-[28%] @5xl:basis-[21%]'
-                    : 'basis-[58%] @xl:basis-[50%] @3xl:basis-[40%] @5xl:basis-[31%]',
+                    ? 'max-w-[max(10rem,calc((100dvh-var(--header-h)-11rem)*0.42))] basis-[56%] @xl:basis-[40%] @3xl:basis-[36%] @5xl:basis-[21%]'
+                    : 'max-w-[max(10rem,calc((100dvh-var(--header-h)-14.5rem)*0.52))] basis-[50%] @xl:basis-[50%] @3xl:basis-[48%] @5xl:basis-[31%]',
                 )}
               >
                 <div
@@ -238,6 +247,17 @@ export function SpotlightCarousel({
         </div>
       </div>
 
+      {hasControls && (
+        <SlidePosition
+          count={items.length}
+          selected={selected}
+          names={items.map((item) => item.name)}
+          itemNoun={itemNoun}
+          controls={viewportId}
+          onSelect={goTo}
+        />
+      )}
+
       <p className="sr-only" aria-live="polite" aria-atomic="true">
         {announce && current ? `${current.name}, ${selected + 1} of ${items.length}` : ''}
       </p>
@@ -257,6 +277,8 @@ function Logo({ item, className }: { item: SpotlightItem; className?: string }) 
     <OrgLogo
       name={item.name}
       src={item.logoSrc}
+      srcSet={item.logoSrcSet}
+      sizes={LOGO_SIZES.carousel}
       alt={item.logoAlt}
       fallbackText={item.shortName}
       className={className}
@@ -344,17 +366,17 @@ function Details({
       {item.motto && (
         <motion.p
           variants={variants}
-          className="mt-2 text-[clamp(0.75rem,5.5cqw,1.125rem)] text-balance text-white/85 italic"
+          className="mt-2 text-[clamp(0.875rem,5.5cqw,1.125rem)] text-balance text-white/85 italic"
         >
           “{item.motto}”
         </motion.p>
       )}
       <motion.div variants={variants} className="mt-5">
         <PillButton asChild variant={proceedVariant}>
-          <Link to={item.href}>
+          <OriginLink to={item.href}>
             {proceedLabel}
             <span className="sr-only">: {item.name}</span>
-          </Link>
+          </OriginLink>
         </PillButton>
       </motion.div>
     </motion.div>
@@ -443,7 +465,8 @@ function ChevronButton({
       aria-label={label}
       aria-controls={controls}
       className={cn(
-        'group absolute top-[34%] z-[200] grid size-12 cursor-pointer place-items-center rounded-full @3xl:size-20 @5xl:size-24',
+        // Arrows from lg up; phones and tablets swipe and use the dots instead.
+        'group absolute top-[34%] z-[200] hidden size-12 cursor-pointer place-items-center rounded-full lg:grid @3xl:size-20 @5xl:size-24',
         isPrev ? 'left-1 @3xl:left-4' : 'right-1 @3xl:right-4',
         'aria-disabled:cursor-default aria-disabled:opacity-30',
       )}
@@ -453,12 +476,76 @@ function ChevronButton({
         aria-hidden="true"
         className={cn(
           'ease-cinematic w-7 fill-ink transition-transform duration-300 @3xl:w-14 @5xl:w-[4.5rem] group-aria-disabled:translate-x-0',
-          isPrev ? 'group-hover:-translate-x-1' : 'rotate-180 group-hover:translate-x-1',
+          isPrev
+            ? 'group-hover:-translate-x-1 group-focus-visible:-translate-x-1'
+            : 'rotate-180 group-hover:translate-x-1 group-focus-visible:translate-x-1',
           'motion-reduce:transition-none',
         )}
       >
         <polygon points="0,58 80,0 114,0 40,58 114,116 80,116" />
       </svg>
     </button>
+  );
+}
+
+/** Lists longer than this get a "3 / 12" counter instead of a dot row that would wrap. */
+const MAX_DOTS = 10;
+
+interface SlidePositionProps {
+  count: number;
+  selected: number;
+  names: string[];
+  itemNoun: string;
+  controls: string;
+  onSelect: (index: number) => void;
+}
+
+/**
+ * Below lg: where the carousel is. Each dot is a 44px button (an 8px dot inside) that
+ * jumps to its slide; the current one is wider. Hidden from lg up, where the arrows are.
+ */
+function SlidePosition({
+  count,
+  selected,
+  names,
+  itemNoun,
+  controls,
+  onSelect,
+}: SlidePositionProps) {
+  if (count > MAX_DOTS) {
+    return (
+      <p aria-hidden="true" className="mt-3 text-center text-small text-ink-muted lg:hidden">
+        {selected + 1} / {count}
+      </p>
+    );
+  }
+  const noun = itemNoun.charAt(0).toUpperCase() + itemNoun.slice(1);
+  return (
+    <div className="mt-2 flex justify-center lg:hidden">
+      {names.map((name, index) => {
+        const isCurrent = index === selected;
+        return (
+          <button
+            key={name}
+            type="button"
+            aria-label={`${noun} ${index + 1} of ${count}: ${name}`}
+            aria-current={isCurrent || undefined}
+            aria-controls={controls}
+            onClick={() => onSelect(index)}
+            className="group grid size-11 cursor-pointer place-items-center rounded-full"
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                'ease-cinematic block h-2 rounded-full transition-[width,background-color] duration-300 motion-reduce:transition-none',
+                isCurrent
+                  ? 'w-6 bg-ink'
+                  : 'w-2 bg-ink/30 group-hover:bg-ink/60 group-focus-visible:bg-ink/60',
+              )}
+            />
+          </button>
+        );
+      })}
+    </div>
   );
 }

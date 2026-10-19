@@ -1,9 +1,12 @@
+import { usePageChrome } from '@/navigation/page-chrome';
+import { chrome } from '@/navigation/trails';
 import { useCollegeCarousel } from './presenters/use-college-carousel';
 import { CarouselPage } from './views/carousel-page';
 
 /** /colleges: pick a college to open its Collegiate Student Council. */
 export function CollegeCarouselPage() {
   const { items, initialIndex, onSelectedChange, isLoading, isError, retry } = useCollegeCarousel();
+  usePageChrome(chrome.colleges());
 
   return (
     <CarouselPage

@@ -11,7 +11,7 @@ export interface TextFieldProps extends Omit<ComponentProps<'input'>, 'id'> {
 }
 
 const INPUT =
-  'h-12 w-full rounded-full border border-input bg-white px-5 text-body text-ink shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] transition-colors duration-300 placeholder:text-ink-muted/70 hover:border-forest-500 aria-invalid:border-destructive';
+  'h-12 w-full rounded-full border border-input bg-white px-5 text-body text-ink shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] transition-colors duration-300 placeholder:text-ink-muted hover:border-forest-500 aria-invalid:border-destructive';
 
 /** A labelled input in the design system's pill shape, with its hint and error wired for screen readers. */
 export function TextField({ label, error, hint, className, type, ...input }: TextFieldProps) {
@@ -40,7 +40,7 @@ export function TextField({ label, error, hint, className, type, ...input }: Tex
             onClick={() => setRevealed((v) => !v)}
             aria-pressed={revealed}
             aria-label={revealed ? 'Hide password' : 'Show password'}
-            className="absolute top-1/2 right-2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors duration-300 hover:text-ink"
+            className="absolute top-1/2 right-0.5 flex size-11 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors duration-300 hover:text-ink focus-visible:text-ink"
           >
             {revealed ? (
               <EyeOff aria-hidden="true" className="size-5" />

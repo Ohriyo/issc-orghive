@@ -17,7 +17,7 @@ export interface NotFoundPanelProps {
  */
 export function NotFoundPanel({ title, message, action }: NotFoundPanelProps) {
   return (
-    <main className="bg-surface-sweep flex min-h-dvh flex-col items-center justify-center px-4 py-16 text-center">
+    <main className="bg-surface-sweep flex min-h-page flex-col items-center justify-center px-4 py-16 text-center">
       <Seo seo={{ ...siteSeo(), title: `${title} | Orghive`, description: message }} noindex />
       <HexFrame className="w-40 sm:w-48" contentClassName="p-[30%]">
         <SearchX aria-hidden="true" className="size-full text-white" strokeWidth={1.5} />

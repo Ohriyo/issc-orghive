@@ -4,6 +4,8 @@ import {
   collegeDetailSchema,
   collegeListResponseSchema,
   organizationDetailSchema,
+  searchQuerySchema,
+  searchResponseSchema,
   slugParamsSchema,
 } from '@orghive/shared';
 
@@ -75,6 +77,24 @@ export function createOpenApiDocument(): ReturnType<typeof createDocument> {
             },
             '304': { description: 'Not modified (ETag matched)' },
             ...errors,
+          },
+        },
+      },
+      '/search': {
+        get: {
+          summary: 'Full-text search of every Paperworks document the caller may see',
+          description:
+            'Ranks title, then tags and description, then the text of the file. Signed-out results are cached for 5 minutes; signed-in results are private.',
+          tags: ['Public'],
+          requestParams: { query: searchQuerySchema },
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(searchResponseSchema),
+            },
+            '304': { description: 'Not modified (ETag matched)' },
+            '400': { description: 'Invalid query', content: json(apiErrorBodySchema) },
           },
         },
       },

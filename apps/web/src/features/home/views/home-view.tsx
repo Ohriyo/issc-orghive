@@ -5,15 +5,13 @@ import { AboutSection } from './about-section';
 import { ContactFooter } from './contact-footer';
 import { HeroSection } from './hero-section';
 import { IsscSection } from './issc-section';
-import { SiteHeader } from './site-header';
-
 export type HomeViewProps = HomeData;
 
+/** The header comes from AppShell and floats over the hero (PageChrome overlay). */
 export function HomeView({ colleges, issc }: HomeViewProps) {
   return (
     <div className="bg-surface-sweep relative min-h-dvh overflow-x-clip">
       <Seo seo={siteSeo()} />
-      <SiteHeader />
       <main>
         <HeroSection colleges={colleges} />
         <AboutSection />

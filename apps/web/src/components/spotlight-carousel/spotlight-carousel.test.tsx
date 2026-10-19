@@ -230,3 +230,46 @@ describe('SpotlightCarousel', () => {
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
   });
 });
+
+describe('SpotlightCarousel dots (below lg)', () => {
+  it('shows one labelled dot per slide and marks the current one', () => {
+    renderCarousel({ initialIndex: 1 });
+    const dot = screen.getByRole('button', {
+      name: 'College 2 of 3: College of Agriculture and Technology',
+    });
+    expect(dot).toHaveAttribute('aria-current', 'true');
+    expect(
+      screen.getByRole('button', {
+        name: 'College 1 of 3: College of Engineering and Architecture',
+      }),
+    ).not.toHaveAttribute('aria-current');
+  });
+
+  it('jumps to a slide when its dot is pressed', () => {
+    renderCarousel();
+    act(
+      () =>
+        void fireEvent.click(
+          screen.getByRole('button', { name: 'College 3 of 3: College of Nursing' }),
+        ),
+    );
+    expect(fake.api.scrollTo).toHaveBeenCalledWith(2, false);
+    expect(currentSlide()).toHaveAccessibleName('3 of 3: College of Nursing');
+  });
+
+  it('switches to a counter instead of dots for long lists', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      id: `o${i}`,
+      name: `Org ${i + 1}`,
+      href: `/colleges/o${i}`,
+    }));
+    renderCarousel({ items: many });
+    expect(screen.queryByRole('button', { name: /^College 1 of 12/ })).not.toBeInTheDocument();
+    expect(screen.getByText('1 / 12')).toBeInTheDocument();
+  });
+
+  it('has no dots for a single item', () => {
+    renderCarousel({ items: [items[0]!] });
+    expect(screen.queryByRole('button', { name: /of 1:/ })).not.toBeInTheDocument();
+  });
+});

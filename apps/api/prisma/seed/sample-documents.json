@@ -1,5 +1,5 @@
 {
-  "_comment": "Fictional sample Paperworks for development. Read by generate_sample_pdfs.py (file content) and seed.ts (database rows). Statuses are mixed on purpose to exercise the visibility filter.",
+  "_comment": "Fictional sample Paperworks for development. Read by generate_sample_pdfs.py (file content) and seed.ts (database rows). Visibilities are mixed on purpose to exercise the visibility filter.",
   "documents": [
     {
       "slug": "jpice-bridge-design-competition-2026",
@@ -8,9 +8,7 @@
       "title": "Activity Proposal: Inter-Year Bridge Design Competition 2026",
       "description": "Proposal for a truss bridge design and load-testing competition among civil engineering students.",
       "academicYear": "2026-2027",
-      "semester": "first",
-      "status": "approved",
-      "createdBy": "jpice-officer"
+      "semester": "first"
     },
     {
       "slug": "jpice-diversion-road-site-visit",
@@ -20,8 +18,7 @@
       "description": "Proposal for an educational site visit on road construction and pavement quality control.",
       "academicYear": "2026-2027",
       "semester": "first",
-      "status": "pending",
-      "createdBy": "jpice-officer"
+      "visibility": "private"
     },
     {
       "slug": "jpice-accomplishment-1st-sem-2025-2026",
@@ -30,9 +27,7 @@
       "title": "JPICE Accomplishment Report, First Semester AY 2025-2026",
       "description": "Activities, participation and outcomes of JPICE for the first semester.",
       "academicYear": "2025-2026",
-      "semester": "first",
-      "status": "approved",
-      "createdBy": "jpice-officer"
+      "semester": "first"
     },
     {
       "slug": "jpice-ce-week-2026-report",
@@ -42,8 +37,7 @@
       "description": "Narrative report on the Civil Engineering Week seminars, quiz bee and community clean-up.",
       "academicYear": "2025-2026",
       "semester": "second",
-      "status": "rejected",
-      "createdBy": "jpice-officer"
+      "visibility": "private"
     },
     {
       "slug": "jpice-resolution-2026-03",
@@ -53,8 +47,7 @@
       "description": "Draft resolution adopting a code of conduct for JPICE officers.",
       "academicYear": "2026-2027",
       "semester": "first",
-      "status": "draft",
-      "createdBy": "jpice-officer"
+      "visibility": "private"
     },
     {
       "slug": "csc-cea-cea-days-2026",
@@ -64,8 +57,7 @@
       "description": "Proposal for the college week of the College of Engineering and Architecture.",
       "academicYear": "2026-2027",
       "semester": "first",
-      "status": "pending",
-      "createdBy": "cea-governor"
+      "visibility": "private"
     },
     {
       "slug": "csc-cea-accomplishment-2nd-sem-2025-2026",
@@ -74,9 +66,7 @@
       "title": "CSC-CEA Accomplishment Report, Second Semester AY 2025-2026",
       "description": "Programs, projects and representation work of the CSC-CEA for the second semester.",
       "academicYear": "2025-2026",
-      "semester": "second",
-      "status": "approved",
-      "createdBy": "cea-governor"
+      "semester": "second"
     },
     {
       "slug": "csc-cea-resolution-2026-07",
@@ -85,9 +75,7 @@
       "title": "Resolution No. 2026-07: Endorsing the SBO Activity Calendar for AY 2026-2027",
       "description": "Resolution endorsing the consolidated activity calendar of the CEA student body organizations.",
       "academicYear": "2026-2027",
-      "semester": "first",
-      "status": "approved",
-      "createdBy": "cea-governor"
+      "semester": "first"
     },
     {
       "slug": "issc-leadership-summit-2026",
@@ -96,9 +84,7 @@
       "title": "Activity Proposal: University Student Leadership Summit 2026",
       "description": "Proposal for a two-day leadership summit for officers of all CSCs and SBOs.",
       "academicYear": "2026-2027",
-      "semester": "first",
-      "status": "approved",
-      "createdBy": "admin"
+      "semester": "first"
     },
     {
       "slug": "issc-accomplishment-2nd-sem-2025-2026",
@@ -108,8 +94,16 @@
       "description": "University-wide programs and student representation by the ISSC for the second semester.",
       "academicYear": "2025-2026",
       "semester": "second",
-      "status": "pending",
-      "createdBy": "admin"
+      "visibility": "private"
+    },
+    {
+      "slug": "jpice-barangay-water-survey-report",
+      "org": "jpice",
+      "type": "accomplishment-report",
+      "title": "Narrative Report: Barangay Potable Water Survey",
+      "description": "Summary of the JPICE community survey of household water sources in two upland barangays.",
+      "academicYear": "2026-2027",
+      "semester": "first"
     }
   ]
 }

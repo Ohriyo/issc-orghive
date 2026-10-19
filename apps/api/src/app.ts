@@ -8,20 +8,74 @@ import type { Logger } from '#src/logger';
 import { createErrorHandler, notFoundHandler } from '#src/middleware/error-handler';
 import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
 import { createOpenApiDocument } from '#src/openapi';
+import { adminRouter } from '#src/routes/admin.routes';
+import { announcementsRouter } from '#src/routes/announcements.routes';
+import { complianceOverviewRouter } from '#src/routes/compliance-overview.routes';
+import { appealsRouter } from '#src/routes/appeals.routes';
 import { authRouter } from '#src/routes/auth.routes';
 import { collegesRouter } from '#src/routes/colleges.routes';
+import { documentsRouter } from '#src/routes/documents.routes';
 import { healthRouter } from '#src/routes/health.routes';
+import { meRouter } from '#src/routes/me.routes';
 import { organizationsRouter } from '#src/routes/organizations.routes';
+import { projectsRouter } from '#src/routes/projects.routes';
+import { reportsRouter } from '#src/routes/reports.routes';
+import { searchRouter } from '#src/routes/search.routes';
+import { systemRouter } from '#src/routes/system.routes';
+import type { AccessVerifier } from '#src/middleware/require-auth';
+import type { AccessService } from '#src/services/access.service';
+import type { AccountAdminService } from '#src/services/account-admin.service';
+import type { AccountImportService } from '#src/services/account-import.service';
+import type { AccountRequestService } from '#src/services/account-request.service';
+import type { AdminOrganizationService } from '#src/services/admin-organization.service';
+import type { AnnouncementService } from '#src/services/announcement.service';
+import type { ComplianceOverviewService } from '#src/services/compliance-overview.service';
+import type { AppealService } from '#src/services/appeal.service';
 import type { AuthService } from '#src/services/auth.service';
 import type { CollegeService } from '#src/services/college.service';
+import type { DashboardService } from '#src/services/dashboard.service';
+import type { DocumentService } from '#src/services/document.service';
+import type { NotificationService } from '#src/services/notification.service';
 import type { OrganizationService } from '#src/services/organization.service';
-import type { TokenService } from '#src/services/token.service';
+import type { ProjectService } from '#src/services/project.service';
+import type { ReportService } from '#src/services/report.service';
+import type { RevealService } from '#src/services/reveal.service';
+import type { SearchService } from '#src/services/search.service';
+import type { SuperAdminService } from '#src/services/super-admin.service';
+import type { SupportService } from '#src/services/support.service';
+import type { SystemService } from '#src/services/system.service';
+import type { UploadService } from '#src/services/upload.service';
 
 export interface AppServices {
   auth: AuthService;
-  tokens: Pick<TokenService, 'verify'>;
+  /** Token verification plus the super admin session check (idle and 8-hour limits). */
+  tokens: AccessVerifier;
   colleges: CollegeService;
   organizations: OrganizationService;
+  documents: DocumentService;
+  uploads: UploadService;
+  access: AccessService;
+  dashboard: DashboardService;
+  projects: ProjectService;
+  appeals: AppealService;
+  notifications: NotificationService;
+  reports: ReportService;
+  search: SearchService;
+  adminOrganizations: AdminOrganizationService;
+  announcements: AnnouncementService;
+  complianceOverview: ComplianceOverviewService;
+  system: SystemService;
+  superAdmins: SuperAdminService;
+  /** /system accounts: creation, resets, locks (the super admin). */
+  accountAdmin: AccountAdminService;
+  /** /system file support and test data. */
+  support: SupportService;
+  /** One-time Reveals of temporary passwords (/me/reveals). */
+  reveals: RevealService;
+  /** The ISSC account's account requests (/admin asks, /system decides). */
+  accountRequests: AccountRequestService;
+  /** /system CSV imports: bulk creation and the end of term. */
+  accountImports: AccountImportService;
 }
 
 export interface AppDeps {
@@ -39,6 +93,12 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
 
   app.use(helmet());
   app.use(cors({ origin: config.WEB_ORIGIN, credentials: true }));
+  // CSV imports (/system: bulk accounts, end of term) carry up to 200 KB of text; everything
+  // else stays at 100 KB. A body parsed here is not parsed again below.
+  app.use(
+    ['/api/v1/system/accounts/bulk', '/api/v1/system/end-of-term'],
+    express.json({ limit: '256kb' }),
+  );
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
 
@@ -65,6 +125,69 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   );
   v1.use('/colleges', collegesRouter(services.colleges));
   v1.use('/organizations', organizationsRouter(services.organizations));
+  v1.use(
+    '/me',
+    meRouter({
+      dashboard: services.dashboard,
+      notifications: services.notifications,
+      reveals: services.reveals,
+      tokens: services.tokens,
+    }),
+  );
+  v1.use('/search', searchRouter({ search: services.search, tokens: services.tokens }));
+  v1.use(
+    announcementsRouter({
+      announcements: services.announcements,
+      access: services.access,
+      tokens: services.tokens,
+    }),
+  );
+  v1.use(
+    complianceOverviewRouter({ overview: services.complianceOverview, tokens: services.tokens }),
+  );
+  v1.use(
+    '/admin',
+    adminRouter({
+      organizations: services.adminOrganizations,
+      accountRequests: services.accountRequests,
+      access: services.access,
+      tokens: services.tokens,
+    }),
+  );
+  v1.use(
+    '/system',
+    systemRouter({
+      system: services.system,
+      superAdmins: services.superAdmins,
+      accounts: services.accountAdmin,
+      organizations: services.adminOrganizations,
+      support: services.support,
+      requests: services.accountRequests,
+      imports: services.accountImports,
+      tokens: services.tokens,
+    }),
+  );
+  v1.use(
+    documentsRouter({
+      documents: services.documents,
+      uploads: services.uploads,
+      access: services.access,
+      tokens: services.tokens,
+    }),
+  );
+  v1.use(
+    projectsRouter({
+      projects: services.projects,
+      access: services.access,
+      tokens: services.tokens,
+    }),
+  );
+  v1.use(
+    appealsRouter({ appeals: services.appeals, access: services.access, tokens: services.tokens }),
+  );
+  v1.use(
+    reportsRouter({ reports: services.reports, access: services.access, tokens: services.tokens }),
+  );
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);

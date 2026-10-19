@@ -9,9 +9,19 @@ const organizationSelect = {
   name: true,
   description: true,
   logoKey: true,
+  logoWidths: true,
   parentId: true,
+  deactivatedAt: true,
   parent: {
-    select: { type: true, slug: true, acronym: true, name: true, logoKey: true, deletedAt: true },
+    select: {
+      type: true,
+      slug: true,
+      acronym: true,
+      name: true,
+      logoKey: true,
+      logoWidths: true,
+      deletedAt: true,
+    },
   },
   college: { select: { id: true, code: true, slug: true, name: true } },
 } satisfies Prisma.OrganizationSelect;
@@ -33,16 +43,19 @@ export function createOrganizationRepository(db: Db) {
     listByType(type: OrganizationType): Promise<OrganizationRecord[]> {
       return db.organization.findMany({
         where: { type, deletedAt: null },
-        orderBy: { name: 'asc' },
+        orderBy: [{ position: 'asc' }, { name: 'asc' }],
         select: organizationSelect,
       });
     },
 
-    /** E.g. the SBOs of a CSC. */
+    /**
+     * E.g. the SBOs of a CSC, for public browsing: in carousel order, without deactivated
+     * ones (docs/DOMAIN_RULES.md, "Administration").
+     */
     listChildren(parentId: string): Promise<OrganizationRecord[]> {
       return db.organization.findMany({
-        where: { parentId, deletedAt: null },
-        orderBy: { name: 'asc' },
+        where: { parentId, deletedAt: null, deactivatedAt: null },
+        orderBy: [{ position: 'asc' }, { name: 'asc' }],
         select: organizationSelect,
       });
     },

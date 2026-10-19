@@ -1,5 +1,6 @@
 // Orghive data model. Enum values match the Zod schemas in packages/shared.
-// Domain rules (who approves, who sees what) live in docs/DOMAIN_RULES.md.
+// Domain rules (who sees what) live in docs/DOMAIN_RULES.md. Documents are never reviewed or
+// approved before others can see them (docs/PROJECT_WORKFLOW_SPEC.md, section 0).
 
 generator client {
   provider = "prisma-client"
@@ -16,18 +17,22 @@ enum OrganizationType {
   SBO
 }
 
-enum MembershipRole {
-  officer
-  adviser
-  admin
+/// uploading (in the browser, not stored) -> scanning -> available | quarantined -> archived.
+/// Only the uploader sees a document before it is available. No review, no approval.
+enum DocumentStatus {
+  scanning
+  available
+  quarantined
+  archived
 }
 
-enum DocumentStatus {
-  draft
-  pending
-  approved
-  rejected
-  archived
+/// Who may see an available document, chosen by the owning organization's account
+/// (docs/DOMAIN_RULES.md, "Visibility"): public = anyone; governing = the organization, its
+/// college's CSC and the ISSC; private = the organization's account only, no exceptions.
+enum DocumentVisibility {
+  public
+  governing
+  private
 }
 
 /// Midyear is provisional: whether it counts as a term is an open question.
@@ -37,16 +42,13 @@ enum Semester {
   midyear
 }
 
-/// Uploads stay pending until the ClamAV scan passes.
+/// Uploads stay pending until the worker has checked them. `invalid`: the bytes are not
+/// the declared type (magic-byte check). Only clean files can be downloaded.
 enum ScanStatus {
   pending
   clean
   infected
-}
-
-enum ApprovalDecision {
-  approved
-  rejected
+  invalid
 }
 
 /// The actions CLAUDE.md requires an audit entry for.
@@ -55,6 +57,8 @@ enum AuditAction {
   login_failed
   logout
   upload
+  /// Historical: document approvals before they were removed (2026-10-17). Kept because the
+  /// audit log is append-only; F11 reuses approve/reject for appeal decisions.
   approve
   reject
   delete
@@ -64,6 +68,166 @@ enum AuditAction {
   password_change
   /// A rotated refresh token was presented again; its whole family was revoked.
   token_reuse
+  /// An ISSC admin acted on an organization where they hold no qualifying role.
+  admin_override
+  /// The worker refused an upload (virus or wrong file type) and moved it to quarantine/.
+  quarantine
+  /// An officer archived a document (available -> archived).
+  archive
+  /// An officer restored an archived document (archived -> available).
+  restore
+  /// An officer changed who can see a document; metadata has `from` and `to`.
+  visibility_change
+  /// An officer created a project (docs/PROJECT_WORKFLOW_SPEC.md, section 2A).
+  project_create
+  /// An officer changed a project's details or which optional tasks it needs.
+  project_update
+  /// The compliance rules blocked a project: its proposal deadline passed (spec 3A).
+  project_block
+  /// A blocked project was unblocked: an approved appeal moved its proposal deadline.
+  project_unblock
+  /// The compliance rules froze an organization: a project's ACR or Financial Report is
+  /// overdue (spec 3B). entityId is the OrgFreeze.
+  org_freeze
+  /// An approved appeal lifted a freeze.
+  org_unfreeze
+  /// An officer appealed a block or a freeze. Decisions are `approve` / `reject`.
+  appeal_submit
+  /// Someone opened an appeal's supporting file.
+  appeal_attachment_view
+  /// An officer asked for a Semestral End Report (spec section 4).
+  report_generate
+  /// An admin created, edited, reordered, deactivated or reactivated an organization, or
+  /// changed its logo; metadata has `change`.
+  organization_change
+  /// An admin created, edited or reordered a college; metadata has `change`.
+  college_change
+  /// An officer published or edited an update (announcement); deletes are `delete`.
+  announcement_change
+  /// The create-super-admin command created or promoted a super admin (actor: none).
+  super_admin_create
+  /// The create-super-admin command issued a new authenticator secret (--reset-mfa).
+  super_admin_mfa_reset
+  /// A super admin confirmed their authenticator and received recovery codes.
+  mfa_enroll
+  /// A wrong TOTP or recovery code; metadata has `stage` (login, setup, step_up).
+  mfa_failed
+  /// A super admin signed in with a one-time recovery code instead of TOTP.
+  mfa_recovery_used
+  /// A super admin replaced their recovery codes.
+  recovery_codes_regenerate
+  /// A super admin re-entered a TOTP code to unlock destructive actions for 5 minutes.
+  step_up
+  /// A super admin was demoted; metadata has `before` and `after`.
+  system_role_change
+  /// A super admin deactivated an account (every session ended) or reactivated one.
+  user_deactivate
+  user_reactivate
+  /// 5 failed super admin sign-in or code attempts in 15 minutes; the super admins are emailed.
+  super_admin_lockout
+  /// A super admin read a /system page; metadata has `route`.
+  system_view
+  /// A super admin created an organization account (metadata: organization, delivery).
+  account_create
+  /// A super admin changed an account's email or officer in charge; metadata has before/after.
+  account_update
+  /// A super admin put an account on a temporary hold, or lifted it; metadata has the reason.
+  account_lock
+  account_unlock
+  /// A super admin issued a new temporary password (every session ended).
+  password_reset_issued
+  /// A super admin ended every session of an account.
+  sessions_revoke
+  /// The ISSC account (or a super admin) opened a one-time Reveal. Never the password.
+  password_reveal
+  /// A super admin queued a stuck virus scan again.
+  support_rescan
+  /// The ISSC account asked for an organization's account.
+  account_request
+  /// A super admin declined an account request; metadata has the reason.
+  account_request_decline
+  /// The end of term: one entry per account (metadata: runId, change) and one for the run.
+  end_of_term
+}
+
+/// System-level role: SUPER_ADMIN is the developer's personal console account, the only
+/// account that belongs to no organization.
+enum SystemRole {
+  NONE
+  SUPER_ADMIN
+}
+
+/// docs/PROJECT_WORKFLOW_SPEC.md, sections 2A and 2B. `blocked` is set by the compliance
+/// rules (section 3); `completed` once every task the project needs is submitted.
+enum ProjectStatus {
+  active
+  blocked
+  completed
+}
+
+/// The milestone checklist, in order. NOM and MOM exist only when the project needs them.
+enum ProjectTaskType {
+  PROPOSAL
+  NOM
+  MOM
+  ACR
+  FINANCIAL_REPORT
+}
+
+/// `submitted`: the task's file is uploaded and passed the virus scan. Nothing is reviewed.
+enum ProjectTaskStatus {
+  locked
+  open
+  submitted
+}
+
+/// docs/PROJECT_WORKFLOW_SPEC.md, section 3.
+enum AppealType {
+  PROJECT_BLOCK
+  ORG_FREEZE
+}
+
+enum AppealStatus {
+  pending
+  approved
+  rejected
+}
+
+/// What a notification is about. F16 adds more.
+enum NotificationKind {
+  deadline_soon
+  deadline_missed
+  appeal_submitted
+  appeal_decided
+  report_ready
+  upload_quarantined
+  term_ending
+  announcement_posted
+  password_reveal
+  account_request_declined
+}
+
+/// requested -> created (the super admin made the account) | declined (with a reason).
+enum AccountRequestStatus {
+  requested
+  created
+  declined
+}
+
+/// Why a one-time Reveal holds temporary passwords.
+enum RevealPurpose {
+  account_created
+  password_reset
+  bulk_created
+  end_of_term
+}
+
+/// A Semestral End Report job: queued -> generating -> ready | failed (spec section 4).
+enum ReportStatus {
+  queued
+  generating
+  ready
+  failed
 }
 
 model College {
@@ -74,6 +238,8 @@ model College {
   name          String
   motto         String?
   description   String?
+  /// Carousel order. Set by admins.
+  position      Int            @default(0)
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   organizations Organization[]
@@ -84,27 +250,44 @@ model College {
 /// ISSC, CSCs and SBOs in one table. ISSC: no parent, no college. CSC: parent ISSC.
 /// SBO: parent CSC. The database enforces this with a CHECK constraint (see migrations).
 model Organization {
-  id          String           @id @default(uuid(7)) @db.Uuid
-  type        OrganizationType
-  slug        String           @unique
-  acronym     String
-  name        String
-  description String?
+  id            String           @id @default(uuid(7)) @db.Uuid
+  type          OrganizationType
+  slug          String           @unique
+  acronym       String
+  name          String
+  description   String?
   /// Object-storage key under `logos/`; that prefix is public-read and served via PUBLIC_ASSET_BASE_URL.
-  logoKey     String?          @map("logo_key")
-  parentId    String?          @map("parent_id") @db.Uuid
-  collegeId   String?          @map("college_id") @db.Uuid
-  deletedAt   DateTime?        @map("deleted_at")
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt @map("updated_at")
+  logoKey       String?          @map("logo_key")
+  /// Widths of the resized variants stored next to logoKey as `<key without .webp>-<w>.webp`,
+  /// for srcset. Empty when only the original exists.
+  logoWidths    Int[]            @default([]) @map("logo_widths")
+  parentId      String?          @map("parent_id") @db.Uuid
+  collegeId     String?          @map("college_id") @db.Uuid
+  /// Carousel order among its siblings (an SBO within its college). Set by admins.
+  position      Int              @default(0)
+  /// Set while an admin has deactivated it: hidden from browsing, no uploads or new
+  /// projects. Unlike deletedAt, its documents stay visible (docs/DOMAIN_RULES.md).
+  deactivatedAt DateTime?        @map("deactivated_at")
+  deletedAt     DateTime?        @map("deleted_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
 
-  parent        Organization?  @relation("OrganizationHierarchy", fields: [parentId], references: [id])
-  children      Organization[] @relation("OrganizationHierarchy")
-  college       College?       @relation(fields: [collegeId], references: [id])
-  memberships   Membership[]
-  documents     Document[]
-  announcements Announcement[]
-  auditLogs     AuditLog[]
+  parent          Organization?      @relation("OrganizationHierarchy", fields: [parentId], references: [id])
+  children        Organization[]     @relation("OrganizationHierarchy")
+  college         College?           @relation(fields: [collegeId], references: [id])
+  /// Its shared account (at most one active: users_one_active_account_per_org).
+  accounts        User[]
+  officerTerms    OfficerTerm[]
+  accountRequests AccountRequest[]
+  uploadIntents   UploadIntent[]
+  documents       Document[]
+  announcements   Announcement[]
+  auditLogs       AuditLog[]
+  projects        Project[]
+  freezes         OrgFreeze[]
+  appeals         Appeal[]
+  appealFiles     AppealAttachment[]
+  reports         SemestralReport[]
 
   @@index([parentId])
   @@index([collegeId])
@@ -113,56 +296,104 @@ model Organization {
 }
 
 model User {
-  id                 String    @id @default(uuid(7)) @db.Uuid
-  email              String    @unique
+  id                 String     @id @default(uuid(7)) @db.Uuid
+  email              String     @unique
   name               String
   /// Argon2id
-  passwordHash       String    @map("password_hash")
+  passwordHash       String     @map("password_hash")
   /// New accounts sign in with a temporary password and must replace it first.
-  mustChangePassword Boolean   @default(true) @map("must_change_password")
-  passwordChangedAt  DateTime? @map("password_changed_at")
-  disabledAt         DateTime? @map("disabled_at")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  mustChangePassword Boolean    @default(true) @map("must_change_password")
+  passwordChangedAt  DateTime?  @map("password_changed_at")
+  disabledAt         DateTime?  @map("disabled_at")
+  /// Only the create-super-admin command sets SUPER_ADMIN; never seed data or signup.
+  systemRole         SystemRole @default(NONE) @map("system_role")
+  /// TOTP secret, AES-256-GCM encrypted with MFA_ENCRYPTION_KEY (lib/secret-box.ts).
+  mfaSecret          String?    @map("mfa_secret")
+  /// Set once the super admin confirms the secret with a code; null while pending.
+  mfaEnabledAt       DateTime?  @map("mfa_enabled_at")
+  /// The last accepted TOTP time step: the same code (or an older one) never works twice.
+  mfaLastTimeStep    Int?       @map("mfa_last_time_step")
+  /// The organization this shared account belongs to (docs/DOMAIN_RULES.md, "Accounts").
+  /// Null only for SUPER_ADMIN. At most one active (not disabled) account per organization:
+  /// a partial unique index in the migration, which Prisma cannot express.
+  organizationId     String?    @map("organization_id") @db.Uuid
+  /// A temporary hold (end of term, security): no sign-in until unlocked. Not deactivation.
+  lockedAt           DateTime?  @map("locked_at")
+  lockReason         String?    @map("lock_reason")
+  lastLoginAt        DateTime?  @map("last_login_at")
+  /// Access tokens issued before this (in whole seconds) are refused: a reset, a forced
+  /// sign-out, a lock or a deactivation ends live sessions at once, not when they expire.
+  sessionsRevokedAt  DateTime?  @map("sessions_revoked_at")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
 
-  memberships         Membership[]
-  documentsCreated    Document[]           @relation("DocumentCreatedBy")
-  versionsUploaded    DocumentVersion[]
-  approvals           Approval[]
-  refreshTokens       RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
-  auditLogs           AuditLog[]
-  announcements       Announcement[]
+  organization            Organization?            @relation(fields: [organizationId], references: [id])
+  officerTerms            OfficerTerm[]
+  recoveryCodes           RecoveryCode[]
+  uploadIntents           UploadIntent[]
+  documentsCreated        Document[]               @relation("DocumentCreatedBy")
+  versionsUploaded        DocumentVersion[]
+  refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
+  auditLogs               AuditLog[]
+  announcements           Announcement[]
+  projectsCreated         Project[]
+  appealsSubmitted        Appeal[]                 @relation("AppealSubmittedBy")
+  appealsDecided          Appeal[]                 @relation("AppealDecidedBy")
+  appealFiles             AppealAttachment[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  revealsReceived         PasswordReveal[]         @relation("RevealRecipient")
+  revealsIssued           PasswordReveal[]         @relation("RevealIssuer")
+  accountRequestsMade     AccountRequest[]         @relation("AccountRequestBy")
+  accountRequestsDecided  AccountRequest[]         @relation("AccountRequestDecider")
+  accountRequestsCreated  AccountRequest[]         @relation("AccountRequestAccount")
+  reportsRequested        SemestralReport[]
 
+  @@index([systemRole])
+  @@index([organizationId])
   @@map("users")
 }
 
-/// A role in one organization for one term. A membership past term_end grants nothing.
-model Membership {
-  id             String         @id @default(uuid(7)) @db.Uuid
-  userId         String         @map("user_id") @db.Uuid
-  organizationId String         @map("organization_id") @db.Uuid
-  role           MembershipRole
-  /// Head of the organization: Governor of a CSC, President of an SBO or the ISSC.
-  /// The head of the parent organization approves documents (docs/DOMAIN_RULES.md).
-  isHead         Boolean        @default(false) @map("is_head")
-  /// Display title, e.g. "Governor", "President", "Adviser".
-  title          String?
-  termStart      DateTime       @map("term_start") @db.Date
-  /// Null means open-ended (e.g. admins).
-  termEnd        DateTime?      @map("term_end") @db.Date
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
+/// Who answers for an organization's account during a term: the officer-in-charge the ISSC
+/// can reach. The open term (endedAt null) is the current one; past terms are history.
+model OfficerTerm {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  officerName     String    @map("officer_name")
+  officerPosition String    @map("officer_position")
+  officerEmail    String    @map("officer_email")
+  termStart       DateTime  @map("term_start") @db.Date
+  /// Planned last day; the term-ending notice uses it. Null when open-ended.
+  termEnd         DateTime? @map("term_end") @db.Date
+  /// When the term actually ended (End of term, or a new officer-in-charge).
+  endedAt         DateTime? @map("ended_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id])
 
-  @@unique([userId, organizationId, role, termStart])
   @@index([userId])
-  @@index([organizationId, role])
-  @@map("memberships")
+  @@index([organizationId])
+  @@map("officer_terms")
 }
 
+/// A super admin's one-time recovery codes: Argon2id hashes only, 10 per issue.
+model RecoveryCode {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("recovery_codes")
+}
+
+/// A role in one organization for one term. A membership past term_end grants nothing.
 /// Document types are data, not an enum: the official list is still an open question.
 model DocumentType {
   id        String     @id @default(uuid(7)) @db.Uuid
@@ -174,7 +405,7 @@ model DocumentType {
   @@map("document_types")
 }
 
-/// "Paperworks" in the UI. Lifecycle: draft -> pending -> approved | rejected -> archived.
+/// "Paperworks" in the UI. Lifecycle: scanning -> available | quarantined -> archived.
 /// Deletes are soft (deleted_at). Every upload is a new DocumentVersion.
 model Document {
   id               String                   @id @default(uuid(7)) @db.Uuid
@@ -185,14 +416,22 @@ model Document {
   /// "2026-2027"
   academicYear     String                   @map("academic_year")
   semester         Semester?
-  status           DocumentStatus           @default(draft)
+  status           DocumentStatus           @default(scanning)
+  visibility       DocumentVisibility       @default(public)
+  /// Old `members` documents (before shared accounts): now private, removable in bulk by the
+  /// super admin ("Delete test data").
+  isTestData       Boolean                  @default(false) @map("is_test_data")
+  /// Free-form, lowercased labels (at most 10, see documentTagsSchema).
+  tags             String[]                 @default([])
+  /// Text extracted from the current PDF by the worker; feeds search_vector.
+  contentText      String?                  @map("content_text")
   currentVersionId String?                  @unique @map("current_version_id") @db.Uuid
+  /// The uploader: the only one who sees the document before it is available.
   createdById      String                   @map("created_by_id") @db.Uuid
-  submittedAt      DateTime?                @map("submitted_at")
   deletedAt        DateTime?                @map("deleted_at")
   createdAt        DateTime                 @default(now()) @map("created_at")
   updatedAt        DateTime                 @updatedAt @map("updated_at")
-  /// Generated from title and description; see the full-text search migration.
+  /// Generated: title (A), tags and description (B), file text (C); see the search migrations.
   searchVector     Unsupported("tsvector")? @default(dbgenerated()) @map("search_vector")
 
   organization   Organization      @relation(fields: [organizationId], references: [id])
@@ -200,7 +439,10 @@ model Document {
   createdBy      User              @relation("DocumentCreatedBy", fields: [createdById], references: [id])
   currentVersion DocumentVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
   versions       DocumentVersion[] @relation("DocumentVersions")
-  approvals      Approval[]
+  /// Set when this document is a project task's file.
+  projectTask    ProjectTask?
+  /// Set when this document is a generated Semestral End Report.
+  report         SemestralReport?
 
   @@index([organizationId, academicYear, typeId])
   @@index([status])
@@ -217,37 +459,26 @@ model DocumentVersion {
   originalFilename String     @map("original_filename")
   mimeType         String     @map("mime_type")
   sizeBytes        Int        @map("size_bytes")
-  sha256           String
+  /// Computed by the worker from the stored bytes; null until processed.
+  sha256           String?
   scanStatus       ScanStatus @default(pending) @map("scan_status")
+  /// Private key of the page-1 preview (PDFs), served through signed URLs.
+  thumbnailKey     String?    @map("thumbnail_key")
+  /// Why processing refused the file (virus name or type mismatch). Never shown publicly.
+  failureReason    String?    @map("failure_reason")
+  processedAt      DateTime?  @map("processed_at")
   uploadedById     String     @map("uploaded_by_id") @db.Uuid
+  /// The officer who uploaded it for the shared account ("Acting as"). Null for files Orghive
+  /// made (the Semestral End Report) and for uploads from before it was asked.
+  actingAs         String?    @map("acting_as") @db.VarChar(80)
   createdAt        DateTime   @default(now()) @map("created_at")
 
-  document   Document   @relation("DocumentVersions", fields: [documentId], references: [id])
-  currentOf  Document?  @relation("CurrentVersion")
-  uploadedBy User       @relation(fields: [uploadedById], references: [id])
-  approvals  Approval[]
+  document   Document  @relation("DocumentVersions", fields: [documentId], references: [id])
+  currentOf  Document? @relation("CurrentVersion")
+  uploadedBy User      @relation(fields: [uploadedById], references: [id])
 
   @@unique([documentId, version])
   @@map("document_versions")
-}
-
-/// One decision on one version. A new upload needs a new approval.
-model Approval {
-  id         String           @id @default(uuid(7)) @db.Uuid
-  documentId String           @map("document_id") @db.Uuid
-  versionId  String           @map("version_id") @db.Uuid
-  approverId String           @map("approver_id") @db.Uuid
-  decision   ApprovalDecision
-  comment    String?
-  decidedAt  DateTime         @default(now()) @map("decided_at")
-
-  document Document        @relation(fields: [documentId], references: [id])
-  version  DocumentVersion @relation(fields: [versionId], references: [id])
-  approver User            @relation(fields: [approverId], references: [id])
-
-  @@index([documentId])
-  @@index([approverId])
-  @@map("approvals")
 }
 
 /// Stored hashed and rotated on every use. Reusing a revoked token revokes its whole family.
@@ -262,6 +493,8 @@ model RefreshToken {
   revokedAt        DateTime? @map("revoked_at")
   replacedById     String?   @unique @map("replaced_by_id") @db.Uuid
   userAgent        String?   @map("user_agent")
+  /// Where the session signed in or last refreshed from: shown as an active session.
+  ip               String?
   createdAt        DateTime  @default(now()) @map("created_at")
 
   user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -298,6 +531,9 @@ model AuditLog {
   organizationId String?     @map("organization_id") @db.Uuid
   metadata       Json?
   ip             String?
+  userAgent      String?     @map("user_agent")
+  /// The officer who acted for a shared organization account ("Acting as").
+  actingAs       String?     @map("acting_as") @db.VarChar(80)
   createdAt      DateTime    @default(now()) @map("created_at")
 
   actor        User?         @relation(fields: [actorId], references: [id])
@@ -317,6 +553,8 @@ model Announcement {
   body           String
   /// Null until published.
   publishedAt    DateTime? @map("published_at")
+  /// Set when an officer edits it after publishing.
+  editedAt       DateTime? @map("edited_at")
   deletedAt      DateTime? @map("deleted_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
@@ -326,4 +564,286 @@ model Announcement {
 
   @@index([organizationId, publishedAt])
   @@map("announcements")
+}
+
+/// A pre-signed upload URL handed to an officer. Creating a document or version must name an
+/// unused, unexpired intent of the same user and organization, so nobody can claim someone
+/// else's object or reuse a key.
+model UploadIntent {
+  /// uploads/<organization id>/<random uuid>; also the object's storage key.
+  key              String    @id
+  organizationId   String    @map("organization_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  originalFilename String    @map("original_filename")
+  contentType      String    @map("content_type")
+  sizeBytes        Int       @map("size_bytes")
+  expiresAt        DateTime  @map("expires_at")
+  usedAt           DateTime? @map("used_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("upload_intents")
+}
+
+/// An event an organization plans (spec 2A). Every field is required; the milestone
+/// checklist (ProjectTask) is created with it.
+model Project {
+  id                   String        @id @default(uuid(7)) @db.Uuid
+  organizationId       String        @map("organization_id") @db.Uuid
+  name                 String
+  /// The event date, a calendar date in Asia/Manila.
+  targetDate           DateTime      @map("target_date") @db.Date
+  location             String
+  beneficiaries        String
+  description          String
+  status               ProjectStatus @default(active)
+  /// 23:59:59 Manila time, 14 days after the project was created.
+  proposalDueAt        DateTime      @map("proposal_due_at")
+  /// 23:59:59 Manila time, 14 days after the target date (ACR and Financial Report).
+  postEventDueAt       DateTime      @map("post_event_due_at")
+  /// A new proposal deadline set by an approved PROJECT_BLOCK appeal; replaces the 14 days.
+  proposalDueOverride  DateTime?     @map("proposal_due_override")
+  /// A new post-event deadline set by an approved appeal; replaces the 14 days.
+  postEventDueOverride DateTime?     @map("post_event_due_override")
+  nomRequired          Boolean       @default(false) @map("nom_required")
+  momRequired          Boolean       @default(false) @map("mom_required")
+  createdById          String        @map("created_by_id") @db.Uuid
+  deletedAt            DateTime?     @map("deleted_at")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  createdBy    User          @relation(fields: [createdById], references: [id])
+  tasks        ProjectTask[]
+  freezes      OrgFreeze[]
+  appeals      Appeal[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, targetDate])
+  @@map("projects")
+}
+
+/// One step of a project's checklist. Its status follows the unlock rules in
+/// apps/api/src/services/project-rules.ts; its file is an ordinary Paperworks document.
+model ProjectTask {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  projectId   String            @map("project_id") @db.Uuid
+  type        ProjectTaskType
+  status      ProjectTaskStatus @default(locked)
+  /// Null for tasks without a deadline (NOM and MOM).
+  dueAt       DateTime?         @map("due_at")
+  /// The task's file. Re-uploads are new versions of this document.
+  documentId  String?           @unique @map("document_id") @db.Uuid
+  submittedAt DateTime?         @map("submitted_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  project  Project   @relation(fields: [projectId], references: [id])
+  document Document? @relation(fields: [documentId], references: [id])
+
+  @@unique([projectId, type])
+  @@index([status, dueAt])
+  @@map("project_tasks")
+}
+
+/// An organization frozen because one project's ACR or Financial Report is overdue (spec
+/// 3B). While any freeze is open (liftedAt null) the organization cannot create projects.
+/// At most one open freeze per project (partial unique index, see the migration). Only an
+/// approved appeal lifts it; a late upload does not.
+model OrgFreeze {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  projectId      String            @map("project_id") @db.Uuid
+  /// The reports that were missing when it froze.
+  reports        ProjectTaskType[]
+  frozenAt       DateTime          @default(now()) @map("frozen_at")
+  liftedAt       DateTime?         @map("lifted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  project      Project      @relation(fields: [projectId], references: [id])
+  appeals      Appeal[]
+
+  @@index([organizationId, liftedAt])
+  @@map("org_freezes")
+}
+
+/// An appeal to unblock a project or lift a freeze (spec 3). Decided by the head of the
+/// body above the organization (apps/api/src/services/appeal-rules.ts). At most one pending
+/// appeal per blocked project or per freeze (partial unique indexes, see the migration).
+model Appeal {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  type           AppealType
+  organizationId String       @map("organization_id") @db.Uuid
+  projectId      String       @map("project_id") @db.Uuid
+  /// ORG_FREEZE only (a CHECK constraint enforces it).
+  freezeId       String?      @map("freeze_id") @db.Uuid
+  reason         String
+  status         AppealStatus @default(pending)
+  submittedById  String       @map("submitted_by_id") @db.Uuid
+  decidedById    String?      @map("decided_by_id") @db.Uuid
+  remarks        String?
+  /// The deadline an approval set (23:59:59 Manila on the chosen day).
+  newDueAt       DateTime?    @map("new_due_at")
+  decidedAt      DateTime?    @map("decided_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  project      Project            @relation(fields: [projectId], references: [id])
+  freeze       OrgFreeze?         @relation(fields: [freezeId], references: [id])
+  submittedBy  User               @relation("AppealSubmittedBy", fields: [submittedById], references: [id])
+  decidedBy    User?              @relation("AppealDecidedBy", fields: [decidedById], references: [id])
+  attachments  AppealAttachment[]
+
+  @@index([organizationId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([status])
+  @@map("appeals")
+}
+
+/// A supporting file for an appeal. Not a Paperworks document: only the appealing
+/// organization's officers and the deciders may open it. Uploaded straight to storage,
+/// then checked by the worker; only clean files can be attached or downloaded.
+model AppealAttachment {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  organizationId   String     @map("organization_id") @db.Uuid
+  uploadedById     String     @map("uploaded_by_id") @db.Uuid
+  /// Null until an appeal is submitted with it.
+  appealId         String?    @map("appeal_id") @db.Uuid
+  storageKey       String     @unique @map("storage_key")
+  originalFilename String     @map("original_filename")
+  mimeType         String     @map("mime_type")
+  sizeBytes        Int        @map("size_bytes")
+  scanStatus       ScanStatus @default(pending) @map("scan_status")
+  createdAt        DateTime   @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+  appeal       Appeal?      @relation(fields: [appealId], references: [id])
+
+  @@index([appealId])
+  @@map("appeal_attachments")
+}
+
+/// One in-app notification for one user; the worker also emails it once (emailedAt).
+/// dedupeKey makes repeated checks (the hourly job, reads) notify only once.
+model Notification {
+  id        String           @id @default(uuid(7)) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  kind      NotificationKind
+  title     String
+  body      String
+  /// An app path, e.g. "/projects/<id>".
+  link      String?
+  dedupeKey String?          @unique @map("dedupe_key")
+  /// The one-time Reveal this notification carries (password_reveal).
+  revealId  String?          @unique @map("reveal_id") @db.Uuid
+  readAt    DateTime?        @map("read_at")
+  emailedAt DateTime?        @map("emailed_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reveal PasswordReveal? @relation(fields: [revealId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+/// The ISSC account's request for an organization's account (docs/DOMAIN_RULES.md,
+/// "Accounts"). At most one open (`requested`) request per organization: a partial unique
+/// index in the migration.
+model AccountRequest {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  organizationId   String               @map("organization_id") @db.Uuid
+  requestedById    String?              @map("requested_by_id") @db.Uuid
+  accountEmail     String               @map("account_email")
+  officerName      String               @map("officer_name")
+  officerPosition  String               @map("officer_position")
+  officerEmail     String               @map("officer_email")
+  note             String?
+  status           AccountRequestStatus @default(requested)
+  declineReason    String?              @map("decline_reason")
+  decidedById      String?              @map("decided_by_id") @db.Uuid
+  decidedAt        DateTime?            @map("decided_at")
+  createdAccountId String?              @map("created_account_id") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  requestedBy    User?        @relation("AccountRequestBy", fields: [requestedById], references: [id])
+  decidedBy      User?        @relation("AccountRequestDecider", fields: [decidedById], references: [id])
+  createdAccount User?        @relation("AccountRequestAccount", fields: [createdAccountId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([status, createdAt])
+  @@map("account_requests")
+}
+
+/// Temporary passwords waiting for the ISSC account's one-time Reveal (docs/DOMAIN_RULES.md,
+/// "Accounts"). The passwords themselves are stored only as hashes on the accounts; `sealed`
+/// is one AES-256-GCM copy (bound to this row's id), set to null once revealed or expired.
+model PasswordReveal {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  recipientId String        @map("recipient_id") @db.Uuid
+  purpose     RevealPurpose
+  entryCount  Int           @map("entry_count")
+  sealed      String?
+  issuedById  String?       @map("issued_by_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at")
+  expiresAt   DateTime      @map("expires_at")
+  revealedAt  DateTime?     @map("revealed_at")
+
+  recipient    User          @relation("RevealRecipient", fields: [recipientId], references: [id])
+  issuedBy     User?         @relation("RevealIssuer", fields: [issuedById], references: [id])
+  notification Notification?
+
+  @@index([recipientId, createdAt])
+  @@index([expiresAt])
+  @@map("password_reveals")
+}
+
+/// A user's email choice for one kind of notification. No row means email is on
+/// (docs/DOMAIN_RULES.md, "Notifications"); in-app notifications are always on.
+model NotificationPreference {
+  userId    String           @map("user_id") @db.Uuid
+  kind      NotificationKind
+  email     Boolean
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, kind])
+  @@map("notification_preferences")
+}
+
+/// One request for a Semestral End Report (docs/PROJECT_WORKFLOW_SPEC.md, section 4): the
+/// worker compiles the organization's task files for that semester into one PDF and files it
+/// as a private document. At most one report per organization and semester runs at a time
+/// (partial unique index, see the migration).
+model SemestralReport {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  /// "2026-2027"
+  academicYear   String       @map("academic_year")
+  semester       Semester
+  status         ReportStatus @default(queued)
+  /// 0-100 while generating.
+  progress       Int          @default(0)
+  /// Why it failed, in words for the officer (never a stack trace).
+  error          String?
+  requestedById  String       @map("requested_by_id") @db.Uuid
+  /// The generated PDF, once ready.
+  documentId     String?      @unique @map("document_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
+  startedAt      DateTime?    @map("started_at")
+  finishedAt     DateTime?    @map("finished_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  requestedBy  User         @relation(fields: [requestedById], references: [id])
+  document     Document?    @relation(fields: [documentId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@map("semestral_reports")
 }

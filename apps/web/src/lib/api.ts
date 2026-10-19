@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { apiErrorBodySchema, authResponseSchema } from '@orghive/shared';
+import { apiErrorBodySchema, authResponseSchema, BACKGROUND_REQUEST_HEADER } from '@orghive/shared';
 import { authStore } from './auth-store';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
@@ -19,8 +19,18 @@ export class ApiError extends Error {
 export interface RequestOptions<T> extends Omit<RequestInit, 'body'> {
   /** Sent as JSON with the matching Content-Type. */
   json?: unknown;
+  /**
+   * Sent as is, with its own type as Content-Type: small images only (logos). Documents
+   * never pass through the API; they go to storage with a pre-signed URL.
+   */
+  raw?: Blob;
   /** Validates the response body; use the schema from @orghive/shared. */
   schema?: z.ZodType<T>;
+  /**
+   * Polling, not something the user did. The API does not count it as activity, so an open
+   * tab cannot keep an idle super admin session alive.
+   */
+  background?: boolean;
 }
 
 let inFlightRefresh: Promise<boolean> | null = null;
@@ -87,10 +97,11 @@ export async function signOut(): Promise<void> {
   }
 }
 
-async function send(path: string, init: RequestInit, json: unknown): Promise<Response> {
+async function send(path: string, init: RequestInit, json: unknown, raw?: Blob): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
   if (json !== undefined) headers.set('Content-Type', 'application/json');
+  if (raw) headers.set('Content-Type', raw.type);
   const token = authStore.getAccessToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   try {
@@ -99,6 +110,7 @@ async function send(path: string, init: RequestInit, json: unknown): Promise<Res
       headers,
       credentials: 'include',
       ...(json !== undefined && { body: JSON.stringify(json) }),
+      ...(raw && { body: raw }),
     });
   } catch {
     throw new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server. Check your connection.');
@@ -107,14 +119,23 @@ async function send(path: string, init: RequestInit, json: unknown): Promise<Res
 
 export async function apiFetch<T = unknown>(
   path: string,
-  { json, schema, ...init }: RequestOptions<T> = {},
+  { json, raw, schema, background, ...rest }: RequestOptions<T> = {},
 ): Promise<T> {
-  let response = await send(path, init, json);
+  const init: RequestInit = background
+    ? {
+        ...rest,
+        headers: {
+          ...Object.fromEntries(new Headers(rest.headers)),
+          [BACKGROUND_REQUEST_HEADER]: '1',
+        },
+      }
+    : rest;
+  let response = await send(path, init, json, raw);
 
   // An expired access token: refresh once and retry. Auth routes answer 401 for wrong
   // credentials, which a refresh cannot fix, so they are never retried.
   if (response.status === 401 && !path.startsWith('/auth/') && (await refreshSession())) {
-    response = await send(path, init, json);
+    response = await send(path, init, json, raw);
   }
 
   if (!response.ok) {

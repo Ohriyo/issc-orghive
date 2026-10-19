@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createCollegeRepository } from '#src/repositories/college.repository';
-import { createMembershipRepository } from '#src/repositories/membership.repository';
+import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { buildWorld, resetDb, testDb, type World } from '../db';
 
 const db = testDb();
 const organizations = createOrganizationRepository(db);
 const colleges = createCollegeRepository(db);
-const memberships = createMembershipRepository(db);
+const accounts = createAccountRepository(db);
 let world: World;
 
 beforeEach(async () => {
@@ -49,45 +49,76 @@ describe('collegeRepository', () => {
   });
 });
 
-describe('membershipRepository.findActiveForUser', () => {
-  it('returns memberships within their term', async () => {
-    const active = await memberships.findActiveForUser(
-      world.users.governor.id,
-      new Date('2026-10-15'),
-    );
-    expect(active).toHaveLength(1);
-    expect(active[0]).toMatchObject({
-      isHead: true,
-      title: 'Governor',
-      organization: { type: 'CSC' },
+describe('accountRepository (shared organization accounts)', () => {
+  it('finds the organization an active account acts for', async () => {
+    expect(await accounts.findAccount(world.users.governor.id)).toMatchObject({
+      userId: world.users.governor.id,
+      organization: { id: world.orgs.cscCea.id, type: 'CSC', parentId: world.orgs.issc.id },
     });
   });
 
-  it('grants nothing after term_end or before term_start', async () => {
-    expect(
-      await memberships.findActiveForUser(world.users.governor.id, new Date('2027-08-01')),
-    ).toEqual([]);
-    expect(
-      await memberships.findActiveForUser(world.users.governor.id, new Date('2026-07-31')),
-    ).toEqual([]);
-  });
-
-  it('still counts the last day of the term', async () => {
-    expect(
-      await memberships.findActiveForUser(
-        world.users.governor.id,
-        new Date('2027-07-31T23:00:00Z'),
-      ),
-    ).toHaveLength(1);
-  });
-
-  it('grants nothing to a disabled user', async () => {
+  it('gives a locked or deactivated account, or one without an organization, nothing', async () => {
+    expect(await accounts.findAccount(world.users.outsider.id)).toBeNull();
     await db.user.update({
       where: { id: world.users.governor.id },
+      data: { lockedAt: new Date() },
+    });
+    expect(await accounts.findAccount(world.users.governor.id)).toBeNull();
+    expect(await accounts.findOrganizationAccount(world.orgs.cscCea.id)).toBeNull();
+    await db.user.update({
+      where: { id: world.users.officer.id },
       data: { disabledAt: new Date() },
     });
+    expect(await accounts.findAccount(world.users.officer.id)).toBeNull();
+  });
+
+  it('allows one active account per organization; a deactivated one frees the slot', async () => {
+    const second = () =>
+      db.user.create({
+        data: {
+          email: 'jpice2@test.local',
+          name: 'x',
+          passwordHash: 'x',
+          organizationId: world.orgs.jpice.id,
+        },
+      });
+    await expect(second()).rejects.toThrow();
+    await db.user.update({
+      where: { id: world.users.officer.id },
+      data: { disabledAt: new Date() },
+    });
+    await expect(second()).resolves.toMatchObject({ organizationId: world.orgs.jpice.id });
+  });
+
+  it('finds the organization account and the accounts under a council', async () => {
+    expect(await accounts.findOrganizationAccount(world.orgs.jpice.id)).toMatchObject({
+      id: world.users.officer.id,
+    });
     expect(
-      await memberships.findActiveForUser(world.users.governor.id, new Date('2026-10-15')),
+      (await accounts.findAccountIdsUnder({ councilId: world.orgs.cscCea.id })).sort(),
+    ).toEqual([world.users.governor.id, world.users.officer.id, world.users.psme.id].sort());
+    const everyone = await accounts.findAccountIdsUnder('everyone');
+    expect(everyone).toHaveLength(5);
+    expect(everyone).not.toContain(world.users.outsider.id);
+  });
+
+  it('reads the open officer term and the terms ending in a window', async () => {
+    expect(await accounts.findCurrentTerm(world.users.officer.id)).toMatchObject({
+      officerName: 'jpice officer',
+      officerPosition: 'President',
+    });
+    const ending = await accounts.findTermsEndingBetween(
+      new Date('2027-07-20'),
+      new Date('2027-07-31'),
+    );
+    expect(ending).toHaveLength(5);
+    expect(
+      await accounts.findTermsEndingBetween(new Date('2027-08-01'), new Date('2027-08-31')),
     ).toEqual([]);
+    await db.officerTerm.updateMany({
+      where: { userId: world.users.officer.id },
+      data: { endedAt: new Date() },
+    });
+    expect(await accounts.findCurrentTerm(world.users.officer.id)).toBeNull();
   });
 });

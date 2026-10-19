@@ -10,3 +10,27 @@ export function createPublicUrl(baseUrl: string): PublicUrl {
     return `${base}/${key.split('/').map(encodeURIComponent).join('/')}`;
   };
 }
+
+/** Where a resized variant of a `.webp` logo is stored: `logos/x-ab12.webp` -> `logos/x-ab12-256.webp`. */
+export function logoVariantKey(key: string, width: number): string {
+  return key.replace(/\.webp$/, `-${width}.webp`);
+}
+
+/**
+ * The `srcset` for a logo's resized variants, smallest first, or null when it has none
+ * (the browser then uses logoUrl alone).
+ */
+export function logoSrcSet(
+  publicUrl: PublicUrl,
+  key: string | null,
+  widths: readonly number[],
+): string | null {
+  if (!key?.endsWith('.webp') || widths.length === 0) return null;
+  const entries = [...widths]
+    .sort((a, b) => a - b)
+    .map((w) => {
+      const url = publicUrl(logoVariantKey(key, w));
+      return url && `${url} ${w}w`;
+    });
+  return entries.every(Boolean) ? entries.join(', ') : null;
+}

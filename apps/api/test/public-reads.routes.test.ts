@@ -201,6 +201,7 @@ describe('GET /api/docs', () => {
       '/colleges',
       '/colleges/{slug}',
       '/organizations/{slug}',
+      '/search',
     ]);
     expect(spec.body.components.schemas).toHaveProperty('CollegeDetail');
   });

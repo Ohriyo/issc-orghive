@@ -25,37 +25,84 @@ const trustProxySchema = z
     value === 'false' ? false : /^\d+$/.test(value) ? Number(value) : value,
   );
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(4000),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  WEB_ORIGIN: z.url(),
-  TRUST_PROXY: trustProxySchema,
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
+    WEB_ORIGIN: z.url(),
+    TRUST_PROXY: trustProxySchema,
 
-  /** Ed25519 key pair that signs and verifies access tokens (EdDSA). */
-  JWT_PRIVATE_KEY: pem('PRIVATE KEY'),
-  JWT_PUBLIC_KEY: pem('PUBLIC KEY'),
+    /** Ed25519 key pair that signs and verifies access tokens (EdDSA). */
+    JWT_PRIVATE_KEY: pem('PRIVATE KEY'),
+    JWT_PUBLIC_KEY: pem('PUBLIC KEY'),
 
-  DATABASE_URL: z.url(),
-  REDIS_URL: z.url(),
+    /**
+     * 32 random bytes, base64: encrypts super admin TOTP secrets at rest (AES-256-GCM).
+     * Required in production; without it, super admins cannot sign in. Changing it makes
+     * every enrolled authenticator unreadable (re-run create-super-admin --reset-mfa).
+     */
+    MFA_ENCRYPTION_KEY: z
+      .string()
+      .refine(
+        (value) => Buffer.from(value, 'base64').length === 32,
+        'must be 32 random bytes, base64-encoded (run pnpm --filter api keys:generate)',
+      )
+      .optional(),
 
-  S3_ENDPOINT: z.url(),
-  S3_REGION: z.string().min(1).default('us-east-1'),
-  S3_BUCKET: z.string().min(3),
-  S3_ACCESS_KEY: z.string().min(1),
-  S3_SECRET_KEY: z.string().min(8),
-  S3_FORCE_PATH_STYLE: z.stringbool().default(true),
-  /** Public base URL for keys under `logos/` (anonymous read on that prefix only, CDN-able). */
-  PUBLIC_ASSET_BASE_URL: z.url(),
+    /**
+     * Comma-separated email domains organization accounts may sign in with, e.g.
+     * "nwssu.edu.ph". Empty or unset: any domain. Checked when the super admin creates or
+     * edits an account.
+     */
+    ACCOUNT_EMAIL_DOMAINS: z
+      .string()
+      .default('')
+      .transform((value) =>
+        value
+          .split(',')
+          .map((domain) => domain.trim().toLowerCase().replace(/^@/, ''))
+          .filter(Boolean),
+      ),
 
-  SMTP_HOST: z.string().min(1),
-  SMTP_PORT: z.coerce.number().int().min(1).max(65535),
-  SMTP_FROM: z.email(),
-  /** Implicit TLS (port 465). Leave false for STARTTLS on 587 or for mailpit locally. */
-  SMTP_SECURE: z.stringbool().default(false),
-  SMTP_USER: z.string().min(1).optional(),
-  SMTP_PASS: z.string().min(1).optional(),
-});
+    DATABASE_URL: z.url(),
+    REDIS_URL: z.url(),
+
+    S3_ENDPOINT: z.url(),
+    S3_REGION: z.string().min(1).default('us-east-1'),
+    S3_BUCKET: z.string().min(3),
+    S3_ACCESS_KEY: z.string().min(1),
+    S3_SECRET_KEY: z.string().min(8),
+    S3_FORCE_PATH_STYLE: z.stringbool().default(true),
+    /** What browsers use for pre-signed URLs, if the API reaches storage at another address. */
+    S3_PUBLIC_ENDPOINT: z.url().optional(),
+    /** Public base URL for keys under `logos/` (anonymous read on that prefix only, CDN-able). */
+    PUBLIC_ASSET_BASE_URL: z.url(),
+
+    /** clamd, which the worker streams every upload to before anyone else can see it. */
+    CLAMAV_HOST: z.string().min(1).default('localhost'),
+    CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+
+    /**
+     * Chromium for the Semestral End Report's pages (worker only). Unset: the browser
+     * `pnpm exec playwright install chromium` downloaded. Set it in images that ship their own.
+     */
+    CHROMIUM_EXECUTABLE_PATH: z.string().min(1).optional(),
+
+    SMTP_HOST: z.string().min(1),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65535),
+    SMTP_FROM: z.email(),
+    /** Implicit TLS (port 465). Leave false for STARTTLS on 587 or for mailpit locally. */
+    SMTP_SECURE: z.stringbool().default(false),
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASS: z.string().min(1).optional(),
+  })
+  .refine((env) => env.NODE_ENV !== 'production' || env.MFA_ENCRYPTION_KEY !== undefined, {
+    path: ['MFA_ENCRYPTION_KEY'],
+    message: 'is required in production (run pnpm --filter api keys:generate)',
+  });
 
 export type Config = z.infer<typeof envSchema>;
 

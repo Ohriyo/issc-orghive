@@ -20,6 +20,7 @@ function college(code: string, logoUrl: string | null = null): CollegeSummary {
       acronym: `CSC-${code}`,
       name: `CSC of ${code}`,
       logoUrl,
+      logoSrcSet: null,
     },
   };
 }
@@ -27,12 +28,14 @@ function college(code: string, logoUrl: string | null = null): CollegeSummary {
 const SEVEN = ['CAT', 'CCIS', 'CCJS', 'CoED', 'CEA', 'COM', 'CON'].map((code) => college(code));
 
 const ISSC: OrganizationDetail = {
+  id: '0195f3c0-0000-7000-8000-0000000000b1',
   type: 'ISSC',
   slug: 'issc',
   acronym: 'ISSC',
   name: 'Institutional Supreme Student Council',
   description: 'The highest student governing body.',
   logoUrl: null,
+  logoSrcSet: null,
   parent: null,
   college: null,
 };

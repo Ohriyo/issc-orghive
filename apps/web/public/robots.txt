@@ -1,0 +1,13 @@
+# Orghive: NwSSU's archive of student-organization Paperworks.
+# Public pages (colleges, organizations, public Paperworks, updates) may be indexed.
+# Signed-in workspaces and account screens hold nothing for search engines.
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /projects/
+Disallow: /login
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /change-password
+Disallow: /api/

@@ -24,6 +24,11 @@ const BANDS = [
 export interface WaveDividerProps {
   /** Mirror horizontally, so the olive crest sits top-left. */
   flip?: boolean;
+  /**
+   * Fill whatever box the caller sets (e.g. `h-10 w-full`) instead of keeping the
+   * prototype's proportions: a thin wave between dashboard sections.
+   */
+  stretch?: boolean;
   className?: string;
 }
 
@@ -32,13 +37,14 @@ export interface WaveDividerProps {
  * and a leaf swoosh below. The bands settle into place one after another the first
  * time the divider scrolls into view.
  */
-export function WaveDivider({ flip = false, className }: WaveDividerProps) {
+export function WaveDivider({ flip = false, stretch = false, className }: WaveDividerProps) {
   const reduced = usePrefersReducedMotion();
 
   return (
     <svg
       viewBox="0 0 1366 300"
-      className={cn('block h-auto w-full', flip && '-scale-x-100', className)}
+      preserveAspectRatio={stretch ? 'none' : undefined}
+      className={cn('block w-full', !stretch && 'h-auto', flip && '-scale-x-100', className)}
       aria-hidden="true"
       focusable="false"
     >

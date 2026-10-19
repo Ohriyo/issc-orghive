@@ -1,0 +1,178 @@
+import { Upload } from 'lucide-react';
+import { OriginLink } from '@/navigation/origin-link';
+import { Container } from '@/components/container';
+import { Seo } from '@/components/seo';
+import { DocumentCard, DocumentCardSkeleton } from '@/components/document-card';
+import { PillButton } from '@/components/pill-button';
+import { SectionError } from '@/components/section-error';
+import { Skeleton } from '@/components/skeleton';
+import { FilterFields, FilterSheet, type FilterSelectSpec } from '@/components/filter-bar';
+import type {
+  PaperworksDocuments,
+  PaperworksFilterModel,
+  PaperworksState,
+  SelectFilter,
+} from '../presenters/use-paperworks';
+
+const PLACEHOLDER = 'Title or description';
+
+function selectsOf({ options }: PaperworksFilterModel): FilterSelectSpec<SelectFilter>[] {
+  return [
+    { name: 'type', label: 'Type', all: 'All types', options: options.types },
+    { name: 'year', label: 'Academic year', all: 'All years', options: options.years },
+    { name: 'semester', label: 'Semester', all: 'All semesters', options: options.semesters },
+  ];
+}
+
+export type PaperworksViewProps = Exclude<PaperworksState, { status: 'not-found' }>;
+
+/** Results: one card per row on phones, 2 columns from md, 3 from lg. */
+const GRID = 'grid gap-4 md:grid-cols-2 lg:grid-cols-3 lg:gap-6';
+
+/**
+ * /orgs/:slug/paperworks: an organization's document archive. Filters sit in a row above
+ * the grid from md; on phones they open in a bottom sheet.
+ */
+export function PaperworksView(props: PaperworksViewProps) {
+  return (
+    <div className="bg-surface-sweep min-h-page">
+      {props.status === 'ready' ? <Seo seo={props.seo} /> : <title>Paperworks | Orghive</title>}
+      <Container as="main" className="pt-4 pb-section lg:pt-6">
+        {props.status === 'ready' ? (
+          <>
+            <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-5">
+              <div>
+                <h1 className="text-display font-bold text-ink">Paperworks</h1>
+                <p className="mt-2 text-lead text-ink">{props.org.name}</p>
+              </div>
+              {props.uploadHref ? (
+                <PillButton asChild size="md">
+                  <OriginLink to={props.uploadHref}>
+                    <Upload aria-hidden="true" />
+                    Upload documents
+                  </OriginLink>
+                </PillButton>
+              ) : null}
+            </header>
+
+            <div className="mt-8 hidden md:block">
+              <FilterFields
+                filters={props.filters}
+                selects={selectsOf(props.filters)}
+                placeholder={PLACEHOLDER}
+                layout="row"
+              />
+              {props.filters.activeCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={props.filters.clear}
+                  className="tap-area mt-3 cursor-pointer text-small font-medium text-ink underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf"
+                >
+                  Clear filters
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-6 md:hidden">
+              <FilterSheet
+                filters={props.filters}
+                selects={selectsOf(props.filters)}
+                placeholder={PLACEHOLDER}
+              />
+            </div>
+
+            <section aria-label="Documents" className="mt-8">
+              <Documents documents={props.documents} hasFilters={props.filters.activeCount > 0} />
+            </section>
+          </>
+        ) : props.status === 'error' ? (
+          <>
+            <h1 className="text-display font-bold text-ink">Paperworks</h1>
+            <SectionError
+              className="mt-8"
+              message="These Paperworks could not be loaded. Check your connection and try again."
+              onRetry={props.retry}
+            />
+          </>
+        ) : (
+          <div aria-busy="true">
+            <h1 className="sr-only">Loading Paperworks</h1>
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="mt-8 h-(--text-display) w-64 lg:mt-12" />
+            <Skeleton className="mt-3 h-5 w-80 max-w-full" />
+            <CardSkeletons />
+          </div>
+        )}
+      </Container>
+    </div>
+  );
+}
+
+function CardSkeletons() {
+  return (
+    <ul aria-hidden="true" className={`mt-8 ${GRID}`}>
+      {Array.from({ length: 6 }, (_, i) => (
+        <li key={i}>
+          <DocumentCardSkeleton />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Documents({
+  documents,
+  hasFilters,
+}: {
+  documents: PaperworksDocuments;
+  hasFilters: boolean;
+}) {
+  switch (documents.status) {
+    case 'loading':
+      return (
+        <div aria-busy="true">
+          <p className="sr-only">Loading documents</p>
+          <CardSkeletons />
+        </div>
+      );
+    case 'error':
+      return (
+        <SectionError
+          message="The documents could not be loaded. Check your connection and try again."
+          onRetry={documents.retry}
+        />
+      );
+    case 'empty':
+      return (
+        <p role="status" className="max-w-prose text-body-lg text-ink">
+          {hasFilters
+            ? 'No documents match these filters. Clear a filter to see more.'
+            : 'No Paperworks have been shared here yet. Documents appear here once they pass the virus scan.'}
+        </p>
+      );
+    case 'ready':
+      return (
+        <>
+          <ul className={GRID}>
+            {documents.items.map(({ id, ...card }) => (
+              <li key={id}>
+                <DocumentCard {...card} className="h-full" />
+              </li>
+            ))}
+          </ul>
+          {documents.hasMore ? (
+            <div className="mt-10 flex justify-center">
+              <PillButton
+                variant="light"
+                size="md"
+                onClick={documents.loadMore}
+                disabled={documents.isLoadingMore}
+                aria-busy={documents.isLoadingMore || undefined}
+              >
+                {documents.isLoadingMore ? 'Loading…' : 'Load more'}
+              </PillButton>
+            </div>
+          ) : null}
+        </>
+      );
+  }
+}

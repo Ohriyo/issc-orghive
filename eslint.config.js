@@ -39,6 +39,12 @@ export default defineConfig([
     languageOptions: { globals: globals.node },
   },
 
+  // Skill scripts drive Playwright: parts of them run in the page, so browser globals too.
+  {
+    files: ['.claude/skills/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+
   // ---- apps/api ----
   {
     files: ['apps/api/**/*.ts'],

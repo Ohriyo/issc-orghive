@@ -4,6 +4,7 @@ import { authResponseSchema, authUserSchema, ErrorCode } from '@orghive/shared';
 import { hashToken } from '#src/lib/crypto';
 import { createTokenService } from '#src/services/token.service';
 import {
+  accountFor,
   buildAuthApp,
   createUser,
   refreshCookieOf,
@@ -91,11 +92,17 @@ describe('POST /auth/login', () => {
     expect(await auditActions()).toEqual([{ action: 'login_failed' }, { action: 'login_failed' }]);
   });
 
-  it('rejects a disabled account, even with the right password', async () => {
+  it('tells a deactivated account so only after the right password', async () => {
     await createUser(db, EMAIL, { disabled: true });
     const { app } = buildAuthApp(db, redis);
-    const res = await login(app).expect(401);
-    expect(res.body.error.code).toBe(ErrorCode.INVALID_CREDENTIALS);
+    const res = await login(app).expect(403);
+    expect(res.body.error).toEqual({
+      code: ErrorCode.ACCOUNT_DEACTIVATED,
+      message: 'This account has been deactivated. Please contact the ISSC admin.',
+    });
+    expect(refreshCookieOf(res)).toBeUndefined();
+    const wrong = await login(app, EMAIL, 'not the password at all').expect(401);
+    expect(wrong.body.error.code).toBe(ErrorCode.INVALID_CREDENTIALS);
   });
 
   it('validates the body', async () => {
@@ -104,23 +111,18 @@ describe('POST /auth/login', () => {
     expect(res.body.error.code).toBe(ErrorCode.VALIDATION_ERROR);
   });
 
-  it('puts the active memberships in the token roles', async () => {
+  it('reports the shared account’s organization, and why a deactivated or locked one is refused', async () => {
     const world = await buildWorld(db);
-    const user = await createUser(db, EMAIL);
-    await db.membership.create({
-      data: {
-        userId: user.id,
-        organizationId: world.orgs.jpice.id,
-        role: 'officer',
-        isHead: true,
-        termStart: new Date('2020-01-01'),
-      },
-    });
+    await accountFor(db, world.orgs.jpice.id, EMAIL);
     const { app } = buildAuthApp(db, redis);
     const body = authResponseSchema.parse((await login(app).expect(200)).body);
-    expect(body.user.roles).toEqual([
-      { orgId: world.orgs.jpice.id, role: 'officer', isHead: true },
-    ]);
+    expect(body.user.organization).toMatchObject({ id: world.orgs.jpice.id, type: 'SBO' });
+
+    await db.user.update({ where: { email: EMAIL }, data: { lockedAt: new Date() } });
+    const locked = await login(app).expect(403);
+    expect(locked.body.error.code).toBe(ErrorCode.ACCOUNT_LOCKED);
+    const wrong = await login(app, EMAIL, 'not the password at all').expect(401);
+    expect(wrong.body.error.message).toBe('Invalid email or password.');
   });
 });
 
@@ -184,8 +186,6 @@ describe('access tokens', () => {
     vi.useFakeTimers({ now: Date.now() - 16 * 60 * 1000, toFake: ['Date'] });
     const { token } = await createTokenService(keys).sign({
       userId: user.id,
-      roles: [],
-      isAdmin: false,
       passwordChangeRequired: false,
     });
     vi.useRealTimers();
@@ -205,8 +205,6 @@ describe('access tokens', () => {
     const { app } = buildAuthApp(db, redis);
     const { token } = await buildAuthApp(db, redis).tokens.sign({
       userId: user.id,
-      roles: [],
-      isAdmin: true,
       passwordChangeRequired: false,
     });
     await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${token}`).expect(401);

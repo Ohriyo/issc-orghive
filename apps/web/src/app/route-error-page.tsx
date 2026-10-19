@@ -1,24 +1,67 @@
+import { useState } from 'react';
 import { isRouteErrorResponse, Link, useRouteError } from 'react-router';
-import { Button } from '@/components/ui/button';
+import { Container } from '@/components/container';
+import { PillButton } from '@/components/pill-button';
+import { isChunkLoadError, reloadOnce } from '@/lib/chunk-reload';
+import { usePageChrome } from '@/navigation/page-chrome';
 
-export function RouteErrorPage() {
-  const error = useRouteError();
-  const notFound = isRouteErrorResponse(error) && error.status === 404;
-
+function ErrorPanel({ notFound }: { notFound: boolean }) {
+  usePageChrome({ section: null, trail: [], parent: { path: '/', label: 'Home' } });
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
+    <Container
+      as="main"
+      className="min-h-page flex max-w-md flex-col items-center justify-center gap-4 pb-section text-center"
+    >
       <title>{notFound ? 'Page not found | Orghive' : 'Something went wrong | Orghive'}</title>
-      <h1 className="text-2xl font-semibold">
+      <h1 className="text-h2 font-bold text-ink">
         {notFound ? 'Page not found' : 'Something went wrong'}
       </h1>
-      <p className="text-muted-foreground">
+      <p className="text-body text-ink-muted">
         {notFound
           ? 'The page you are looking for does not exist.'
           : 'Please try again. If the problem continues, contact the ISSC.'}
       </p>
-      <Button asChild>
+      <PillButton asChild size="md">
         <Link to="/">Back to home</Link>
-      </Button>
-    </main>
+      </PillButton>
+    </Container>
   );
+}
+
+/**
+ * A page's file could not be loaded (server restarted, connection dropped, or a new version
+ * replaced it). The first time, the app reloads itself; if that just happened, say what is
+ * going on and let the user reload.
+ */
+function PageLoadFailed() {
+  const [reloaded] = useState(() => reloadOnce());
+  usePageChrome({ section: null, trail: [], parent: { path: '/', label: 'Home' } });
+  if (reloaded) return <title>Loading | Orghive</title>;
+  return (
+    <Container
+      as="main"
+      className="min-h-page flex max-w-md flex-col items-center justify-center gap-4 pb-section text-center"
+    >
+      <title>Page did not load | Orghive</title>
+      <h1 className="text-h2 font-bold text-ink">This page did not load</h1>
+      <p className="text-body text-ink-muted">
+        Your connection may have dropped, or Orghive was just updated. Reloading usually fixes it.
+      </p>
+      <PillButton size="md" onClick={() => window.location.reload()}>
+        Reload
+      </PillButton>
+    </Container>
+  );
+}
+
+/** A route threw (or failed to load): shown inside the shell, so the header stays. */
+export function RouteErrorPage() {
+  const error = useRouteError();
+  if (isChunkLoadError(error)) return <PageLoadFailed />;
+  return <ErrorPanel notFound={isRouteErrorResponse(error) && error.status === 404} />;
+}
+
+/** No route matched. */
+export function NotFoundPage() {
+  return <ErrorPanel notFound />;
 }

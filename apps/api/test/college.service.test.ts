@@ -13,6 +13,8 @@ const CSC_CEA = {
   name: 'CSC of CEA',
   description: 'The CSC-CEA serves all CEA-tizens.',
   logoKey: 'logos/csc-cea.png',
+  logoWidths: [] as number[],
+  deactivatedAt: null as Date | null,
 } as const;
 
 const CEA: CollegeRecord = {
@@ -43,7 +45,9 @@ function sbo(slug: string): OrganizationRecord {
     name: slug,
     description: null,
     logoKey: null,
+    logoWidths: [],
     parentId: CSC_CEA.id,
+    deactivatedAt: null,
     parent: null,
     college: null,
   };
@@ -86,6 +90,7 @@ describe('collegeService.list', () => {
             acronym: 'CSC-CEA',
             name: 'CSC of CEA',
             logoUrl: 'https://cdn.test/logos/csc-cea.png',
+            logoSrcSet: null,
           },
         },
       ],
@@ -112,6 +117,15 @@ describe('collegeService.getBySlug', () => {
       logoUrl: 'https://cdn.test/logos/csc-cea.png',
     });
     expect(detail.sbos.map((o) => o.slug)).toEqual(['jpice', 'psme']);
+  });
+
+  it('hides a deactivated CSC but still lists its active SBOs', async () => {
+    const inactive = { ...CSC_CEA, deactivatedAt: new Date('2026-10-18') };
+    const { service } = serviceWith([{ ...CEA, organizations: [inactive] }]);
+    const detail = await service.getBySlug('cea');
+    expect(detail.csc).toBeNull();
+    expect(detail.sbos.map((o) => o.slug)).toEqual(['jpice', 'psme']);
+    expect((await service.list()).colleges[0]!.csc).toBeNull();
   });
 
   it('returns no SBOs for a college without a CSC', async () => {

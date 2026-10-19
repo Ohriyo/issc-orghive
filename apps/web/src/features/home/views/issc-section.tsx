@@ -1,11 +1,13 @@
 import type { OrganizationDetail } from '@orghive/shared';
-import { Link } from 'react-router';
+import { OriginLink } from '@/navigation/origin-link';
 import { HexFrame } from '@/components/hex-frame';
 import { OrgLogo } from '@/components/org-logo';
 import { PillButton } from '@/components/pill-button';
 import { Reveal } from '@/components/reveal';
 import { WaveDivider } from '@/components/wave-divider';
 import type { SectionState } from '../presenters/use-home-data';
+import { Container } from '@/components/container';
+import { LOGO_SIZES } from '@/components/logo-sizes';
 import { SectionError } from '@/components/section-error';
 
 export interface IsscSectionProps {
@@ -18,12 +20,13 @@ export function IsscSection({ issc }: IsscSectionProps) {
     <section aria-labelledby="issc-heading" className="relative isolate overflow-hidden">
       <WaveDivider className="mb-6 lg:-mb-8" />
 
-      <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-4 pb-16 sm:px-8 lg:grid-cols-2 lg:gap-8 lg:px-20 lg:pb-24">
-        <Reveal className="relative z-10">
+      <Container className="relative grid items-center gap-14 pb-section lg:grid-cols-2 lg:gap-8">
+        {/* Below lg the logo leads and the text is centred under it. */}
+        <Reveal className="relative z-10 max-lg:text-center">
           <IsscContent issc={issc} />
         </Reveal>
 
-        <Reveal className="relative">
+        <Reveal className="relative max-lg:order-first">
           {/* Decorative honeycomb neighbors, as in the prototype. */}
           <div aria-hidden="true" className="hidden lg:block">
             <HexFrame
@@ -42,12 +45,14 @@ export function IsscSection({ issc }: IsscSectionProps) {
           <HexFrame
             band={false}
             ring={false}
-            className="relative mx-auto w-full max-w-[22rem] sm:max-w-[28rem] lg:max-w-[36rem]"
+            className="relative mx-auto w-full max-w-[14rem] sm:max-w-[20rem] lg:max-w-[36rem]"
           >
             {issc.data ? (
               <OrgLogo
                 name={issc.data.name}
                 src={issc.data.logoUrl ?? undefined}
+                srcSet={issc.data.logoSrcSet ?? undefined}
+                sizes={LOGO_SIZES.feature}
                 fallbackText={issc.data.acronym}
                 className="size-full"
               />
@@ -56,7 +61,7 @@ export function IsscSection({ issc }: IsscSectionProps) {
             )}
           </HexFrame>
         </Reveal>
-      </div>
+      </Container>
     </section>
   );
 }
@@ -65,10 +70,7 @@ function IsscContent({ issc }: IsscSectionProps) {
   if (issc.isError) {
     return (
       <>
-        <h2
-          id="issc-heading"
-          className="text-h1 font-bold whitespace-nowrap text-ink xl:text-display"
-        >
+        <h2 id="issc-heading" className="text-display font-bold whitespace-nowrap text-ink">
           NwSSU-ISSC
         </h2>
         <SectionError
@@ -82,7 +84,7 @@ function IsscContent({ issc }: IsscSectionProps) {
 
   if (!issc.data) {
     return (
-      <div aria-busy="true" className="space-y-4">
+      <div aria-busy="true" className="space-y-4 max-lg:flex max-lg:flex-col max-lg:items-center">
         <h2 id="issc-heading" className="sr-only">
           Loading the ISSC profile
         </h2>
@@ -98,26 +100,27 @@ function IsscContent({ issc }: IsscSectionProps) {
     { label: 'Paperworks', to: `/orgs/${slug}/paperworks` },
     // The Collegiate Student Councils carousel.
     { label: 'CSC', to: '/colleges' },
-    { label: 'Updates', to: `/orgs/${slug}/updates` },
+    // Every council's updates; the page filters by council.
+    { label: 'Updates', to: '/updates' },
   ];
 
   return (
     <>
-      <h2 id="issc-heading" className="text-h1 font-bold text-ink xl:text-display">
+      <h2 id="issc-heading" className="text-display font-bold text-ink">
         <span className="block whitespace-nowrap">NwSSU-{acronym}</span>{' '}
-        <span className="mt-2 block text-body-lg font-normal tracking-normal sm:text-lead">
-          {name}
-        </span>
+        <span className="mt-2 block text-lead font-normal tracking-normal">{name}</span>
       </h2>
       {description ? (
-        <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink">{description}</p>
+        <p className="mt-8 max-w-[30rem] text-body-lg text-pretty text-ink max-lg:mx-auto">
+          {description}
+        </p>
       ) : null}
       <nav aria-label={`${acronym} sections`} className="mt-10">
-        <ul className="flex flex-wrap gap-4">
+        <ul className="flex flex-wrap gap-4 max-lg:justify-center">
           {links.map((link) => (
             <li key={link.label}>
               <PillButton asChild size="lg">
-                <Link to={link.to}>{link.label}</Link>
+                <OriginLink to={link.to}>{link.label}</OriginLink>
               </PillButton>
             </li>
           ))}

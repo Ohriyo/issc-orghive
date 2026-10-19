@@ -18,6 +18,7 @@ const CEA: CollegeDetail = {
     name: 'Collegiate Student Council of the College of Engineering and Architecture',
     description: 'The CSC-CEA serves as the official student governing body.',
     logoUrl: null,
+    logoSrcSet: null,
   },
   sbos: ['JPICE', 'PSME'].map((acronym) => ({
     type: 'SBO',
@@ -25,6 +26,7 @@ const CEA: CollegeDetail = {
     acronym,
     name: `${acronym} full name`,
     logoUrl: null,
+    logoSrcSet: null,
   })),
 };
 

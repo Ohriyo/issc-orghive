@@ -23,6 +23,8 @@ export interface NewRefreshToken {
   expiresAt: Date;
   sessionExpiresAt: Date;
   userAgent?: string;
+  /** Where the session signed in or refreshed from. */
+  ip?: string;
 }
 
 export function createRefreshTokenRepository(db: Db) {

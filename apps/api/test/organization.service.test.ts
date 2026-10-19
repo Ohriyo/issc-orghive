@@ -10,17 +10,20 @@ const CSC_CEA_PARENT = {
   acronym: 'CSC-CEA',
   name: 'CSC of CEA',
   logoKey: null,
+  logoWidths: [] as number[],
   deletedAt: null,
 } as const;
 
 const JPICE: OrganizationRecord = {
   id: 'jpice-id',
+  deactivatedAt: null,
   type: 'SBO',
   slug: 'jpice',
   acronym: 'JPICE',
   name: 'Junior Philippine Institute of Civil Engineers',
   description: 'Civil engineering students',
-  logoKey: 'logos/jpice.png',
+  logoKey: 'logos/jpice-ab12.webp',
+  logoWidths: [256, 128],
   parentId: 'csc-cea-id',
   parent: CSC_CEA_PARENT,
   college: {
@@ -48,18 +51,22 @@ describe('organizationService.getBySlug', () => {
   it('returns the profile with parent, college and public logo URL', async () => {
     const { service } = serviceWith([JPICE]);
     expect(await service.getBySlug('jpice')).toEqual({
+      id: 'jpice-id',
       type: 'SBO',
       slug: 'jpice',
       acronym: 'JPICE',
       name: JPICE.name,
       description: 'Civil engineering students',
-      logoUrl: 'https://cdn.test/logos/jpice.png',
+      logoUrl: 'https://cdn.test/logos/jpice-ab12.webp',
+      logoSrcSet:
+        'https://cdn.test/logos/jpice-ab12-128.webp 128w, https://cdn.test/logos/jpice-ab12-256.webp 256w',
       parent: {
         type: 'CSC',
         slug: 'csc-cea',
         acronym: 'CSC-CEA',
         name: 'CSC of CEA',
         logoUrl: null,
+        logoSrcSet: null,
       },
       college: { code: 'CEA', slug: 'cea', name: 'College of Engineering and Architecture' },
     });

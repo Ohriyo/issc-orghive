@@ -1,6 +1,8 @@
 // Seed content. Names, mottos and descriptions are transcribed from the prototype in design/.
 // Where the design gives no description (IECEP, ICpEP.SE, PSME), it is left empty on purpose.
 
+import { PROJECT_TASK_DOCUMENT_TYPES } from '@orghive/shared';
+
 export const issc = {
   slug: 'issc',
   acronym: 'ISSC',
@@ -79,8 +81,61 @@ export interface SboSeed {
   description?: string;
 }
 
+/**
+ * Each college's student body organizations, in carousel order. Names come from the list the
+ * project owner provided on 2026-10-18 and from the organizations' own logos; none has a
+ * description yet, and none should be invented. Not every college's SBOs are listed yet.
+ * Logos are assets/logos/<slug>.webp.
+ */
+const ccisSbos: SboSeed[] = [
+  { slug: 'tag', acronym: 'TAG', name: 'The Animation Guild' },
+  { slug: 'asit', acronym: 'ASIT', name: 'Allied Students of Information Technology' },
+  { slug: 'iso', acronym: 'ISO', name: 'Information Systems Organization' },
+  { slug: 'the-nexus', acronym: 'The Nexus', name: 'The Nexus' },
+  { slug: 'cs3', acronym: 'CS³', name: "Computer Science Students' Society" },
+];
+
+const ccjsSbos: SboSeed[] = [
+  { slug: 'jcap', acronym: 'JCAP', name: 'Junior Criminology Association of the Philippines' },
+  { slug: 'save-me', acronym: 'SAVE ME', name: 'SAVE ME Movement - NwSSU Chapter' },
+];
+
+const catSbos: SboSeed[] = [
+  { slug: 'site', acronym: 'SITE', name: 'Society of Industrial Technology Enthusiasts' },
+  {
+    slug: 'paft-nsc',
+    acronym: 'PAFT-NSC',
+    name: 'Philippine Association of Food Technologists-NwSSU Student Chapter',
+  },
+];
+
+const comSbos: SboSeed[] = [
+  { slug: 'jaspen', acronym: 'JASPEN', name: 'Junior Asia Pacific Entrepreneurs' },
+  {
+    slug: 'pasoa',
+    acronym: 'PASOA',
+    name: 'Philippine Association of Students in Office Administration',
+  },
+  { slug: 'jma', acronym: 'JMA', name: 'Junior Marketing Association' },
+  { slug: 'tco', acronym: 'TCO', name: 'Tourism Clique Organization' },
+];
+
+const coedSbos: SboSeed[] = [
+  { slug: 'geg', acronym: 'GEG', name: 'General Education Guild' },
+  { slug: 'meg', acronym: 'MEG', name: 'Mathematics Educators Guild' },
+  { slug: 'socius', acronym: 'SOCIUS', name: 'SOCIUS (The Society)' },
+  { slug: 'tveg', acronym: 'TVEG', name: "Technical Vocational Educators' Guild" },
+  // The list says "English Educators Guild (EEA)"; the logo and its acronym say Association.
+  { slug: 'eea', acronym: 'EEA', name: 'English Educators Association' },
+];
+
+const conSbos: SboSeed[] = [
+  { slug: 'concare', acronym: 'CONCare', name: 'CONCare' },
+  { slug: 'consonance', acronym: 'CONsonance', name: 'CONsonance' },
+];
+
 /** The six student body organizations of CEA. */
-export const ceaSbos: SboSeed[] = [
+const ceaSbos: SboSeed[] = [
   {
     slug: 'jpice',
     acronym: 'JPICE',
@@ -119,62 +174,39 @@ export const ceaSbos: SboSeed[] = [
   },
 ];
 
-/** The three types the sample documents use. The official list is still an open question. */
+/** Student body organizations by college code. */
+export const sbosByCollege: Record<string, SboSeed[]> = {
+  CAT: catSbos,
+  CCIS: ccisSbos,
+  CCJS: ccjsSbos,
+  CEA: ceaSbos,
+  CoED: coedSbos,
+  COM: comSbos,
+  CON: conSbos,
+};
+
+/**
+ * The types the sample documents use, plus the ones project task files are archived as.
+ * The official list is still an open question.
+ */
 export const documentTypes = [
   { slug: 'activity-proposal', name: 'Activity proposal' },
   { slug: 'accomplishment-report', name: 'Accomplishment report' },
   { slug: 'resolution', name: 'Resolution' },
+  ...Object.values(PROJECT_TASK_DOCUMENT_TYPES),
 ];
 
-export type SeedUserKey = 'admin' | 'jpice-officer' | 'jpice-adviser' | 'cea-governor';
+/**
+ * One shared development account per organization (docs/DOMAIN_RULES.md, "Accounts"), at
+ * `<slug>@orghive.local`: `.local` addresses can never receive real mail. The officers in
+ * charge below are fictional; organizations not listed get a placeholder.
+ */
+export function accountEmail(slug: string): string {
+  return `${slug}@orghive.local`;
+}
 
-/** Fictional development accounts. `.local` addresses can never receive real mail. */
-export const users: {
-  key: SeedUserKey;
-  email: string;
-  name: string;
-  org: string;
-  role: 'officer' | 'adviser' | 'admin';
-  isHead: boolean;
-  title: string;
-  /** Admins have no term end. */
-  openEnded?: boolean;
-}[] = [
-  {
-    key: 'admin',
-    email: 'admin@orghive.local',
-    name: 'ISSC Admin',
-    org: 'issc',
-    role: 'admin',
-    isHead: false,
-    title: 'System administrator',
-    openEnded: true,
-  },
-  {
-    key: 'jpice-officer',
-    email: 'jpice.officer@orghive.local',
-    name: 'Juan Dela Cruz',
-    org: 'jpice',
-    role: 'officer',
-    isHead: true,
-    title: 'President',
-  },
-  {
-    key: 'jpice-adviser',
-    email: 'jpice.adviser@orghive.local',
-    name: 'Engr. Ana Santos',
-    org: 'jpice',
-    role: 'adviser',
-    isHead: false,
-    title: 'Adviser',
-  },
-  {
-    key: 'cea-governor',
-    email: 'cea.governor@orghive.local',
-    name: 'Pedro Reyes',
-    org: 'csc-cea',
-    role: 'officer',
-    isHead: true,
-    title: 'Governor',
-  },
-];
+export const officersInCharge: Record<string, { name: string; position: string }> = {
+  issc: { name: 'Maria Lopez', position: 'ISSC President' },
+  'csc-cea': { name: 'Pedro Reyes', position: 'Governor' },
+  jpice: { name: 'Juan Dela Cruz', position: 'President' },
+};

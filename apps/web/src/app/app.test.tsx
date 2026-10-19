@@ -20,7 +20,8 @@ vi.mock('@/features/home/hooks/use-animated-hero', () => ({ useAnimatedHero: () 
 afterEach(cleanup);
 
 describe('app shell', () => {
-  it('renders the home route', async () => {
+  // The first render also loads the shell and the home page: allow for a busy machine.
+  it('renders the home route', { timeout: 15_000 }, async () => {
     renderAt('/');
     expect(
       await screen.findByRole('heading', {

@@ -1,3 +1,4 @@
+import { PROJECT_TASK_DOCUMENT_TYPES } from '@orghive/shared';
 import { createDb, type Db } from '#src/repositories/prisma';
 
 let db: Db | undefined;
@@ -11,17 +12,125 @@ export function testDb(): Db {
 
 export async function resetDb(client: Db) {
   await client.$executeRawUnsafe(`
-    TRUNCATE approvals, document_versions, documents, document_types, announcements,
-      audit_logs, refresh_tokens, password_reset_tokens, memberships, users, organizations, colleges
+    TRUNCATE semestral_reports, notifications, appeal_attachments, appeals, org_freezes,
+      project_tasks, projects,
+      upload_intents, document_versions, documents, document_types,
+      announcements, audit_logs, refresh_tokens, password_reset_tokens, recovery_codes,
+      officer_terms, password_reveals, account_requests, users,
+      organizations, colleges
     RESTART IDENTITY CASCADE`);
 }
 
-const TERM_START = new Date('2026-08-01');
-const TERM_END = new Date('2027-07-31');
+/** The document types project task files are archived as (the migration seeds them). */
+export async function createTaskDocumentTypes(client: Db) {
+  for (const type of Object.values(PROJECT_TASK_DOCUMENT_TYPES)) {
+    await client.documentType.upsert({ where: { slug: type.slug }, create: type, update: {} });
+  }
+}
+
+export const TERM_START = new Date('2026-08-01');
+export const TERM_END = new Date('2027-07-31');
+
+/**
+ * An organization's shared account, with its officer-in-charge for the current term. Locked
+ * or deactivated accounts act for nobody.
+ */
+export async function createAccount(
+  client: Db,
+  email: string,
+  organizationId: string,
+  {
+    passwordHash = 'x',
+    locked = false,
+    disabled = false,
+    mustChangePassword = false,
+  }: {
+    passwordHash?: string;
+    locked?: boolean;
+    disabled?: boolean;
+    mustChangePassword?: boolean;
+  } = {},
+) {
+  const user = await client.user.create({
+    data: {
+      email,
+      name: email.split('@')[0]!,
+      passwordHash,
+      organizationId,
+      mustChangePassword,
+      lockedAt: locked ? new Date() : null,
+      disabledAt: disabled ? new Date() : null,
+    },
+  });
+  await client.officerTerm.create({
+    data: {
+      userId: user.id,
+      organizationId,
+      officerName: `${user.name} officer`,
+      officerPosition: 'President',
+      officerEmail: `officer.${email}`,
+      termStart: TERM_START,
+      termEnd: TERM_END,
+    },
+  });
+  return user;
+}
+
+export interface TestDocumentInput {
+  organizationId: string;
+  typeId: string;
+  title: string;
+  status: 'scanning' | 'available' | 'quarantined' | 'archived';
+  createdById: string;
+  academicYear?: string;
+  deleted?: boolean;
+  /** Defaults to public, so status alone decides what the public sees. */
+  visibility?: 'public' | 'governing' | 'private';
+}
+
+/** The scan state of version 1 that each document status implies. */
+const SCAN_FOR_STATUS = {
+  scanning: 'pending',
+  available: 'clean',
+  quarantined: 'infected',
+  archived: 'clean',
+} as const;
+
+/** A document with version 1 as its current version, scanned as its status implies. */
+export async function createTestDocument(client: Db, input: TestDocumentInput) {
+  const { deleted, visibility = 'public', academicYear = '2026-2027', ...data } = input;
+  const created = await client.document.create({
+    data: {
+      ...data,
+      academicYear,
+      visibility,
+      deletedAt: deleted ? new Date() : null,
+    },
+  });
+  const scanStatus = SCAN_FOR_STATUS[input.status];
+  const version = await client.documentVersion.create({
+    data: {
+      documentId: created.id,
+      version: 1,
+      storageKey: `test/${created.id}.pdf`,
+      originalFilename: `${created.id}.pdf`,
+      mimeType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: scanStatus === 'pending' ? null : 'x'.repeat(64),
+      scanStatus,
+      uploadedById: input.createdById,
+    },
+  });
+  return client.document.update({
+    where: { id: created.id },
+    data: { currentVersionId: version.id },
+  });
+}
 
 /**
  * A small world: the ISSC, CSC-CEA with JPICE and PSME, and CSC-CAT.
- * JPICE has one document in every status plus a deleted one; PSME and CSC-CEA have a few.
+ * JPICE has an available document at each visibility, one in every other state and a
+ * deleted one, all uploaded by its officer; PSME and CSC-CEA have a few.
  */
 export async function buildWorld(client: Db) {
   const cea = await client.college.create({
@@ -81,32 +190,16 @@ export async function buildWorld(client: Db) {
     },
   });
 
-  const user = (email: string) =>
-    client.user.create({ data: { email, name: email, passwordHash: 'x' } });
-  const officer = await user('officer@test.local');
-  const governor = await user('governor@test.local');
-  const outsider = await user('outsider@test.local');
-
-  await client.membership.create({
-    data: {
-      userId: officer.id,
-      organizationId: jpice.id,
-      role: 'officer',
-      isHead: true,
-      termStart: TERM_START,
-      termEnd: TERM_END,
-    },
-  });
-  await client.membership.create({
-    data: {
-      userId: governor.id,
-      organizationId: cscCea.id,
-      role: 'officer',
-      isHead: true,
-      title: 'Governor',
-      termStart: TERM_START,
-      termEnd: TERM_END,
-    },
+  // One shared account per organization (docs/DOMAIN_RULES.md, "Accounts"). The names are
+  // the old roles, so tests still read as "the officer uploads, the governor decides".
+  const officer = await createAccount(client, 'jpice@test.local', jpice.id);
+  const governor = await createAccount(client, 'csc-cea@test.local', cscCea.id);
+  const isscAccount = await createAccount(client, 'issc@test.local', issc.id);
+  const psmeAccount = await createAccount(client, 'psme@test.local', psme.id);
+  const cscCatAccount = await createAccount(client, 'csc-cat@test.local', cscCat.id);
+  // Signed in, but acting for no organization (like the super admin): sees what the public sees.
+  const outsider = await client.user.create({
+    data: { email: 'outsider@test.local', name: 'outsider', passwordHash: 'x' },
   });
 
   const proposal = await client.documentType.create({
@@ -116,69 +209,68 @@ export async function buildWorld(client: Db) {
     data: { slug: 'accomplishment-report', name: 'Accomplishment report' },
   });
 
-  let n = 0;
-  async function doc(
+  const uploaderOf = new Map([
+    [jpice.id, officer.id],
+    [psme.id, psmeAccount.id],
+    [cscCea.id, governor.id],
+    [cscCat.id, cscCatAccount.id],
+    [issc.id, isscAccount.id],
+  ]);
+  const doc = (
     organizationId: string,
     title: string,
-    status: 'draft' | 'pending' | 'approved' | 'rejected' | 'archived',
-    extra: { deleted?: boolean; typeId?: string; academicYear?: string } = {},
-  ) {
-    n++;
-    const created = await client.document.create({
-      data: {
-        organizationId,
-        typeId: extra.typeId ?? proposal.id,
-        title,
-        academicYear: extra.academicYear ?? '2026-2027',
-        status,
-        createdById: officer.id,
-        deletedAt: extra.deleted ? new Date() : null,
-      },
+    status: TestDocumentInput['status'],
+    extra: Partial<TestDocumentInput> = {},
+  ) =>
+    createTestDocument(client, {
+      organizationId,
+      title,
+      status,
+      typeId: proposal.id,
+      // Uploaded by the organization's own shared account.
+      createdById: uploaderOf.get(organizationId)!,
+      ...extra,
     });
-    const version = await client.documentVersion.create({
-      data: {
-        documentId: created.id,
-        version: 1,
-        storageKey: `test/${n}.pdf`,
-        originalFilename: `${n}.pdf`,
-        mimeType: 'application/pdf',
-        sizeBytes: 100,
-        sha256: 'x'.repeat(64),
-        scanStatus: 'clean',
-        uploadedById: officer.id,
-      },
-    });
-    return client.document.update({
-      where: { id: created.id },
-      data: { currentVersionId: version.id },
-    });
-  }
 
   const docs = {
-    jpiceDraft: await doc(jpice.id, 'JPICE draft resolution', 'draft'),
-    jpicePending: await doc(jpice.id, 'JPICE bridge competition proposal', 'pending'),
-    jpiceApproved: await doc(jpice.id, 'JPICE accomplishment report', 'approved', {
+    jpicePublic: await doc(jpice.id, 'JPICE accomplishment report', 'available', {
       typeId: report.id,
       academicYear: '2025-2026',
     }),
-    jpiceRejected: await doc(jpice.id, 'JPICE week narrative report', 'rejected', {
+    jpiceGoverning: await doc(jpice.id, 'JPICE bridge competition proposal', 'available', {
+      visibility: 'governing',
+    }),
+    jpicePrivate: await doc(jpice.id, 'JPICE draft resolution', 'available', {
+      visibility: 'private',
+    }),
+    jpiceScanning: await doc(jpice.id, 'JPICE week narrative report', 'scanning', {
       typeId: report.id,
     }),
+    jpiceQuarantined: await doc(jpice.id, 'JPICE refused upload', 'quarantined'),
     jpiceArchived: await doc(jpice.id, 'JPICE archived proposal', 'archived'),
-    jpiceDeleted: await doc(jpice.id, 'JPICE deleted bridge proposal', 'approved', {
+    jpiceDeleted: await doc(jpice.id, 'JPICE deleted bridge proposal', 'available', {
       deleted: true,
     }),
-    psmePending: await doc(psme.id, 'PSME plant visit proposal', 'pending'),
-    psmeApproved: await doc(psme.id, 'PSME bridge seminar report', 'approved', {
+    psmePublic: await doc(psme.id, 'PSME bridge seminar report', 'available', {
       typeId: report.id,
     }),
-    cscCeaPending: await doc(cscCea.id, 'CEA Days proposal', 'pending'),
+    psmePrivate: await doc(psme.id, 'PSME plant visit proposal', 'available', {
+      visibility: 'private',
+    }),
+    cscCeaPublic: await doc(cscCea.id, 'CEA Days proposal', 'available'),
   };
 
   return {
     colleges: { cea, cat },
     orgs: { issc, cscCea, cscCat, jpice, psme },
-    users: { officer, governor, outsider },
+    users: {
+      officer,
+      governor,
+      outsider,
+      issc: isscAccount,
+      psme: psmeAccount,
+      cscCat: cscCatAccount,
+    },
     types: { proposal, report },
     docs,
   };

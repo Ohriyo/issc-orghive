@@ -6,12 +6,14 @@ import type { OrganizationDetail } from '@orghive/shared';
 import { routes } from '@/app/router';
 
 const JPICE: OrganizationDetail = {
+  id: '0195f3c0-0000-7000-8000-0000000000b1',
   type: 'SBO',
   slug: 'jpice',
   acronym: 'JPICE',
   name: 'Junior Philippine Institute of Civil Engineers',
   description: 'The JPICE is a dynamic organization committed to civil engineering students.',
   logoUrl: 'https://cdn.test/logos/jpice.png',
+  logoSrcSet: null,
   parent: null,
   college: { code: 'CEA', slug: 'cea', name: 'College of Engineering and Architecture' },
 };

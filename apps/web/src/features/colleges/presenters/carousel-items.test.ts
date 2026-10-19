@@ -18,6 +18,7 @@ describe('toCollegeItems', () => {
             acronym: 'CSC-CEA',
             name: 'CSC of CEA',
             logoUrl: 'https://cdn.test/logos/csc-cea.webp',
+            logoSrcSet: null,
           },
         },
         { code: 'CON', slug: 'con', name: 'College of Nursing', motto: null, csc: null },
@@ -61,6 +62,7 @@ describe('toSboItems', () => {
           acronym: 'JPICE',
           name: 'Junior Philippine Institute of Civil Engineers',
           logoUrl: null,
+          logoSrcSet: null,
         },
       ],
     };

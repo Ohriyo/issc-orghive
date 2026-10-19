@@ -1,48 +1,80 @@
+import type { DocumentVisibility, OrganizationType } from '@orghive/shared';
 import type { Prisma } from '#src/generated/prisma/client';
 
 /**
- * Who is asking for documents. Built by the viewer service from the user's active
- * memberships; repositories only read it.
+ * Who is asking for documents. Built by the viewer service from the shared account; the
+ * repositories only read it. The super admin, and any account that acts for no organization,
+ * is a public viewer here: the console never browses an organization's files.
  */
 export type DocumentViewer =
   | { kind: 'public' }
   | {
-      kind: 'user';
+      kind: 'account';
       userId: string;
-      /** Holds an active `admin` membership on the ISSC. */
-      isAdmin: boolean;
-      /** Organizations the user is an active member of (any role). */
-      memberOrgIds: string[];
-      /** Organizations whose documents this user approves (docs/DOMAIN_RULES.md). */
-      reviewableOrgIds: string[];
+      organizationId: string;
+      organizationType: OrganizationType;
     };
 
 export const PUBLIC_VIEWER: DocumentViewer = { kind: 'public' };
 
 /**
- * The visibility rule every document query goes through. PROVISIONAL until the school
- * answers "who can see pending and rejected documents?" (docs/DOMAIN_RULES.md):
+ * The visibility rule every document query goes through, and the only place it is decided
+ * (docs/DOMAIN_RULES.md, "Visibility"). Nobody reviews documents; their visibility alone
+ * decides:
  * - Deleted documents: nobody.
- * - Public and other users: approved only.
- * - Active members of the owning organization: every status.
- * - Its approvers: pending documents they must review.
- * - Admins: everything not deleted.
+ * - The owning organization's account: every one of its documents, in any state.
+ * - Others, available documents only: `public` to anyone; `governing` to the organization's
+ *   governing bodies (its college's CSC, and the ISSC; account-rules.ts); `private` to
+ *   nobody else at all, not the CSC, the ISSC or the super admin.
+ * - Scanning, quarantined and archived documents: the owning organization only.
  */
 export function visibleDocumentsWhere(viewer: DocumentViewer): Prisma.DocumentWhereInput {
   const notDeleted: Prisma.DocumentWhereInput = {
     deletedAt: null,
     organization: { deletedAt: null },
   };
+  const publicAvailable: Prisma.DocumentWhereInput = { status: 'available', visibility: 'public' };
 
-  if (viewer.kind === 'public') return { ...notDeleted, status: 'approved' };
-  if (viewer.isAdmin) return notDeleted;
+  if (viewer.kind === 'public') return { ...notDeleted, ...publicAvailable };
+
+  const governed: Prisma.DocumentWhereInput | null =
+    viewer.organizationType === 'ISSC'
+      ? {}
+      : viewer.organizationType === 'CSC'
+        ? { organization: { type: 'SBO', parentId: viewer.organizationId } }
+        : null;
 
   return {
     ...notDeleted,
     OR: [
-      { status: 'approved' },
-      { organizationId: { in: viewer.memberOrgIds } },
-      { status: 'pending', organizationId: { in: viewer.reviewableOrgIds } },
+      { organizationId: viewer.organizationId },
+      publicAvailable,
+      ...(governed
+        ? [{ status: 'available' as const, visibility: 'governing' as const, ...governed }]
+        : []),
     ],
   };
+}
+
+/**
+ * Which versions of a visible document the viewer may list: clean files, plus every version
+ * of its own organization's documents while they are scanned or after they were refused.
+ */
+export function visibleVersionsWhere(viewer: DocumentViewer): Prisma.DocumentVersionWhereInput {
+  if (viewer.kind === 'public') return { scanStatus: 'clean' };
+  return {
+    OR: [{ scanStatus: 'clean' }, { document: { organizationId: viewer.organizationId } }],
+  };
+}
+
+/**
+ * File support in the /system console: the super admin sees an organization's file details
+ * (type, size, status, dates) without opening or downloading any file, and not even the
+ * title of a private one (docs/DOMAIN_RULES.md, "Accounts"). This is that one rule.
+ */
+export function supportTitleOf(doc: {
+  title: string;
+  visibility: DocumentVisibility;
+}): string | null {
+  return doc.visibility === 'private' ? null : doc.title;
 }

@@ -6,7 +6,7 @@ export function AuthSkeleton() {
   return (
     <div
       aria-busy="true"
-      className="bg-surface-sweep mx-auto grid min-h-dvh w-full max-w-6xl content-center items-center gap-10 px-4 sm:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:gap-20 lg:px-12"
+      className="bg-surface-sweep mx-auto grid min-h-page w-full max-w-6xl content-center items-center gap-10 px-4 sm:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:gap-20 lg:px-12"
     >
       <span className="sr-only">Checking your session</span>
       <HexFrame

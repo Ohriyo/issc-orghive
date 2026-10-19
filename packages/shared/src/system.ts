@@ -124,6 +124,8 @@ export const systemAuditQuerySchema = z.object({
   actorId: z.uuid().optional(),
   action: z.string().trim().max(64).optional(),
   entityType: z.string().trim().max(64).optional(),
+  /** Part of an "Acting as" name, any case. */
+  actingAs: z.string().trim().min(1).max(80).optional(),
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
 });
@@ -140,6 +142,8 @@ export const systemAuditEntrySchema = z
     organizationId: z.uuid().nullable(),
     ip: z.string().nullable(),
     userAgent: z.string().nullable(),
+    /** The officer who acted for a shared organization account. */
+    actingAs: z.string().nullable(),
     metadata: z.record(z.string(), z.unknown()).nullable(),
   })
   .meta({ id: 'SystemAuditEntry' });

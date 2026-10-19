@@ -41,6 +41,9 @@ export const TEST_ORGS = {
  */
 export type TestAccount = 'own' | 'governing' | 'issc' | 'none';
 
+/** The id every test account signs in with. */
+export const ACCOUNT_ID = '0195f3c0-0000-7000-8000-000000000001';
+
 export function accountUser(
   account: TestAccount = 'own',
   org: NonNullable<AuthUser['organization']> = TEST_ORGS.jpice,
@@ -55,7 +58,7 @@ export function accountUser(
           ? TEST_ORGS.issc
           : null;
   return {
-    id: '0195f3c0-0000-7000-8000-000000000001',
+    id: ACCOUNT_ID,
     name: organization?.acronym ?? 'No organization',
     email: organization ? `${organization.slug}@orghive.test` : 'none@orghive.test',
     mustChangePassword: false,

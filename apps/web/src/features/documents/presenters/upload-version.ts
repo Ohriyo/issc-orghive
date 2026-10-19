@@ -30,6 +30,7 @@ export async function uploadNewVersion(
   orgSlug: string,
   documentId: string,
   file: File,
+  actingAs: string,
   onStep: (step: VersionUploadStep) => void,
 ): Promise<DocumentVersion> {
   const contentType = contentTypeForFilename(file.name);
@@ -48,7 +49,7 @@ export async function uploadNewVersion(
   onStep({ status: 'saving' });
   return api.post(
     `/documents/${documentId}/versions`,
-    { uploadKey: target.uploadKey },
+    { uploadKey: target.uploadKey, actingAs },
     { schema: documentVersionSchema },
   );
 }

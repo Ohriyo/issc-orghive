@@ -26,6 +26,7 @@ export async function uploadTaskFile(
   type: ProjectTaskType,
   file: File,
   visibility: DocumentVisibility,
+  actingAs: string,
   onStep: (step: TaskUploadStep) => void,
 ): Promise<ProjectDetail> {
   const contentType = contentTypeForFilename(file.name);
@@ -45,7 +46,7 @@ export async function uploadTaskFile(
   onStep({ status: 'saving' });
   return api.post(
     `/projects/${projectId}/tasks/${type}/documents`,
-    { uploadKey: target.uploadKey, visibility },
+    { uploadKey: target.uploadKey, visibility, actingAs },
     { schema: projectDetailSchema },
   );
 }

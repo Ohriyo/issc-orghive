@@ -13,6 +13,7 @@ import type { ProjectsOverviewModel } from '@/features/projects/presenters/use-p
 import type { SemestralReportsModel } from '@/features/reports/presenters/use-semestral-reports';
 import { SemestralReportsPanel } from '@/features/reports/views/semestral-reports-panel';
 import { ProjectsOverview } from '@/features/projects/views/projects-overview';
+import type { ActingAsModel } from '@/features/auth/presenters/use-acting-as';
 import type { DashboardModel, SelectedOrganization } from '../presenters/use-dashboard';
 import {
   NeedsAttention,
@@ -80,6 +81,7 @@ export function DashboardView({
               <OrganizationDashboard
                 org={selected}
                 onRevise={(id, file) => void model.revise(id, file)}
+                actingAs={model.actingAs}
                 panels={<RolePanels panels={model.panels} />}
                 projects={projects ? <ProjectsOverview model={projects} /> : null}
                 compliance={
@@ -101,6 +103,7 @@ export function DashboardView({
 function OrganizationDashboard({
   org,
   onRevise,
+  actingAs,
   panels,
   projects,
   compliance,
@@ -108,6 +111,7 @@ function OrganizationDashboard({
 }: {
   org: SelectedOrganization;
   onRevise: (documentId: string, file: File) => void;
+  actingAs: ActingAsModel;
   panels: React.ReactNode;
   projects: React.ReactNode;
   compliance: React.ReactNode;
@@ -200,7 +204,13 @@ function OrganizationDashboard({
           {reports}
           {panels}
           <div className="grid gap-12 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-10">
-            <NeedsAttention items={org.quarantined} canRevise={org.canRevise} onRevise={onRevise} />
+            <NeedsAttention
+              items={org.quarantined}
+              canRevise={org.canRevise}
+              onRevise={onRevise}
+              actingAs={actingAs}
+              orgAcronym={summary.acronym}
+            />
             <RecentActivity
               activity={org.activity}
               recentDocuments={org.recentDocuments}

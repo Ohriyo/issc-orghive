@@ -421,6 +421,9 @@ model DocumentVersion {
   failureReason    String?    @map("failure_reason")
   processedAt      DateTime?  @map("processed_at")
   uploadedById     String     @map("uploaded_by_id") @db.Uuid
+  /// The officer who uploaded it for the shared account ("Acting as"). Null for files Orghive
+  /// made (the Semestral End Report) and for uploads from before it was asked.
+  actingAs         String?    @map("acting_as") @db.VarChar(80)
   createdAt        DateTime   @default(now()) @map("created_at")
 
   document   Document  @relation("DocumentVersions", fields: [documentId], references: [id])
@@ -482,6 +485,8 @@ model AuditLog {
   metadata       Json?
   ip             String?
   userAgent      String?     @map("user_agent")
+  /// The officer who acted for a shared organization account ("Acting as").
+  actingAs       String?     @map("acting_as") @db.VarChar(80)
   createdAt      DateTime    @default(now()) @map("created_at")
 
   actor        User?         @relation(fields: [actorId], references: [id])

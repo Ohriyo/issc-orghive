@@ -50,6 +50,7 @@ charge.
 | Sign-in data | A password, stored only as a one-way Argon2id hash that cannot be turned back into the password | You |
 | Sessions | When you signed in, your browser's user-agent string (e.g. "Chrome on Android"), session expiry | Your browser |
 | Activity in Orghive | Documents and versions you uploaded (with the original file name), projects you created, appeals your organization submitted or decided (with reasons and remarks), updates you posted, Semestral End Reports you requested | You, when you use Orghive |
+| "Acting as" | The name you type as the officer using your organization's shared account, saved with each file you upload and each document you archive or delete | You |
 | Notifications | Notices sent to you (e.g. deadlines, appeal decisions, files refused by the virus scan, your term ending, updates from your council), whether you read them, and your email settings for each kind | Orghive |
 | Security records | An audit log of sensitive actions: sign-ins, failed sign-ins, sign-outs, password resets and changes, uploads, changes to who can see a document, archiving, deleting, appeal decisions, and every action of the system administrator. Each entry records who acted, what, when and from which IP address | Orghive |
 
@@ -102,6 +103,10 @@ appeal is decided by people (the deciding council, through its account).
   virus scan.
 - **Organization activity** (uploads, changes to who can see a document) is shown on that
   organization's own dashboard.
+- **"Acting as" names** are shown only to your own organization's account (in its file history
+  and dashboard) and to the system administrator (in the security log). Other organizations,
+  the councils above yours and visitors never see them. Your browser also remembers the last name
+  typed on that device, so the field starts filled in.
 - **Appeals** are seen by the organization that appealed and by the council that decides it (its
   college's CSC for an SBO; the ISSC for a CSC; the ISSC when the CSC account is vacant).
 - **Updates** posted by the ISSC or a CSC are public, with the posting council's name.
@@ -153,6 +158,8 @@ appeal is decided by people (the deciding council, through its account).
   service.
 - **Your last chosen organization** on the dashboard is remembered in your browser's local
   storage, so you return to it next time.
+- **The last "Acting as" name** typed for an account is remembered in your browser's local
+  storage on that device. Clearing your browser's site data removes it.
 - Orghive uses no advertising, tracking or analytics cookies.
 
 ## 8. Your rights

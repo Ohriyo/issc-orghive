@@ -14,6 +14,8 @@ import {
 import { OriginLink } from '@/navigation/origin-link';
 import { UPLOAD_ACCEPT } from '@orghive/shared';
 import { PillButton } from '@/components/pill-button';
+import { ActingAsField } from '@/components/acting-as-field';
+import type { ActingAsModel } from '@/features/auth/presenters/use-acting-as';
 import { StatusBadge } from '@/components/status-badge';
 import { STATUS_STYLE } from '@/components/status-style';
 import { cn } from '@/lib/utils';
@@ -155,10 +157,14 @@ export function NeedsAttention({
   items,
   canRevise,
   onRevise,
+  actingAs,
+  orgAcronym,
 }: {
   items: AttentionItem[];
   canRevise: boolean;
   onRevise: (documentId: string, file: File) => void;
+  actingAs: ActingAsModel;
+  orgAcronym: string;
 }) {
   return (
     <section aria-labelledby="attention-heading">
@@ -171,36 +177,47 @@ export function NeedsAttention({
           Nothing needs you. If the virus scan blocks one of your uploads, it shows up here.
         </p>
       ) : (
-        <ul className="mt-4 flex flex-col gap-4">
-          {items.map((item) => (
-            <li
-              key={item.id}
-              className="flex flex-col gap-4 rounded-2xl bg-white p-5 shadow-pool ring-1 ring-ink/10 sm:flex-row sm:items-start md:p-6"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status="quarantined" />
-                  <span className="text-small text-ink-muted">{item.typeLabel}</span>
+        <>
+          {canRevise ? (
+            <ActingAsField
+              className="mt-4 max-w-md"
+              orgAcronym={orgAcronym}
+              value={actingAs.value}
+              onChange={(event) => actingAs.onChange(event.target.value)}
+              error={actingAs.error}
+            />
+          ) : null}
+          <ul className="mt-4 flex flex-col gap-4">
+            {items.map((item) => (
+              <li
+                key={item.id}
+                className="flex flex-col gap-4 rounded-2xl bg-white p-5 shadow-pool ring-1 ring-ink/10 sm:flex-row sm:items-start md:p-6"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status="quarantined" />
+                    <span className="text-small text-ink-muted">{item.typeLabel}</span>
+                  </div>
+                  <h3 className="mt-2 text-body-lg leading-snug font-semibold text-ink">
+                    <OriginLink
+                      to={item.href}
+                      className="tap-area hover:underline focus-visible:underline"
+                    >
+                      {item.title}
+                    </OriginLink>
+                  </h3>
+                  <p className="mt-3 text-body text-ink-muted">
+                    The virus scan refused this file, so nobody else can see it. Upload a clean copy
+                    to share it.
+                  </p>
                 </div>
-                <h3 className="mt-2 text-body-lg leading-snug font-semibold text-ink">
-                  <OriginLink
-                    to={item.href}
-                    className="tap-area hover:underline focus-visible:underline"
-                  >
-                    {item.title}
-                  </OriginLink>
-                </h3>
-                <p className="mt-3 text-body text-ink-muted">
-                  The virus scan refused this file, so nobody else can see it. Upload a clean copy
-                  to share it.
-                </p>
-              </div>
-              {canRevise ? (
-                <ReviseControl item={item} onRevise={(file) => onRevise(item.id, file)} />
-              ) : null}
-            </li>
-          ))}
-        </ul>
+                {canRevise ? (
+                  <ReviseControl item={item} onRevise={(file) => onRevise(item.id, file)} />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
@@ -252,6 +269,9 @@ export function RecentActivity({
                       <span className="text-ink-muted">{item.documentTitle}</span>
                     )}
                   </p>
+                  {item.actedBy ? (
+                    <p className="mt-0.5 text-small break-words text-ink-muted">{item.actedBy}</p>
+                  ) : null}
                   <time dateTime={item.at} className="mt-0.5 block text-small text-ink-muted">
                     {item.ago}
                   </time>

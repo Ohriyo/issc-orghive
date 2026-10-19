@@ -47,6 +47,8 @@ export const dashboardActivitySchema = z.object({
   at: z.iso.datetime(),
   /** Null for the system (the virus-scan worker). */
   actorName: z.string().nullable(),
+  /** The officer who acted for the account, when the entry recorded one. */
+  actingAs: z.string().nullable(),
   /** Null when the document has since been deleted. */
   document: z.object({ id: z.uuid(), title: z.string() }).nullable(),
   version: z.number().int().nullable(),

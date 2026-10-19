@@ -73,7 +73,21 @@ const AUDIT: SystemAuditListResponse = {
       organizationId: null,
       ip: '203.0.113.9',
       userAgent: 'Firefox',
+      actingAs: null,
       metadata: { before: { disabledAt: null }, after: { disabledAt: NOW } },
+    },
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000aa',
+      createdAt: NOW,
+      action: 'upload',
+      actor: { id: STUDENT, name: 'JPICE', email: 'jpice@orghive.test' },
+      entityType: 'document',
+      entityId: '0195f3c0-0000-7000-8000-0000000000d1',
+      organizationId: '0195f3c0-0000-7000-8000-0000000000a1',
+      ip: '203.0.113.10',
+      userAgent: null,
+      actingAs: 'Juan Dela Cruz',
+      metadata: { version: 1 },
     },
   ],
   nextCursor: null,
@@ -227,6 +241,25 @@ describe('/system', () => {
 
     fireEvent.change(screen.getByLabelText('Action'), { target: { value: 'login_failed' } });
     await waitFor(() => expect(calls.some((c) => c.path === '/system/audit-logs')).toBe(true));
+  });
+
+  it('shows who acted for a shared account, and filters by that name', async () => {
+    serve();
+    renderAt('/system/audit');
+    const events = await screen.findByRole('list', { name: 'Audit events' });
+    expect(within(events).getByText('acting as Juan Dela Cruz')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Acting as' }), {
+      target: { value: ' dela cruz ' },
+    });
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input]) =>
+            typeof input === 'string' && input.includes('/system/audit-logs?actingAs=dela+cruz'),
+        ),
+      ).toBe(true),
+    );
   });
 
   it('issues new recovery codes after a step-up, and shows them once', async () => {

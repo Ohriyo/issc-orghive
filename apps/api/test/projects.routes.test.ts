@@ -157,6 +157,7 @@ async function fileTask(
   const res = await call('post', `/projects/${projectId}/tasks/${type}/documents`, who, {
     uploadKey,
     visibility,
+    actingAs: 'Juan Dela Cruz',
   });
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return res.body as ProjectDetail;
@@ -226,6 +227,7 @@ describe('project authorization', () => {
         call('post', `/projects/${project.id}/tasks/PROPOSAL/documents`, who, {
           uploadKey: `uploads/${world.orgs.jpice.id}/${crypto.randomUUID()}`,
           visibility: 'public',
+          actingAs: 'Juan Dela Cruz',
         }),
       // Authorized users get past the guard; the unknown upload key is then a 400.
       { anonymous: 401, student: 403, psmeOfficer: 403, governor: 403, officer: 400, admin: 403 },

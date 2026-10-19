@@ -25,6 +25,8 @@ test('upload → scan → visibility decides what a visitor sees', async ({ page
   await page.locator('input[type="file"]').setInputFiles(SAMPLE_PDF);
   await page.getByLabel('Title').fill(TITLE);
   await page.getByLabel('Type').selectOption({ index: 1 });
+  // The shared account names the officer acting for it on every upload.
+  await page.getByRole('textbox', { name: 'Acting as' }).fill('Juan Dela Cruz');
   await expectAccessible(page, 'the upload form with a file');
   await page.getByRole('button', { name: 'Upload file' }).click();
   // Success leaves the form (finish(toast), CLAUDE.md navigation rules); a failure stays on it.
@@ -39,6 +41,10 @@ test('upload → scan → visibility decides what a visitor sees', async ({ page
   await eventually(page, () => expect(row.getByText('Available')).toBeVisible({ timeout: 2_000 }));
   const href = await row.getByRole('link', { name: TITLE }).getAttribute('href');
   expect(href).toMatch(/^\/documents\//);
+  // JPICE's own history names who uploaded it; nobody else ever sees that (checked below).
+  await page.goto(href!);
+  await expect(page.getByText('Uploaded by JPICE · acting as Juan Dela Cruz')).toBeVisible();
+  await page.goto('/dashboard/documents?org=jpice');
 
   // Public lists are browser-cached for 60s by design (CLAUDE.md, Caching), so each look is
   // a new visitor with an empty cache: what the server serves right after the change.
@@ -68,6 +74,7 @@ test('upload → scan → visibility decides what a visitor sees', async ({ page
     await expect(listed(guest)).toBeVisible();
     await guest.goto(href!);
     await expect(guest.getByRole('heading', { level: 1 })).toHaveText(TITLE);
+    await expect(guest.getByText(/acting as/i)).toHaveCount(0);
   });
 
   // Governing bodies: gone for a visitor, even by its direct link; its CSC still opens it.

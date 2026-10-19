@@ -10,7 +10,13 @@ import type {
 } from '@orghive/shared';
 import { routes } from '@/app/router';
 import { authStore } from '@/lib/auth-store';
-import { activityLead, daysUntil, greetingFor, termOf } from './presenters/use-dashboard';
+import {
+  actedByLine,
+  activityLead,
+  daysUntil,
+  greetingFor,
+  termOf,
+} from './presenters/use-dashboard';
 import { patchFor } from './presenters/use-my-documents';
 
 const USER_ID = '0195f3c0-0000-7000-8000-000000000001';
@@ -88,7 +94,8 @@ function org(
         id: '0195f3c0-0000-7000-8000-0000000000f1',
         kind: 'visibility_change',
         at: '2026-10-14T03:00:00.000Z',
-        actorName: 'Maria Santos',
+        actorName: 'JPICE',
+        actingAs: 'Maria Santos',
         document: { id: DOC_ID, title: 'Resolution No. 2026-03: Officers’ Code of Conduct' },
         version: 1,
       },
@@ -181,13 +188,39 @@ describe('dashboard presenter helpers', () => {
   });
 
   it('words activity plainly', () => {
-    const base = { id: 'x', at: '', document: null, actorName: 'Juan', version: 2 } as const;
+    const base = {
+      id: 'x',
+      at: '',
+      document: null,
+      actorName: 'Juan',
+      actingAs: null,
+      version: 2,
+    } as const;
     expect(activityLead({ ...base, kind: 'upload' })).toBe('Juan uploaded version 2 of');
     expect(activityLead({ ...base, kind: 'upload', version: 1 })).toBe('Juan uploaded');
     expect(activityLead({ ...base, kind: 'quarantine', actorName: null })).toBe(
       'The virus scan blocked version 2 of',
     );
     expect(activityLead({ ...base, kind: 'visibility_change' })).toBe('Juan changed who can see');
+  });
+
+  it('names the officer who acted for the account, when the entry recorded one', () => {
+    const base = {
+      id: 'x',
+      at: '',
+      document: null,
+      actorName: 'JPICE',
+      actingAs: 'Juan Dela Cruz',
+      version: 1,
+    } as const;
+    expect(actedByLine({ ...base, kind: 'upload' })).toBe(
+      'Uploaded by JPICE · acting as Juan Dela Cruz',
+    );
+    expect(actedByLine({ ...base, kind: 'archive' })).toBe(
+      'Archived by JPICE · acting as Juan Dela Cruz',
+    );
+    expect(actedByLine({ ...base, kind: 'upload', actingAs: null })).toBeNull();
+    expect(actedByLine({ ...base, kind: 'quarantine' })).toBeNull();
   });
 
   it('sends only changed details, never visibility (it has its own endpoint)', () => {
@@ -235,7 +268,9 @@ describe('/dashboard', () => {
       expect(
         screen.getByRole('button', { name: /Upload a clean copy: of Resolution/ }),
       ).toBeInTheDocument();
-      expect(screen.getByText('Maria Santos changed who can see')).toBeInTheDocument();
+      expect(screen.getByText('JPICE changed who can see')).toBeInTheDocument();
+      // The organization's own dashboard names the officer who acted for the account.
+      expect(screen.getByText('Changed by JPICE · acting as Maria Santos')).toBeInTheDocument();
       // Nothing waits for a review.
       expect(screen.queryByText(/review/i)).not.toBeInTheDocument();
 
@@ -401,9 +436,23 @@ describe('/dashboard/documents', () => {
     );
     expect(within(tabs).getByRole('link', { name: /Blocked by scan\s*1/ })).toBeInTheDocument();
 
+    // Archiving names who acts for the account; without a name nothing is sent.
     fireEvent.click(await screen.findByRole('button', { name: 'Archive: Site visit report' }));
+    expect(
+      await screen.findByText('Enter your name: who is acting for the account'),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.url.endsWith('/archive'))).toBe(false);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Acting as' }), {
+      target: { value: 'Juan Dela Cruz' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Archive: Site visit report' }));
     await waitFor(() =>
-      expect(calls).toContainEqual({ url: `/api/v1/documents/${DOC_ID}/archive`, method: 'POST' }),
+      expect(calls).toContainEqual({
+        url: `/api/v1/documents/${DOC_ID}/archive`,
+        method: 'POST',
+        body: { actingAs: 'Juan Dela Cruz' },
+      }),
     );
   });
 

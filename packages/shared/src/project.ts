@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { actingAsSchema } from './acting-as';
 import { documentStatusSchema } from './document-status';
 import { documentVisibilitySchema, type DocumentVisibility } from './document';
 import { manilaDate } from './manila-time';
@@ -119,6 +120,7 @@ export const taskUploadUrlRequestSchema = uploadUrlRequestSchema.refine(
 export const createTaskDocumentRequestSchema = z.strictObject({
   uploadKey: uploadKeySchema,
   visibility: documentVisibilitySchema,
+  actingAs: actingAsSchema,
 });
 export type CreateTaskDocumentRequest = z.infer<typeof createTaskDocumentRequestSchema>;
 

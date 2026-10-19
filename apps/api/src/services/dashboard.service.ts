@@ -137,6 +137,7 @@ export function createDashboardService({
           kind: entry.action,
           at: entry.createdAt.toISOString(),
           actorName: entry.actorName,
+          actingAs: entry.actingAs,
           document: entry.document,
           version: entry.version,
         })),

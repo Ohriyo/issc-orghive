@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { z } from 'zod';
 import {
+  actingAsSchema,
   contentTypeForFilename,
   documentMetadataSchema,
   documentSummarySchema,
@@ -14,6 +15,7 @@ import {
   type DocumentMetadata,
   type UploadContentType,
 } from '@orghive/shared';
+import { readActingAs, rememberActingAs } from '@/features/auth/presenters/use-acting-as';
 import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import {
   academicYearOf,
@@ -30,8 +32,12 @@ import { useUnsavedChangesGuard } from '@/navigation/use-unsaved-changes';
 
 const FIVE_MINUTES = 5 * 60_000;
 
-/** The upload form validates with the shared schema: one entry per file. */
+/**
+ * The upload form validates with the shared schemas: who is acting for the account, once for
+ * the batch, and one entry per file.
+ */
 export const uploadFormSchema = z.object({
+  actingAs: actingAsSchema,
   documents: z.array(documentMetadataSchema).min(1, 'Add at least one file'),
 });
 export type UploadFormInput = z.input<typeof uploadFormSchema>;
@@ -137,7 +143,7 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
 
   const form = useForm<UploadFormInput, unknown, UploadFormOutput>({
     resolver: zodResolver(uploadFormSchema),
-    defaultValues: { documents: [] },
+    defaultValues: { actingAs: readActingAs(user?.id), documents: [] },
   });
   const fields = useFieldArray({ control: form.control, name: 'documents' });
   const [items, setItems] = useState<UploadItem[]>([]);
@@ -195,6 +201,7 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
     index: number,
     item: UploadItem | undefined,
     metadata: UploadFormOutput['documents'][number],
+    actingAs: string,
   ): Promise<boolean> {
     if (!item) return false;
     if (item.status === 'done') return true;
@@ -211,7 +218,7 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
       update(index, { status: 'saving' });
       const doc = await api.post(
         `/organizations/${slug}/documents`,
-        { ...metadata, uploadKey: target.uploadKey },
+        { ...metadata, uploadKey: target.uploadKey, actingAs },
         { schema: documentSummarySchema },
       );
       update(index, { status: 'done', progress: 100, documentHref: `/documents/${doc.id}` });
@@ -222,14 +229,15 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
     }
   }
 
-  const onSubmit = form.handleSubmit(async ({ documents }) => {
+  const onSubmit = form.handleSubmit(async ({ actingAs, documents }) => {
     // The files as they were when the user pressed Upload; status changes land as we go.
     const snapshot = items;
+    rememberActingAs(user?.id, actingAs);
     setIsUploading(true);
     let saved = 0;
     try {
       for (let i = 0; i < documents.length; i++) {
-        if (await uploadOne(i, snapshot[i], documents[i]!)) saved++;
+        if (await uploadOne(i, snapshot[i], documents[i]!, actingAs)) saved++;
       }
     } finally {
       setIsUploading(false);

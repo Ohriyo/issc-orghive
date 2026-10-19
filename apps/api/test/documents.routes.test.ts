@@ -2,6 +2,7 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { memoryCache } from '#src/lib/cache';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
+import { createDashboardRepository } from '#src/repositories/dashboard.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
 import { createAccountRepository } from '#src/repositories/account.repository';
@@ -209,7 +210,11 @@ const createBody = (uploadKey = `uploads/${crypto.randomUUID()}/${crypto.randomU
   title: 'Matrix proposal',
   academicYear: '2026-2027',
   uploadKey,
+  actingAs: 'Ana Reyes',
 });
+
+/** Who acts for the shared account on archives and deletions. */
+const ACTING = { actingAs: 'Ana Reyes' };
 
 /** The create body for whoever is acting: their own upload for IECEP. */
 async function createBodyFor(role: Role) {
@@ -302,7 +307,7 @@ const ACTIONS: Action[] = [
   {
     name: 'archive an available document',
     target: 'public',
-    run: (t, id) => call('post', `/documents/${id}/archive`, t),
+    run: (t, id) => call('post', `/documents/${id}/archive`, t, ACTING),
     expected: OWN_WRITE(200),
   },
   {
@@ -314,7 +319,7 @@ const ACTIONS: Action[] = [
   {
     name: 'delete a document',
     target: 'public',
-    run: (t, id) => call('delete', `/documents/${id}`, t),
+    run: (t, id) => call('delete', `/documents/${id}`, t, ACTING),
     expected: OWN_WRITE(204),
   },
 ];
@@ -477,7 +482,7 @@ describe('document authorization: cross-organization and term checks', () => {
     const t = tokenOf.jpiceOfficer;
     await call('patch', `/documents/${jpiceDoc.id}`, t, { title: 'Own document' }).expect(200);
     await call('patch', `/documents/${iecepDoc.id}`, t, { title: 'Not mine' }).expect(403);
-    await call('delete', `/documents/${iecepDoc.id}`, t).expect(403);
+    await call('delete', `/documents/${iecepDoc.id}`, t, ACTING).expect(403);
     const after = await db.document.findUniqueOrThrow({ where: { id: iecepDoc.id } });
     expect(after.title).not.toBe('Not mine');
     expect(after.deletedAt).toBeNull();
@@ -486,9 +491,9 @@ describe('document authorization: cross-organization and term checks', () => {
   it('archives a document and restores it to available, auditing both', async () => {
     const doc = await iecepDocument('governing', world.orgs.jpice.id);
     const t = tokenOf.jpiceOfficer;
-    const archived = await call('post', `/documents/${doc.id}/archive`, t).expect(200);
+    const archived = await call('post', `/documents/${doc.id}/archive`, t, ACTING).expect(200);
     expect(archived.body).toMatchObject({ status: 'archived', visibility: 'governing' });
-    await call('post', `/documents/${doc.id}/archive`, t).expect(409);
+    await call('post', `/documents/${doc.id}/archive`, t, ACTING).expect(409);
     const restored = await call('post', `/documents/${doc.id}/restore`, t).expect(200);
     expect(restored.body).toMatchObject({ status: 'available', visibility: 'governing' });
     const actions = await db.auditLog.findMany({
@@ -538,8 +543,8 @@ describe('document authorization: cross-organization and term checks', () => {
       404,
     );
     const deleted = await iecepDocument('public');
-    await call('delete', `/documents/${deleted.id}`, tokenOf.iecepOfficer).expect(204);
-    await call('delete', `/documents/${deleted.id}`, tokenOf.iecepOfficer).expect(404);
+    await call('delete', `/documents/${deleted.id}`, tokenOf.iecepOfficer, ACTING).expect(204);
+    await call('delete', `/documents/${deleted.id}`, tokenOf.iecepOfficer, ACTING).expect(404);
   });
 });
 
@@ -702,7 +707,10 @@ describe('uploads', () => {
   it('adds a version only for the organization’s own account, without making it current', async () => {
     const doc = await iecepDocument('public');
     const url = `/documents/${doc.id}/versions`;
-    const key = async (userId: string) => ({ uploadKey: await uploadFor(userId, iecep.id) });
+    const key = async (userId: string) => ({
+      uploadKey: await uploadFor(userId, iecep.id),
+      ...ACTING,
+    });
     await call('post', url, undefined, await key(userIds.iecepOfficer)).expect(401);
     await call('post', url, tokenOf.jpiceOfficer, await key(userIds.jpiceOfficer)).expect(403);
     await call('post', url, tokenOf.ceaGovernor, await key(userIds.ceaGovernor)).expect(403);
@@ -722,6 +730,7 @@ describe('uploads', () => {
     const doc = await iecepDocument('public');
     await call('post', `/documents/${doc.id}/versions`, tokenOf.iecepOfficer, {
       uploadKey: await uploadFor(userIds.iecepOfficer, iecep.id),
+      ...ACTING,
     }).expect(201);
     const versions = async (token?: string) =>
       (
@@ -771,5 +780,116 @@ describe('uploads', () => {
       call('get', `/documents/${pub.id}/versions/${v1}/download-url`, token);
     await refused(tokenOf.iecepOfficer).expect(409);
     await refused(tokenOf.admin).expect(404);
+  });
+});
+
+describe('"Acting as" on a shared account (docs/DOMAIN_RULES.md, "Accounts")', () => {
+  it('400s an upload, a new version, an archive or a deletion without a name, and changes nothing', async () => {
+    const t = tokenOf.iecepOfficer;
+    const key = await uploadFor(userIds.iecepOfficer, iecep.id);
+    const { actingAs: _, ...unnamed } = createBody(key);
+    await call('post', '/organizations/iecep/documents', t, unnamed).expect(400);
+    await call('post', '/organizations/iecep/documents', t, {
+      ...unnamed,
+      actingAs: '   ',
+    }).expect(400);
+    await call('post', '/organizations/iecep/documents', t, {
+      ...unnamed,
+      actingAs: 'x'.repeat(81),
+    }).expect(400);
+
+    const doc = await iecepDocument('public');
+    await call('post', `/documents/${doc.id}/versions`, t, { uploadKey: key }).expect(400);
+    await call('post', `/documents/${doc.id}/archive`, t).expect(400);
+    await call('post', `/documents/${doc.id}/archive`, t, { actingAs: 'J' }).expect(400);
+    await call('delete', `/documents/${doc.id}`, t).expect(400);
+    const after = await db.document.findUniqueOrThrow({ where: { id: doc.id } });
+    expect(after).toMatchObject({ status: 'available', deletedAt: null });
+    expect(await db.documentVersion.count({ where: { documentId: doc.id } })).toBe(1);
+    // The unused upload key still works once a name is given.
+    await call('post', '/organizations/iecep/documents', t, createBody(key)).expect(201);
+  });
+
+  it('stores the trimmed name on the version and in the audit log of every upload, archive and deletion', async () => {
+    const t = tokenOf.iecepOfficer;
+    const created = await call('post', '/organizations/iecep/documents', t, {
+      ...createBody(await uploadFor(userIds.iecepOfficer, iecep.id)),
+      actingAs: '  Juan Dela Cruz ',
+    }).expect(201);
+    const id = (created.body as { id: string }).id;
+    await call('post', `/documents/${id}/versions`, t, {
+      uploadKey: await uploadFor(userIds.iecepOfficer, iecep.id),
+      actingAs: 'Maria Santos',
+    }).expect(201);
+    const versions = await db.documentVersion.findMany({
+      where: { documentId: id },
+      orderBy: { version: 'asc' },
+      select: { actingAs: true },
+    });
+    expect(versions.map((v) => v.actingAs)).toEqual(['Juan Dela Cruz', 'Maria Santos']);
+
+    const doc = await iecepDocument('public');
+    await call('post', `/documents/${doc.id}/archive`, t, { actingAs: 'Pedro Reyes' }).expect(200);
+    const gone = await iecepDocument('public');
+    await call('delete', `/documents/${gone.id}`, t, { actingAs: 'Rosa Lim' }).expect(204);
+
+    const audits = await db.auditLog.findMany({
+      where: { entityId: { in: [id, doc.id, gone.id] } },
+      orderBy: { createdAt: 'asc' },
+      select: { action: true, actingAs: true },
+    });
+    expect(audits).toEqual([
+      { action: 'upload', actingAs: 'Juan Dela Cruz' },
+      { action: 'upload', actingAs: 'Maria Santos' },
+      { action: 'archive', actingAs: 'Pedro Reyes' },
+      { action: 'delete', actingAs: 'Rosa Lim' },
+    ]);
+  });
+
+  it('shows the name in the version history and activity to the organization’s own account only', async () => {
+    const doc = await iecepDocument('governing');
+    await call('post', `/documents/${doc.id}/versions`, tokenOf.iecepOfficer, {
+      uploadKey: await uploadFor(userIds.iecepOfficer, iecep.id),
+      actingAs: 'Juan Dela Cruz',
+    }).expect(201);
+    const actingAsSeenBy = async (token?: string) =>
+      (
+        (await call('get', `/documents/${doc.id}/versions`, token).expect(200)).body as {
+          versions: { version: number; actingAs: string | null }[];
+        }
+      ).versions.map((v) => [v.version, v.actingAs]);
+    expect(await actingAsSeenBy(tokenOf.iecepOfficer)).toEqual([
+      [2, 'Juan Dela Cruz'],
+      [1, null],
+    ]);
+    // Its governing bodies read the file but never learn who uploaded it; nor does a visitor.
+    expect(await actingAsSeenBy(tokenOf.ceaGovernor)).toEqual([[1, null]]);
+    expect(await actingAsSeenBy(tokenOf.admin)).toEqual([[1, null]]);
+    const pub = await iecepDocument('public');
+    await call('post', `/documents/${pub.id}/archive`, tokenOf.iecepOfficer, {
+      actingAs: 'Pedro Reyes',
+    }).expect(200);
+    await call('post', `/documents/${pub.id}/restore`, tokenOf.iecepOfficer).expect(200);
+    const publicView = await call('get', `/documents/${pub.id}/versions`).expect(200);
+    expect(JSON.stringify(publicView.body)).not.toContain('Pedro');
+    const publicList = await call('get', '/organizations/iecep/documents').expect(200);
+    expect(JSON.stringify(publicList.body)).not.toMatch(/Juan Dela Cruz|Pedro Reyes/);
+
+    // The organization's own dashboard activity carries it (GET /me/dashboard maps it as is).
+    const activity = await createDashboardRepository(db).listActivity(
+      {
+        kind: 'account',
+        userId: userIds.iecepOfficer,
+        organizationId: iecep.id,
+        organizationType: 'SBO',
+      },
+      iecep.id,
+    );
+    expect(activity).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'archive', actingAs: 'Pedro Reyes' }),
+        expect.objectContaining({ action: 'upload', actingAs: 'Juan Dela Cruz' }),
+      ]),
+    );
   });
 });

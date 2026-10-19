@@ -1,4 +1,5 @@
 export * from './api-error';
+export * from './acting-as';
 export * from './health';
 export * from './document-status';
 export * from './document';

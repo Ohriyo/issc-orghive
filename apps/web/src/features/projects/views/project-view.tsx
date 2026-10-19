@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { TASK_UPLOAD_ACCEPT, type ProjectTaskStatus } from '@orghive/shared';
 import { OriginLink } from '@/navigation/origin-link';
+import { ActingAsField } from '@/components/acting-as-field';
 import { Container } from '@/components/container';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
@@ -100,6 +101,15 @@ function ProjectDetails({
           ? 'A file is being checked for viruses. This page updates when it is done.'
           : 'A task is complete once its file is uploaded and passes the virus scan.'}
       </p>
+      {project.actingAs ? (
+        <ActingAsField
+          className="mt-6 max-w-md"
+          orgAcronym={project.org.acronym}
+          value={project.actingAs.value}
+          onChange={(event) => project.actingAs?.onChange(event.target.value)}
+          error={project.actingAs.error}
+        />
+      ) : null}
       <ol className="mt-6">
         {project.phases.map((phase, i) => (
           <PhaseStep

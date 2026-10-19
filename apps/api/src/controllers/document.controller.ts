@@ -1,6 +1,7 @@
 import type { Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import {
+  actingAsRequestSchema,
   addVersionRequestSchema,
   createDocumentRequestSchema,
   documentIdParamsSchema,
@@ -37,10 +38,10 @@ export function createDocumentController(documents: DocumentService, uploads: Up
 
   const addVersion: RequestHandler = async (req, res) => {
     const { documentId } = documentIdParamsSchema.parse(req.params);
-    const { uploadKey } = addVersionRequestSchema.parse(req.body);
+    const body = addVersionRequestSchema.parse(req.body);
     res
       .status(201)
-      .json(await documents.addVersion(actorOf(req, res), orgOf(res), documentId, uploadKey));
+      .json(await documents.addVersion(actorOf(req, res), orgOf(res), documentId, body));
   };
 
   const listVersions: RequestHandler = async (req, res) => {
@@ -90,7 +91,8 @@ export function createDocumentController(documents: DocumentService, uploads: Up
 
   const archive: RequestHandler = async (req, res) => {
     const { documentId } = documentIdParamsSchema.parse(req.params);
-    res.json(await documents.archive(actorOf(req, res), orgOf(res), documentId));
+    const { actingAs } = actingAsRequestSchema.parse(req.body);
+    res.json(await documents.archive(actorOf(req, res), orgOf(res), documentId, actingAs));
   };
 
   const restore: RequestHandler = async (req, res) => {
@@ -100,7 +102,8 @@ export function createDocumentController(documents: DocumentService, uploads: Up
 
   const remove: RequestHandler = async (req, res) => {
     const { documentId } = documentIdParamsSchema.parse(req.params);
-    await documents.remove(actorOf(req, res), orgOf(res), documentId);
+    const { actingAs } = actingAsRequestSchema.parse(req.body);
+    await documents.remove(actorOf(req, res), orgOf(res), documentId, actingAs);
     res.status(204).end();
   };
 

@@ -291,7 +291,10 @@ export function createProjectService({
             'Another officer’s file for this task is still being checked. Try again once it is done.',
           );
         }
-        await documents.addVersion(actor, org, current.documentId!, input.uploadKey);
+        await documents.addVersion(actor, org, current.documentId!, {
+          uploadKey: input.uploadKey,
+          actingAs: input.actingAs,
+        });
       } else {
         const { slug } = PROJECT_TASK_DOCUMENT_TYPES[type];
         const docType = await documentTypes.findBySlug(slug);
@@ -304,6 +307,7 @@ export function createProjectService({
           visibility: input.visibility,
           tags: [],
           uploadKey: input.uploadKey,
+          actingAs: input.actingAs,
         });
         await projects.linkDocument(id, type, created.id);
       }

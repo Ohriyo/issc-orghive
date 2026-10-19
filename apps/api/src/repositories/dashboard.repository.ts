@@ -26,6 +26,7 @@ export interface ActivityRecord {
   action: ActivityAction;
   createdAt: Date;
   actorName: string | null;
+  actingAs: string | null;
   document: { id: string; title: string } | null;
   version: number | null;
 }
@@ -116,6 +117,7 @@ export function createDashboardRepository(db: Db) {
           entityId: true,
           metadata: true,
           createdAt: true,
+          actingAs: true,
           actor: { select: { name: true } },
         },
       });
@@ -138,6 +140,7 @@ export function createDashboardRepository(db: Db) {
           action: entry.action as ActivityAction,
           createdAt: entry.createdAt,
           actorName: entry.actor?.name ?? null,
+          actingAs: entry.actingAs,
           document,
           version: typeof version === 'number' ? version : null,
         });

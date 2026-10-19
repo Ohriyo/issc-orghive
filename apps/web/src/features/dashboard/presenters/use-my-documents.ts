@@ -19,6 +19,7 @@ import {
 } from '@orghive/shared';
 import { STATUS_STYLE } from '@/components/status-style';
 import { VISIBILITY_LABEL } from '@/components/visibility';
+import { useActingAs, type ActingAsModel } from '@/features/auth/presenters/use-acting-as';
 import { useSetVisibility } from '@/features/documents/presenters/use-set-visibility';
 import {
   SEMESTER_LABELS,
@@ -80,6 +81,8 @@ export type MyDocumentsModel =
       org: OrgRef;
       selectOrganization: (id: string) => void;
       canManage: boolean;
+      /** Who archives for the account (an archive names them). */
+      actingAs: ActingAsModel;
       tab: StatusTab;
       tabs: { tab: StatusTab; label: string; count: number; href: string }[];
       /** Set when a dashboard tile narrowed the list to one visibility. */
@@ -145,6 +148,7 @@ export function useMyDocuments(): MyDocumentsModel {
   const query = params.get('q') ?? '';
   const [searchInput, setSearchInput] = useState(query);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const actingAs = useActingAs();
   const visibilityChange = useSetVisibility();
 
   const dashboard = useQuery({
@@ -204,8 +208,10 @@ export function useMyDocuments(): MyDocumentsModel {
     ]);
 
   const transition = useMutation({
-    mutationFn: ({ id, to }: { id: string; to: 'archive' | 'restore' }) =>
-      api.post(`/documents/${id}/${to}`, undefined, { schema: documentSummarySchema }),
+    mutationFn: ({ id, to, by }: { id: string; to: 'archive' | 'restore'; by?: string }) =>
+      api.post(`/documents/${id}/${to}`, by ? { actingAs: by } : undefined, {
+        schema: documentSummarySchema,
+      }),
     onSettled: refresh,
   });
   const update = useMutation({
@@ -258,6 +264,7 @@ export function useMyDocuments(): MyDocumentsModel {
       if (next) setParams(new URLSearchParams({ org: next.slug }));
     },
     canManage,
+    actingAs,
     tab,
     tabs: STATUS_TABS.map((t) => ({
       tab: t,
@@ -305,12 +312,15 @@ export function useMyDocuments(): MyDocumentsModel {
     actions: {
       pendingId: pendingId ?? visibilityChange.pendingId,
       setVisibility: visibilityChange.change,
-      archive: (id) =>
-        run(
+      archive: (id) => {
+        const by = actingAs.take();
+        if (!by) return Promise.resolve('Enter your name under “Acting as” first.');
+        return run(
           id,
-          () => transition.mutateAsync({ id, to: 'archive' }),
+          () => transition.mutateAsync({ id, to: 'archive', by }),
           'Archived. Only your organization sees it now; restore it from the Archived tab.',
-        ),
+        );
+      },
       restore: (id) =>
         run(
           id,

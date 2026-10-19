@@ -1,5 +1,6 @@
 import { SelectField } from '@/components/form-fields';
 import { PillButton } from '@/components/pill-button';
+import { TextField } from '@/components/text-field';
 import { SectionError } from '@/components/section-error';
 import type { SystemAuditModel } from '../presenters/use-system-audit';
 import { SystemLoading } from './system-layout';
@@ -12,14 +13,25 @@ export function AuditView({ model }: { model: SystemAuditModel }) {
   const { filters, list } = model;
   return (
     <div className="flex flex-col gap-6">
-      <SelectField
-        label="Action"
-        className="sm:max-w-xs"
-        placeholder="All actions"
-        options={filters.options}
-        value={filters.action}
-        onChange={(event) => filters.setAction(event.target.value)}
-      />
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <SelectField
+          label="Action"
+          className="sm:max-w-xs sm:flex-1"
+          placeholder="All actions"
+          options={filters.options}
+          value={filters.action}
+          onChange={(event) => filters.setAction(event.target.value)}
+        />
+        <TextField
+          label="Acting as"
+          type="search"
+          className="min-w-0 sm:max-w-xs sm:flex-1"
+          placeholder="Part of a name"
+          maxLength={80}
+          value={filters.actingAs}
+          onChange={(event) => filters.setActingAs(event.target.value)}
+        />
+      </div>
 
       {list.status === 'loading' ? (
         <SystemLoading label="Loading the audit log" />
@@ -44,6 +56,9 @@ export function AuditView({ model }: { model: SystemAuditModel }) {
                   <span className="text-body font-semibold text-ink">{row.action}</span>
                   <span className="min-w-0 text-body break-words text-ink sm:col-span-2 lg:col-span-1">
                     {row.actor}
+                    {row.actingAs ? (
+                      <span className="block text-small text-ink">acting as {row.actingAs}</span>
+                    ) : null}
                     <span className="block text-small break-all text-ink-muted">{row.target}</span>
                   </span>
                   <span className="text-small break-all text-ink-muted tabular-nums sm:col-span-2 lg:col-span-1 lg:text-right">

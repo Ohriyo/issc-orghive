@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   ErrorCode,
+  type AddVersionRequest,
   type CreateDocumentRequest,
   type DocumentListQuery,
   type DocumentListResponse,
@@ -125,9 +126,14 @@ export function toStoredSummary(doc: DocumentRecord): StoredSummary {
   };
 }
 
+/**
+ * `showActingAs`: only the owning organization's account sees who acted for it
+ * (docs/DOMAIN_RULES.md, "Accounts"); public pages and other accounts never do.
+ */
 export function toDocumentVersion(
   v: VersionRecord,
   currentVersionId: string | null,
+  showActingAs: boolean,
 ): DocumentVersion {
   return {
     id: v.id,
@@ -138,6 +144,7 @@ export function toDocumentVersion(
     scanStatus: v.scanStatus,
     createdAt: v.createdAt.toISOString(),
     isCurrent: v.id === currentVersionId,
+    actingAs: showActingAs ? v.actingAs : null,
   };
 }
 
@@ -219,7 +226,13 @@ export function createDocumentService({
     return invalidateDocuments(cache, org.slug);
   }
 
-  function auditUpload(actor: Actor, org: OrgRef, documentId: string, file: object) {
+  function auditUpload(
+    actor: Actor,
+    org: OrgRef,
+    documentId: string,
+    file: object,
+    actingAs: string,
+  ) {
     return audit.record({
       action: 'upload',
       actorId: actor.userId,
@@ -228,6 +241,7 @@ export function createDocumentService({
       organizationId: org.id,
       metadata: { ...file },
       ip: actor.ip,
+      actingAs,
     });
   }
 
@@ -305,13 +319,15 @@ export function createDocumentService({
         tags: input.tags,
         status: 'scanning',
         createdById: actor.userId,
-        firstVersion: { ...file, uploadedById: actor.userId },
+        firstVersion: { ...file, uploadedById: actor.userId, actingAs: input.actingAs },
       });
-      await auditUpload(actor, org, created.id, {
-        version: 1,
-        mimeType: file.mimeType,
-        sizeBytes: file.sizeBytes,
-      });
+      await auditUpload(
+        actor,
+        org,
+        created.id,
+        { version: 1, mimeType: file.mimeType, sizeBytes: file.sizeBytes },
+        input.actingAs,
+      );
       await queue.enqueueProcessing(created.currentVersion!.id);
       await invalidate(org);
       return summarize(created);
@@ -325,19 +341,25 @@ export function createDocumentService({
       actor: Actor,
       org: OrgRef,
       id: string,
-      uploadKey: string,
+      { uploadKey, actingAs }: AddVersionRequest,
     ): Promise<DocumentVersion> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
       if (doc.status === 'archived') throw AppError.conflict('An archived document cannot change');
       const file = await uploads.claim(actor.userId, org, uploadKey);
-      const added = await documents.addVersion(viewer, id, { ...file, uploadedById: actor.userId });
-      if (!added) throw AppError.notFound('Document not found');
-      await auditUpload(actor, org, id, {
-        version: added.version,
-        mimeType: file.mimeType,
-        sizeBytes: file.sizeBytes,
+      const added = await documents.addVersion(viewer, id, {
+        ...file,
+        uploadedById: actor.userId,
+        actingAs,
       });
+      if (!added) throw AppError.notFound('Document not found');
+      await auditUpload(
+        actor,
+        org,
+        id,
+        { version: added.version, mimeType: file.mimeType, sizeBytes: file.sizeBytes },
+        actingAs,
+      );
       await queue.enqueueProcessing(added.id);
       await invalidate(org);
       return {
@@ -349,6 +371,7 @@ export function createDocumentService({
         scanStatus: 'pending',
         createdAt: now().toISOString(),
         isCurrent: false,
+        actingAs,
       };
     },
 
@@ -360,8 +383,9 @@ export function createDocumentService({
       const viewer = await viewerFor(reader.userId);
       const found = await documents.listVersions(viewer, id);
       if (!found) throw AppError.notFound('Document not found');
+      const own = viewer.kind === 'account' && viewer.organizationId === found.organizationId;
       return {
-        versions: found.versions.map((v) => toDocumentVersion(v, found.currentVersionId)),
+        versions: found.versions.map((v) => toDocumentVersion(v, found.currentVersionId, own)),
       };
     },
 
@@ -445,7 +469,12 @@ export function createDocumentService({
      * available -> archived, audited. Archived documents leave the Paperworks (only the
      * organization's officers see them) and cannot change; restore() brings one back.
      */
-    async archive(actor: Actor, org: OrgRef, id: string): Promise<DocumentSummary> {
+    async archive(
+      actor: Actor,
+      org: OrgRef,
+      id: string,
+      actingAs: string,
+    ): Promise<DocumentSummary> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
       if (doc.status !== 'available') {
@@ -461,6 +490,7 @@ export function createDocumentService({
         entityId: id,
         organizationId: org.id,
         ip: actor.ip,
+        actingAs,
       });
       await invalidate(org);
       return reload(viewer, id);
@@ -488,8 +518,8 @@ export function createDocumentService({
       return reload(viewer, id);
     },
 
-    /** Soft delete, audited. */
-    async remove(actor: Actor, org: OrgRef, id: string): Promise<void> {
+    /** Soft delete, audited with who acted for the account. */
+    async remove(actor: Actor, org: OrgRef, id: string, actingAs: string): Promise<void> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
       if (!(await documents.softDelete(viewer, id))) throw AppError.notFound('Document not found');
@@ -501,6 +531,7 @@ export function createDocumentService({
         organizationId: org.id,
         metadata: { status: doc.status },
         ip: actor.ip,
+        actingAs,
       });
       await invalidate(org);
     },

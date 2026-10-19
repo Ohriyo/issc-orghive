@@ -391,12 +391,22 @@ describe('/projects/:id', () => {
 
     const input = proposal.querySelector<HTMLInputElement>('input[type="file"]')!;
     const file = new File(['%PDF-1.7'], 'proposal.pdf', { type: 'application/pdf' });
+    // Filing a task names who acts for the account; without a name nothing is sent.
     fireEvent.change(input, { target: { files: [file] } });
+    expect(
+      await screen.findByText('Enter your name: who is acting for the account'),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.url.includes('/upload-url'))).toBe(false);
 
+    fireEvent.change(screen.getByRole('textbox', { name: 'Acting as' }), {
+      target: { value: 'Juan Dela Cruz' },
+    });
+    fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() =>
       expect(calls.find((c) => c.url.endsWith('/tasks/PROPOSAL/documents'))?.body).toEqual({
         uploadKey: UPLOAD_KEY,
         visibility: 'governing',
+        actingAs: 'Juan Dela Cruz',
       }),
     );
     expect(puts).toEqual(['https://storage.test/put']);
@@ -415,6 +425,9 @@ describe('/projects/:id', () => {
       { name: 'Project Proposal' },
       { timeout: 5000 },
     );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Acting as' }), {
+      target: { value: 'Juan Dela Cruz' },
+    });
     const input = proposal.querySelector<HTMLInputElement>('input[type="file"]')!;
     fireEvent.change(input, {
       target: { files: [new File(['x'], 'proposal.docx')] },
@@ -432,6 +445,7 @@ describe('/projects/:id', () => {
       { timeout: 5000 },
     );
     expect(within(proposal).queryByRole('button', { name: /Upload/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Acting as' })).not.toBeInTheDocument();
   });
 
   it('shows not found for a project the API does not return', async () => {

@@ -48,6 +48,7 @@ const versionSelect = {
   sizeBytes: true,
   scanStatus: true,
   storageKey: true,
+  actingAs: true,
   createdAt: true,
 } satisfies Prisma.DocumentVersionSelect;
 
@@ -134,6 +135,8 @@ export interface NewVersion {
   /** Known only after the worker has read the stored bytes. */
   sha256?: string;
   uploadedById: string;
+  /** The officer who uploaded it for the account; none for files Orghive made. */
+  actingAs?: string | null;
   scanStatus?: ScanStatus;
   /** Server-generated files (the Semestral End Report) arrive already processed. */
   thumbnailKey?: string | null;

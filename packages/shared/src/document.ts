@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { actingAsSchema } from './acting-as';
 import { academicYearSchema, semesterSchema } from './academic-term';
 import { documentStatusSchema } from './document-status';
 import { organizationTypeSchema, slugSchema } from './organization';
@@ -42,16 +43,21 @@ export type DocumentMetadata = z.input<typeof documentMetadataSchema>;
 
 /**
  * POST /organizations/:slug/documents: the metadata plus the key of a file already PUT to
- * storage with an upload URL. Creates the document with that file as version 1, `scanning`,
- * and queues its virus scan and processing; it becomes `available` once the file is clean.
+ * storage with an upload URL, and who is acting for the account. Creates the document with
+ * that file as version 1, `scanning`, and queues its virus scan and processing; it becomes
+ * `available` once the file is clean.
  */
 export const createDocumentRequestSchema = documentMetadataSchema.extend({
   uploadKey: uploadKeySchema,
+  actingAs: actingAsSchema,
 });
 export type CreateDocumentRequest = z.infer<typeof createDocumentRequestSchema>;
 
 /** POST /documents/:documentId/versions: a re-upload, from a new upload URL. */
-export const addVersionRequestSchema = z.strictObject({ uploadKey: uploadKeySchema });
+export const addVersionRequestSchema = z.strictObject({
+  uploadKey: uploadKeySchema,
+  actingAs: actingAsSchema,
+});
 export type AddVersionRequest = z.infer<typeof addVersionRequestSchema>;
 
 /** Route params for `/documents/:documentId/versions/:versionId`. */
@@ -169,6 +175,11 @@ export const documentVersionSchema = z
     createdAt: z.iso.datetime(),
     /** The version the document shows now. A re-upload becomes current once it is clean. */
     isCurrent: z.boolean(),
+    /**
+     * The officer who uploaded it for the account. Only the owning organization's account
+     * gets it; null for everyone else and for files Orghive made (the Semestral End Report).
+     */
+    actingAs: z.string().nullable(),
   })
   .meta({ id: 'DocumentVersion' });
 export type DocumentVersion = z.infer<typeof documentVersionSchema>;

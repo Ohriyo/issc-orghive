@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthResponse, DocumentSummary, OrganizationDetail } from '@orghive/shared';
 import { routes } from '@/app/router';
 import { authStore } from '@/lib/auth-store';
-import { accountSession, TEST_ORGS } from '@/test/accounts';
+import { ACCOUNT_ID, accountSession, TEST_ORGS } from '@/test/accounts';
 import { checkFile, textToTags, titleFromFilename } from './presenters/use-upload-documents';
 
 const JPICE: OrganizationDetail = {
@@ -119,6 +119,7 @@ beforeEach(() => {
           scanStatus: 'pending',
           createdAt: '2026-10-16T00:00:00.000Z',
           isCurrent: false,
+          actingAs: 'Juan Dela Cruz',
         },
         201,
       );
@@ -135,6 +136,7 @@ beforeEach(() => {
             scanStatus: 'clean',
             createdAt: '2026-10-16T00:00:00.000Z',
             isCurrent: true,
+            actingAs: 'Maria Santos',
           },
         ],
       });
@@ -151,6 +153,7 @@ afterEach(() => {
   puts.length = 0;
   vi.unstubAllGlobals();
   authStore.reset();
+  window.localStorage.clear();
 });
 
 function renderAt(url: string) {
@@ -218,9 +221,16 @@ describe('/orgs/:slug/paperworks/upload', () => {
         expect(within(card).getByRole('option', { name: 'Activity proposal' })).toBeInTheDocument(),
       );
 
-      // Type is required: the shared schema's message shows.
+      // Type and "Acting as" are required: the shared schemas' messages show.
       fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
       expect(await within(card).findByText('Choose a document type')).toBeInTheDocument();
+      expect(
+        screen.getByText('Enter your name: who is acting for the account'),
+      ).toBeInTheDocument();
+      expect(calls.some((c) => c.url.endsWith('/upload-url'))).toBe(false);
+      fireEvent.change(screen.getByRole('textbox', { name: 'Acting as' }), {
+        target: { value: '  Juan Dela Cruz ' },
+      });
 
       fireEvent.change(within(card).getByRole('combobox', { name: 'Type' }), {
         target: { value: TYPE.id },
@@ -253,9 +263,21 @@ describe('/orgs/:slug/paperworks/upload', () => {
         tags: ['bridge', 'ce week'],
         // A new file stays with the organization unless the officer chooses otherwise.
         visibility: 'private',
+        actingAs: 'Juan Dela Cruz',
       });
+      // Remembered on this device, for this account, for the next upload.
+      expect(window.localStorage.getItem(`orghive:acting-as:${ACCOUNT_ID}`)).toBe('Juan Dela Cruz');
     },
   );
+
+  it('starts "Acting as" from the name last used on this device', async () => {
+    window.localStorage.setItem(`orghive:acting-as:${ACCOUNT_ID}`, 'Maria Santos');
+    authStore.setSession(session('own'));
+    renderAt('/orgs/jpice/paperworks/upload');
+    await screen.findByRole('heading', { level: 1, name: 'Upload Paperworks' }, { timeout: 5000 });
+    pick([pdf()]);
+    expect(await screen.findByRole('textbox', { name: 'Acting as' })).toHaveValue('Maria Santos');
+  });
 
   it('tells any other account it cannot upload here', async () => {
     authStore.setSession(session('governing'));
@@ -288,17 +310,32 @@ describe('/documents/:id files', () => {
         );
       await within(files).findByText(/Version 1/);
       expect(within(files).getByText('Passed the virus scan')).toBeInTheDocument();
+      // The organization's own account sees who uploaded each version for it.
+      expect(
+        within(files).getByText('Uploaded by JPICE · acting as Maria Santos'),
+      ).toBeInTheDocument();
 
       fireEvent.click(within(files).getByRole('button', { name: /Download/ }));
       await waitFor(() => expect(assign).toHaveBeenCalledWith('https://storage.test/get'));
 
       const reupload = await within(files).findByRole('button', { name: 'Choose a file' });
       expect(reupload).toBeInTheDocument();
+      // Without a name, nothing is sent and the field says why.
+      pick([pdf('v2.pdf')]);
+      expect(
+        await within(files).findByText('Enter your name: who is acting for the account'),
+      ).toBeInTheDocument();
+      expect(calls.some((c) => c.url.endsWith('/upload-url'))).toBe(false);
+
+      fireEvent.change(within(files).getByRole('textbox', { name: 'Acting as' }), {
+        target: { value: 'Juan Dela Cruz' },
+      });
       pick([pdf('v2.pdf')]);
       expect(await within(files).findByText(/v2.pdf was uploaded/)).toBeInTheDocument();
       expect(
-        calls.some((c) => c.url.endsWith(`/documents/${DOC_ID}/versions`) && c.body !== undefined),
-      ).toBe(true);
+        calls.find((c) => c.url.endsWith(`/documents/${DOC_ID}/versions`) && c.body !== undefined)
+          ?.body,
+      ).toMatchObject({ actingAs: 'Juan Dela Cruz' });
     },
   );
 });

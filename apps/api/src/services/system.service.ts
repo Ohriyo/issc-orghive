@@ -86,6 +86,7 @@ function toAuditEntry(record: SystemAuditRecord) {
     organizationId: record.organizationId,
     ip: record.ip,
     userAgent: record.userAgent,
+    actingAs: record.actingAs,
     metadata:
       metadata && typeof metadata === 'object' && !Array.isArray(metadata)
         ? (metadata as Record<string, unknown>)

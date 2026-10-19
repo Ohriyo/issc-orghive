@@ -299,6 +299,7 @@ describe('projectService.submitTaskFile', () => {
     await service.submitTaskFile(ACTOR, JPICE, 'p1', 'PROPOSAL', {
       uploadKey: 'uploads/jpice/k1',
       visibility: 'private',
+      actingAs: 'Juan Dela Cruz',
     });
     expect(documentTypes.findBySlug).toHaveBeenCalledWith('project-proposal');
     expect(documents.create).toHaveBeenCalledWith(ACTOR, JPICE, {
@@ -308,6 +309,7 @@ describe('projectService.submitTaskFile', () => {
       visibility: 'private',
       tags: [],
       uploadKey: 'uploads/jpice/k1',
+      actingAs: 'Juan Dela Cruz',
     });
     expect(projects.linkDocument).toHaveBeenCalledWith('p1', 'PROPOSAL', 'new-doc');
     expect(sync.sync).toHaveBeenCalledWith('p1');
@@ -320,13 +322,12 @@ describe('projectService.submitTaskFile', () => {
     await service.submitTaskFile(ACTOR, JPICE, 'p1', 'PROPOSAL', {
       uploadKey: 'uploads/jpice/k2',
       visibility: 'governing',
+      actingAs: 'Maria Santos',
     });
-    expect(documents.addVersion).toHaveBeenCalledWith(
-      ACTOR,
-      JPICE,
-      'doc-PROPOSAL',
-      'uploads/jpice/k2',
-    );
+    expect(documents.addVersion).toHaveBeenCalledWith(ACTOR, JPICE, 'doc-PROPOSAL', {
+      uploadKey: 'uploads/jpice/k2',
+      actingAs: 'Maria Santos',
+    });
     expect(documents.create).not.toHaveBeenCalled();
     expect(projects.linkDocument).not.toHaveBeenCalled();
   });
@@ -342,6 +343,7 @@ describe('projectService.submitTaskFile', () => {
     await service.submitTaskFile(ACTOR, JPICE, 'p1', 'PROPOSAL', {
       uploadKey: 'k',
       visibility: 'governing',
+      actingAs: 'Juan',
     });
     expect(documents.create).toHaveBeenCalled();
     expect(projects.linkDocument).toHaveBeenCalledWith('p1', 'PROPOSAL', 'new-doc');
@@ -357,6 +359,7 @@ describe('projectService.submitTaskFile', () => {
       service.submitTaskFile(ACTOR, JPICE, 'p1', 'PROPOSAL', {
         uploadKey: 'k',
         visibility: 'public',
+        actingAs: 'Juan',
       }),
     ).rejects.toMatchObject({ status: 409 });
     expect(documents.addVersion).not.toHaveBeenCalled();
@@ -365,7 +368,11 @@ describe('projectService.submitTaskFile', () => {
   it('409s a locked task without touching any document', async () => {
     const { service, documents } = setup();
     await expect(
-      service.submitTaskFile(ACTOR, JPICE, 'p1', 'ACR', { uploadKey: 'k', visibility: 'public' }),
+      service.submitTaskFile(ACTOR, JPICE, 'p1', 'ACR', {
+        uploadKey: 'k',
+        visibility: 'public',
+        actingAs: 'Juan',
+      }),
     ).rejects.toMatchObject({ status: 409 });
     expect(documents.create).not.toHaveBeenCalled();
   });

@@ -178,6 +178,31 @@ describe('/system role matrix', () => {
     });
     expect(entry.ip).toBeTruthy();
   });
+
+  it('filters the audit log by part of an "Acting as" name, any case, and shows it', async () => {
+    const { app } = build();
+    const { secret } = await createSuperAdmin(db, 'dev@nwssu.test');
+    const { accessToken } = await superAdminSession(app, 'dev@nwssu.test', secret);
+    for (const actingAs of ['Juan Dela Cruz', 'Maria Santos', null]) {
+      await db.auditLog.create({
+        data: { action: 'upload', entityType: 'document', entityId: crypto.randomUUID(), actingAs },
+      });
+    }
+
+    const res = await request(app)
+      .get('/api/v1/system/audit-logs?actingAs=dela%20CRUZ')
+      .set(bearer(accessToken))
+      .expect(200);
+    const items = (res.body as { items: { action: string; actingAs: string | null }[] }).items;
+    expect(items).toEqual([
+      expect.objectContaining({ action: 'upload', actingAs: 'Juan Dela Cruz' }),
+    ]);
+
+    await request(app)
+      .get(`/api/v1/system/audit-logs?actingAs=${'x'.repeat(81)}`)
+      .set(bearer(accessToken))
+      .expect(400);
+  });
 });
 
 describe('super admin sign-in with MFA', () => {

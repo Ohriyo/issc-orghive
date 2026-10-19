@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Archive, ArchiveRestore, Search, Upload } from 'lucide-react';
 import { OriginLink } from '@/navigation/origin-link';
+import { ActingAsField } from '@/components/acting-as-field';
 import { Container } from '@/components/container';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
@@ -88,6 +89,16 @@ function ReadyView({ model }: { model: Ready }) {
           </PillButton>
         ) : null}
       </header>
+
+      {model.canManage ? (
+        <ActingAsField
+          className="mt-6 max-w-md"
+          orgAcronym={model.org.acronym}
+          value={model.actingAs.value}
+          onChange={(event) => model.actingAs.onChange(event.target.value)}
+          error={model.actingAs.error}
+        />
+      ) : null}
 
       {/* Scrolls sideways inside itself on phones; the page never does. */}
       <nav aria-label="Status" className="mt-7 -mx-1 overflow-x-auto px-1 py-1">

@@ -12,6 +12,8 @@ export interface AuditEntry {
   ip?: string | null;
   /** Trimmed to 255 characters. */
   userAgent?: string | null;
+  /** The officer who acted for a shared organization account ("Acting as"). */
+  actingAs?: string | null;
 }
 
 export function createAuditLogRepository(db: Db) {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { systemAuditListResponseSchema, type SystemAuditEntry } from '@orghive/shared';
 import { api } from '@/lib/api';
@@ -41,6 +41,8 @@ export interface AuditRow {
   when: string;
   action: string;
   actor: string;
+  /** The officer who acted for a shared organization account, when recorded. */
+  actingAs: string | null;
   target: string;
   ip: string;
   userAgent: string | null;
@@ -54,6 +56,7 @@ function toRow(entry: SystemAuditEntry): AuditRow {
     when: formatDateTime(entry.createdAt),
     action: actionLabel(entry.action),
     actor: entry.actor ? `${entry.actor.name} (${entry.actor.email})` : 'System',
+    actingAs: entry.actingAs,
     target: entry.entityId ? `${entry.entityType} ${entry.entityId}` : entry.entityType,
     ip: entry.ip ?? '—',
     userAgent: entry.userAgent,
@@ -61,10 +64,19 @@ function toRow(entry: SystemAuditEntry): AuditRow {
   };
 }
 
-/** /system/audit: every audited event, newest first, filtered by action. */
+const SEARCH_DELAY_MS = 300;
+
+/** /system/audit: every audited event, newest first, filtered by action and "Acting as". */
 export function useSystemAudit() {
   const [action, setAction] = useState('');
-  const filters = { action: action || undefined };
+  const [actingAsInput, setActingAs] = useState('');
+  const [actingAs, setSearchedActingAs] = useState('');
+  // Ask the API once typing pauses, not on every key.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchedActingAs(actingAsInput.trim()), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [actingAsInput]);
+  const filters = { action: action || undefined, actingAs: actingAs || undefined };
   const list = useInfiniteQuery({
     queryKey: queryKeys.system.audit(filters),
     queryFn: ({ pageParam }) =>
@@ -77,7 +89,13 @@ export function useSystemAudit() {
   });
 
   return {
-    filters: { action, setAction, options: AUDIT_ACTION_OPTIONS },
+    filters: {
+      action,
+      setAction,
+      options: AUDIT_ACTION_OPTIONS,
+      actingAs: actingAsInput,
+      setActingAs,
+    },
     list: list.isPending
       ? ({ status: 'loading' } as const)
       : list.isError

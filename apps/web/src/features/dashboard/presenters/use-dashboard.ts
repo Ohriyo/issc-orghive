@@ -18,6 +18,7 @@ import {
   type DocumentSummary,
   type DocumentVisibility,
 } from '@orghive/shared';
+import { useActingAs, type ActingAsModel } from '@/features/auth/presenters/use-acting-as';
 import { useAuth } from '@/features/auth/presenters/use-auth';
 import {
   uploadErrorMessage,
@@ -80,8 +81,10 @@ export interface AttentionItem {
 export interface ActivityItem {
   id: string;
   kind: DashboardActivity['kind'];
-  /** "Juan Dela Cruz uploaded version 2 of" */
+  /** "JPICE uploaded version 2 of" */
   lead: string;
+  /** "Uploaded by JPICE · acting as Juan Dela Cruz", when the entry names who acted. */
+  actedBy: string | null;
   documentTitle: string;
   /** Null when the document has since been deleted. */
   documentHref: string | null;
@@ -163,6 +166,8 @@ export type DashboardModel =
       selected: SelectedOrganization | null;
       selectOrganization: (id: string) => void;
       revise: (documentId: string, file: File) => Promise<void>;
+      /** Who is uploading a clean copy for the account. */
+      actingAs: ActingAsModel;
       panels: RolePanel[];
     };
 
@@ -208,6 +213,23 @@ export function timeAgo(iso: string, now: Date): string {
     if (Math.abs(seconds) >= size) return relative.format(Math.round(seconds / size), unit);
   }
   return 'just now';
+}
+
+const ACTED: Partial<Record<DashboardActivity['kind'], string>> = {
+  upload: 'Uploaded',
+  archive: 'Archived',
+  restore: 'Restored',
+  visibility_change: 'Changed',
+};
+
+/**
+ * "Uploaded by JPICE · acting as Juan Dela Cruz". The dashboard is the organization's own, so
+ * it may show who acted for the shared account; public pages never do.
+ */
+export function actedByLine(entry: DashboardActivity): string | null {
+  const verb = ACTED[entry.kind];
+  if (!verb || !entry.actingAs) return null;
+  return `${verb} by ${entry.actorName ?? 'the account'} · acting as ${entry.actingAs}`;
 }
 
 /** The sentence before the document title, in plain words. */
@@ -362,6 +384,7 @@ export function selectOrganization(
       id: entry.id,
       kind: entry.kind,
       lead: activityLead(entry),
+      actedBy: actedByLine(entry),
       documentTitle: entry.document?.title ?? 'a document that was deleted',
       documentHref: entry.document ? `/documents/${entry.document.id}` : null,
       at: entry.at,
@@ -378,6 +401,7 @@ export function useDashboard(now: () => Date = () => new Date()): DashboardModel
   const { user } = useAuth();
   const [chosen, setChosen] = useState<string | null>(() => readRemembered(user?.id));
   const [revisions, setRevisions] = useState<Record<string, ReviseState>>({});
+  const actingAs = useActingAs();
 
   const query = useQuery({
     queryKey: queryKeys.dashboard,
@@ -397,9 +421,11 @@ export function useDashboard(now: () => Date = () => new Date()): DashboardModel
     const slug = data.organizations.find((o) => o.quarantined.some((doc) => doc.id === documentId))
       ?.organization.slug;
     if (!slug) return;
+    const name = actingAs.take();
+    if (!name) return;
     const set = (state: ReviseState) => setRevisions((all) => ({ ...all, [documentId]: state }));
     try {
-      await uploadNewVersion(slug, documentId, file, set);
+      await uploadNewVersion(slug, documentId, file, name, set);
       set({ status: 'done' });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
@@ -420,6 +446,7 @@ export function useDashboard(now: () => Date = () => new Date()): DashboardModel
       remember(user?.id, id);
     },
     revise,
+    actingAs,
     panels: rolePanels(data),
   };
 }

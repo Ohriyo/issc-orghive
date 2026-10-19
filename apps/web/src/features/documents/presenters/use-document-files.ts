@@ -6,6 +6,7 @@ import {
   organizationDetailSchema,
   type DocumentVersion,
 } from '@orghive/shared';
+import { useActingAs, type ActingAsModel } from '@/features/auth/presenters/use-acting-as';
 import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
@@ -18,12 +19,26 @@ export type ReuploadState =
   | { status: 'done'; filename: string }
   | { status: 'error'; message: string };
 
+/** "Uploaded by JPICE · acting as Juan Dela Cruz": for the organization's own account only. */
+export function uploadedByLine(orgAcronym: string, actingAs: string | null): string | null {
+  return actingAs ? `Uploaded by ${orgAcronym} · acting as ${actingAs}` : null;
+}
+
+export interface VersionRow extends DocumentVersion {
+  /** Who uploaded it for the account; null unless the viewer is the owning organization. */
+  uploadedBy: string | null;
+}
+
 export interface DocumentFilesModel {
-  versions: DocumentVersion[] | undefined;
+  versions: VersionRow[] | undefined;
   versionsError: boolean;
   /** Opens a signed download link for one version; resolves with an error message, if any. */
   download: (versionId: string) => Promise<string | undefined>;
   canReupload: boolean;
+  /** The owning organization, e.g. "JPICE". */
+  orgAcronym: string;
+  /** Who is uploading a new version for the account. */
+  actingAs: ActingAsModel;
   reupload: ReuploadState;
   /** Uploads a file as the next version of the document. */
   uploadVersion: (file: File) => Promise<void>;
@@ -41,6 +56,7 @@ export function useDocumentFiles(
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [reupload, setReupload] = useState<ReuploadState>({ status: 'idle' });
+  const actingAs = useActingAs();
 
   const versions = useQuery({
     queryKey: ['documents', 'versions', documentId],
@@ -74,8 +90,10 @@ export function useDocumentFiles(
   }
 
   async function uploadVersion(file: File) {
+    const name = actingAs.take();
+    if (!name) return;
     try {
-      await uploadNewVersion(org!.slug, documentId, file, (step) =>
+      await uploadNewVersion(org!.slug, documentId, file, name, (step) =>
         setReupload({ ...step, filename: file.name }),
       );
       setReupload({ status: 'done', filename: file.name });
@@ -89,11 +107,17 @@ export function useDocumentFiles(
     }
   }
 
+  const orgAcronym = orgDetail.data?.acronym ?? '';
   return {
-    versions: versions.data?.versions,
+    versions: versions.data?.versions.map((v) => ({
+      ...v,
+      uploadedBy: uploadedByLine(orgAcronym, v.actingAs),
+    })),
     versionsError: versions.isError,
     download,
     canReupload,
+    orgAcronym,
+    actingAs,
     reupload,
     uploadVersion,
   };

@@ -2,6 +2,7 @@ import { CheckCircle2, FileText, TriangleAlert, X } from 'lucide-react';
 import { Controller } from 'react-hook-form';
 import { OriginLink } from '@/navigation/origin-link';
 import { UPLOAD_ACCEPT } from '@orghive/shared';
+import { ActingAsField } from '@/components/acting-as-field';
 import { Container } from '@/components/container';
 import { ConfirmLeaveDialog } from '@/navigation/unsaved-changes-dialog';
 import { FileDropzone } from '@/components/file-dropzone';
@@ -138,6 +139,16 @@ function UploadForm(model: UploadModel) {
         ) : null}
 
         {rootError ? <p className="mt-4 font-medium text-destructive">{rootError}</p> : null}
+
+        {items.length > 0 ? (
+          <ActingAsField
+            className="mt-8 max-w-md"
+            orgAcronym={org.acronym}
+            error={model.form.formState.errors.actingAs?.message}
+            disabled={isUploading || allDone}
+            {...model.form.register('actingAs')}
+          />
+        ) : null}
 
         <p role="status" aria-live="polite" className="mt-6 text-body text-ink">
           {isUploading

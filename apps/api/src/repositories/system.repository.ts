@@ -39,6 +39,7 @@ const auditSelect = {
   organizationId: true,
   ip: true,
   userAgent: true,
+  actingAs: true,
   metadata: true,
 } satisfies Prisma.AuditLogSelect;
 
@@ -152,7 +153,7 @@ export function createSystemRepository(db: Db) {
 
     /** One more than `take`. An unknown `action` matches nothing. */
     async listAuditLogs(
-      { actorId, action, entityType, from, to, cursor }: Omit<SystemAuditQuery, 'limit'>,
+      { actorId, action, entityType, actingAs, from, to, cursor }: Omit<SystemAuditQuery, 'limit'>,
       take: number,
     ): Promise<SystemAuditRecord[]> {
       if (action && !Object.hasOwn(AuditAction, action)) return [];
@@ -161,6 +162,7 @@ export function createSystemRepository(db: Db) {
           ...(actorId && { actorId }),
           ...(action && { action: action as AuditAction }),
           ...(entityType && { entityType }),
+          ...(actingAs && { actingAs: { contains: actingAs, mode: 'insensitive' as const } }),
           ...((from ?? to) && {
             createdAt: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) },
           }),

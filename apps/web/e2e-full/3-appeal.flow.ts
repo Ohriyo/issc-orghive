@@ -67,6 +67,7 @@ test('missed deadline → appeal → approved → unblocked → proposal filed',
   await openProject(page);
   await expect(page.getByText('Blocked', { exact: true })).toHaveCount(0);
   await expect(proposal.getByText('Locked while the project is blocked.')).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Acting as' }).fill('Juan Dela Cruz');
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     proposal.getByRole('button', { name: /Upload file/ }).click(),

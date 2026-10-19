@@ -13,6 +13,7 @@ import {
   type ProjectTaskStatus,
   type ProjectTaskType,
 } from '@orghive/shared';
+import { useActingAs, type ActingAsModel } from '@/features/auth/presenters/use-acting-as';
 import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import { uploadErrorMessage } from '@/features/documents/presenters/upload-version';
 import { api, ApiError } from '@/lib/api';
@@ -73,6 +74,8 @@ export interface ProjectPageModel {
   description: string;
   org: { slug: string; acronym: string };
   phases: Phase[];
+  /** Who is filing task files for the account; null when this account cannot file them. */
+  actingAs: ActingAsModel | null;
   /** Files are still being scanned: the page refreshes on its own. */
   checking: boolean;
 }
@@ -117,7 +120,7 @@ export function toProjectPage(
   project: ProjectDetail,
   controls: TaskControls,
   now: Date,
-): ProjectPageModel {
+): Omit<ProjectPageModel, 'actingAs'> {
   const blocked = project.status === 'blocked';
   const item = (task: ProjectTask): TaskItem => ({
     type: task.type,
@@ -169,6 +172,7 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
     Partial<Record<ProjectTaskType, DocumentVisibility>>
   >({});
   const [uploads, setUploads] = useState<Partial<Record<ProjectTaskType, TaskUploadState>>>({});
+  const actingAs = useActingAs();
   const query = useQuery({
     queryKey: queryKeys.projects.detail(id),
     queryFn: () => api.get(`/projects/${id}`, { schema: projectDetailSchema }),
@@ -195,8 +199,10 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
   };
 
   async function uploadFile(type: ProjectTaskType, file: File) {
+    const name = actingAs.take();
+    if (!name) return;
     try {
-      const updated = await uploadTaskFile(id, type, file, visibilityOf(type), (step) =>
+      const updated = await uploadTaskFile(id, type, file, visibilityOf(type), name, (step) =>
         setUpload(type, step),
       );
       queryClient.setQueryData(queryKeys.projects.detail(id), updated);
@@ -213,16 +219,19 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
 
   return {
     status: 'ready',
-    project: toProjectPage(
-      project,
-      {
-        canManage,
-        visibilityOf,
-        setVisibility: (type, next) => setVisibility((all) => ({ ...all, [type]: next })),
-        uploadOf: (type) => uploads[type] ?? { status: 'idle' },
-        uploadFile: (type, file) => void uploadFile(type, file),
-      },
-      now(),
-    ),
+    project: {
+      ...toProjectPage(
+        project,
+        {
+          canManage,
+          visibilityOf,
+          setVisibility: (type, next) => setVisibility((all) => ({ ...all, [type]: next })),
+          uploadOf: (type) => uploads[type] ?? { status: 'idle' },
+          uploadFile: (type, file) => void uploadFile(type, file),
+        },
+        now(),
+      ),
+      actingAs: canManage ? actingAs : null,
+    },
   };
 }

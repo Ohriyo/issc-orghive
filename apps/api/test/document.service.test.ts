@@ -55,6 +55,7 @@ function version(id: string, n: number, scanStatus: 'pending' | 'clean' | 'infec
     sizeBytes: 10,
     scanStatus,
     storageKey: `uploads/${id}`,
+    actingAs: 'Juan Dela Cruz',
     createdAt: new Date('2026-10-01T00:00:00Z'),
     document: { organizationId: 'jpice', visibility: 'private' as const },
   };
@@ -189,6 +190,7 @@ describe('documentService.create', () => {
     visibility: 'governing' as const,
     tags: ['bridge'],
     uploadKey: 'uploads/jpice/k1',
+    actingAs: 'Juan Dela Cruz',
   };
 
   it('creates a scanning document with its file as version 1, and queues the scan', async () => {
@@ -205,12 +207,15 @@ describe('documentService.create', () => {
         firstVersion: expect.objectContaining({
           storageKey: 'uploads/jpice/k1',
           uploadedById: 'u1',
+          actingAs: 'Juan Dela Cruz',
         }) as unknown,
       }),
     );
     expect(created.status).toBe('scanning');
     expect(queue.enqueueProcessing).toHaveBeenCalledWith('v1');
-    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'upload' }));
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'upload', actingAs: 'Juan Dela Cruz' }),
+    );
     expect(jpiceListCached()).toBe(false);
     expect(cache.store.has(cacheKeys.organizationDocuments('psme', 'abc'))).toBe(true);
   });
@@ -228,25 +233,40 @@ describe('documentService.create', () => {
 describe('documentService.addVersion', () => {
   it('claims the upload, adds the next version and queues it', async () => {
     const { service, documents, queue, audit } = setup();
-    const added = await service.addVersion(ACTOR, JPICE, 'd1', 'uploads/jpice/k2');
+    const added = await service.addVersion(ACTOR, JPICE, 'd1', {
+      uploadKey: 'uploads/jpice/k2',
+      actingAs: 'Maria Santos',
+    });
     expect(documents.addVersion).toHaveBeenCalledWith(
       VIEWER,
       'd1',
-      expect.objectContaining({ storageKey: 'uploads/jpice/k1', uploadedById: 'u1' }),
+      expect.objectContaining({
+        storageKey: 'uploads/jpice/k1',
+        uploadedById: 'u1',
+        actingAs: 'Maria Santos',
+      }),
     );
     expect(queue.enqueueProcessing).toHaveBeenCalledWith('v2');
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'upload',
+        actingAs: 'Maria Santos',
         metadata: expect.objectContaining({ version: 2 }) as unknown,
       }),
     );
-    expect(added).toMatchObject({ version: 2, scanStatus: 'pending', isCurrent: false });
+    expect(added).toMatchObject({
+      version: 2,
+      scanStatus: 'pending',
+      isCurrent: false,
+      actingAs: 'Maria Santos',
+    });
   });
 
   it('409s an archived document', async () => {
     const { service, uploads } = setup(record({ status: 'archived' }));
-    await expect(service.addVersion(ACTOR, JPICE, 'd1', 'k')).rejects.toMatchObject({
+    await expect(
+      service.addVersion(ACTOR, JPICE, 'd1', { uploadKey: 'k', actingAs: 'Juan' }),
+    ).rejects.toMatchObject({
       status: 409,
     });
     expect(uploads.claim).not.toHaveBeenCalled();
@@ -262,6 +282,19 @@ describe('documentService.listVersions', () => {
       [2, 'pending', false],
       [1, 'clean', true],
     ]);
+  });
+
+  it('shows who acted for the account to the owning organization only', async () => {
+    const own = await setup().service.listVersions(READER, 'd1');
+    expect(own.versions.map((v) => v.actingAs)).toEqual(['Juan Dela Cruz', 'Juan Dela Cruz']);
+    const governing: DocumentViewer = {
+      kind: 'account',
+      userId: 'u2',
+      organizationId: 'csc-cea',
+      organizationType: 'CSC',
+    };
+    const csc = await setup(record(), governing).service.listVersions(READER, 'd1');
+    expect(csc.versions.map((v) => v.actingAs)).toEqual([null, null]);
   });
 
   it('404s a document the viewer may not see', async () => {
@@ -393,17 +426,24 @@ describe('documentService.setVisibility', () => {
 describe('documentService.remove', () => {
   it('soft-deletes, audits and clears the cache', async () => {
     const { service, documents, audit, jpiceListCached } = setup();
-    await service.remove(ACTOR, JPICE, 'd1');
+    await service.remove(ACTOR, JPICE, 'd1', 'Juan Dela Cruz');
     expect(documents.softDelete).toHaveBeenCalledWith(VIEWER, 'd1');
     expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'delete', entityId: 'd1', organizationId: 'jpice' }),
+      expect.objectContaining({
+        action: 'delete',
+        entityId: 'd1',
+        organizationId: 'jpice',
+        actingAs: 'Juan Dela Cruz',
+      }),
     );
     expect(jpiceListCached()).toBe(false);
   });
 
   it('404s a document the user cannot see', async () => {
     const { service, audit } = setup(null);
-    await expect(service.remove(ACTOR, JPICE, 'd1')).rejects.toMatchObject({ status: 404 });
+    await expect(service.remove(ACTOR, JPICE, 'd1', 'Juan')).rejects.toMatchObject({
+      status: 404,
+    });
     expect(audit.record).not.toHaveBeenCalled();
   });
 });
@@ -411,10 +451,10 @@ describe('documentService.remove', () => {
 describe('documentService.archive', () => {
   it('archives an available document, audits it and clears the cache', async () => {
     const { service, documents, audit, jpiceListCached } = setup();
-    await service.archive(ACTOR, JPICE, 'd1');
+    await service.archive(ACTOR, JPICE, 'd1', 'Juan Dela Cruz');
     expect(documents.archive).toHaveBeenCalledWith(VIEWER, 'd1');
     expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'archive', entityId: 'd1' }),
+      expect.objectContaining({ action: 'archive', entityId: 'd1', actingAs: 'Juan Dela Cruz' }),
     );
     expect(jpiceListCached()).toBe(false);
   });
@@ -422,7 +462,9 @@ describe('documentService.archive', () => {
   it('409s a scanning, quarantined or archived document without writing', async () => {
     for (const status of ['scanning', 'quarantined', 'archived'] as const) {
       const { service, documents, audit } = setup(record({ status }));
-      await expect(service.archive(ACTOR, JPICE, 'd1')).rejects.toMatchObject({ status: 409 });
+      await expect(service.archive(ACTOR, JPICE, 'd1', 'Juan')).rejects.toMatchObject({
+        status: 409,
+      });
       expect(documents.archive).not.toHaveBeenCalled();
       expect(audit.record).not.toHaveBeenCalled();
     }
@@ -430,7 +472,9 @@ describe('documentService.archive', () => {
 
   it('404s a document of another organization', async () => {
     const { service } = setup();
-    await expect(service.archive(ACTOR, IECEP, 'd1')).rejects.toMatchObject({ status: 404 });
+    await expect(service.archive(ACTOR, IECEP, 'd1', 'Juan')).rejects.toMatchObject({
+      status: 404,
+    });
   });
 });
 

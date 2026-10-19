@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Download, FileText, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { UPLOAD_ACCEPT, type DocumentVersion } from '@orghive/shared';
+import { ActingAsField } from '@/components/acting-as-field';
 import { FileDropzone } from '@/components/file-dropzone';
 import { Skeleton } from '@/components/skeleton';
 import { ACCEPTED_TYPES_LABEL } from '@/features/uploads/presenters/use-upload-documents';
@@ -64,6 +65,9 @@ export function DocumentFiles({ files }: { files: DocumentFilesModel }) {
                   {version.originalFilename}, {formatSize(version.sizeBytes)},{' '}
                   {dateFormat.format(new Date(version.createdAt))}
                 </p>
+                {version.uploadedBy ? (
+                  <p className="text-small break-words text-ink-muted">{version.uploadedBy}</p>
+                ) : null}
                 <p
                   className={cn(
                     'mt-1 flex items-center gap-1.5 text-small',
@@ -116,6 +120,14 @@ function Reupload({ files }: { files: DocumentFilesModel }) {
         The current version stays until the new one passes the virus scan, then the new one replaces
         it for everyone who can see this document. Older versions stay available.
       </p>
+      <ActingAsField
+        className="mt-4 max-w-md"
+        orgAcronym={files.orgAcronym}
+        value={files.actingAs.value}
+        onChange={(event) => files.actingAs.onChange(event.target.value)}
+        error={files.actingAs.error}
+        disabled={busy}
+      />
       <FileDropzone
         className="mt-4"
         accept={UPLOAD_ACCEPT}

@@ -21,6 +21,8 @@ There are three organization levels. Store all three in one `organizations` tabl
 
 The current officer in charge (name, position, contact email, term) lives in `officer_terms`, one open term per account. Guards read the database each request, never token claims.
 
+**Acting as:** every upload (documents, new versions, task files), archive and deletion carries the officer acting for the shared account (`actingAsSchema`; 400 without it). It is stored on `document_versions.acting_as` and `audit_logs.acting_as`, shown only to the organization's own account and the super admin, and never on public pages. In the web app, use `useActingAs` (one-click actions) or the form schema plus `<ActingAsField>`; never re-implement the rule.
+
 Document lifecycle: `uploading → scanning → available | quarantined → archived` (`uploading` is browser-side only). Deletes are soft (`deleted_at`). Re-uploads create a new row in `document_versions`. Never overwrite a file.
 
 **Documents are never reviewed or approved** (`docs/PROJECT_WORKFLOW_SPEC.md` section 0). Do not add review statuses, approve/reject endpoints, a review queue or reviewer dashboards for documents. Who sees a document is its `visibility` alone, set by the owning organization's account on upload (default `private`) and changeable any time (`PATCH /documents/:id/visibility`, `requireOwnOrg`, audited):

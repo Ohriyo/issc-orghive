@@ -75,8 +75,9 @@ afterEach(() => {
 describe('useTop3Celebrations', () => {
   it('counts live changes to the Top 3, never the first load or a change of board', () => {
     const { result, rerender } = renderHook(
-      ({ scope, signature }) => useTop3Celebrations(scope, signature),
-      { initialProps: { scope: 'SBO', signature: '' } },
+      ({ scope, signature }: { scope: string; signature: string | null }) =>
+        useTop3Celebrations(scope, signature),
+      { initialProps: { scope: 'SBO', signature: null as string | null } },
     );
     rerender({ scope: 'SBO', signature: 'a,b,c' });
     expect(result.current).toBe(0);
@@ -85,6 +86,20 @@ describe('useTop3Celebrations', () => {
     rerender({ scope: 'CSC', signature: 'x,y,z' });
     expect(result.current).toBe(1);
     rerender({ scope: 'CSC', signature: 'x,y,z' });
+    expect(result.current).toBe(1);
+  });
+
+  it('celebrates the first organization to reach an empty podium, not the podium emptying', () => {
+    const { result, rerender } = renderHook(
+      ({ signature }: { signature: string | null }) => useTop3Celebrations('SBO', signature),
+      { initialProps: { signature: null as string | null } },
+    );
+    // Loaded with nobody ranked yet: nothing to celebrate.
+    rerender({ signature: '' });
+    expect(result.current).toBe(0);
+    rerender({ signature: 'jpice' });
+    expect(result.current).toBe(1);
+    rerender({ signature: '' });
     expect(result.current).toBe(1);
   });
 });

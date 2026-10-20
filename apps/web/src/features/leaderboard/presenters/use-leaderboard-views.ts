@@ -23,15 +23,18 @@ import {
 } from './use-leaderboard';
 
 /**
- * Counts live changes to a board's Top 3, so the podium can celebrate each one. A change of
- * board or semester (`scope`) and the first load never count: only what moved while the
- * page was open. Stored in state and updated during render, React's pattern for
- * "information from previous renders".
+ * Counts live changes to a board's Top 3, so the podium can celebrate each one. `signature`
+ * is null until the board has loaded, and empty for a loaded board with nobody on it, so the
+ * first organization to reach an empty podium counts too. A change of board or semester
+ * (`scope`) and the first load never count, nor a podium emptying: only someone arriving or
+ * moving while the page was open. Stored in state and updated during render, React's pattern
+ * for "information from previous renders".
  */
-export function useTop3Celebrations(scope: string, signature: string): number {
+export function useTop3Celebrations(scope: string, signature: string | null): number {
   const [seen, setSeen] = useState({ scope, signature, bursts: 0 });
   if (seen.scope !== scope || seen.signature !== signature) {
-    const moved = seen.scope === scope && seen.signature !== '' && signature !== '';
+    const moved =
+      seen.scope === scope && seen.signature !== null && signature !== null && signature !== '';
     setSeen({ scope, signature, bursts: seen.bursts + (moved ? 1 : 0) });
   }
   return seen.bursts;
@@ -75,7 +78,7 @@ function useBoardState(
   const model = useLeaderboardBoard(params, live);
   const bursts = useTop3Celebrations(
     scope,
-    model.status === 'ready' ? podiumSignature(model.board.rows) : '',
+    model.status === 'ready' ? podiumSignature(model.board.rows) : null,
   );
   return boardState(model, bursts);
 }

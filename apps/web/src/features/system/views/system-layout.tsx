@@ -5,6 +5,7 @@ import {
   Inbox,
   KeyRound,
   ScrollText,
+  SlidersHorizontal,
   ShieldCheck,
   Users,
 } from 'lucide-react';
@@ -20,6 +21,7 @@ const SECTIONS = [
   { to: '/system/super-admins', label: 'Super admins', icon: ShieldCheck },
   { to: '/system/end-of-term', label: 'End of term', icon: CalendarClock },
   { to: '/system/test-data', label: 'Test data', icon: FlaskConical },
+  { to: '/system/settings', label: 'Settings', icon: SlidersHorizontal },
   { to: '/system/audit', label: 'Audit log', icon: ScrollText },
   { to: '/system/security', label: 'My security', icon: KeyRound },
 ] as const;

@@ -88,6 +88,7 @@ import { createSystemSettingsService } from '#src/services/system-settings.servi
 import { createLeaderboardRecompute } from '#src/services/leaderboard-recompute';
 import { createLeaderboardService } from '#src/services/leaderboard.service';
 import { createPublicLeaderboardService } from '#src/services/public-leaderboard.service';
+import { createMyStandingService } from '#src/services/my-standing.service';
 
 let config: Config;
 try {
@@ -412,6 +413,11 @@ const app = createApp({
     systemSettings,
     leaderboard: publicLeaderboard,
     leaderboardStream,
+    myStanding: createMyStandingService({
+      accounts,
+      leaderboard: publicLeaderboard,
+      projects: leaderboardReads,
+    }),
   },
 });
 

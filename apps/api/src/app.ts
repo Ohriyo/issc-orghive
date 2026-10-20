@@ -40,6 +40,7 @@ import type { DocumentService } from '#src/services/document.service';
 import type { FinancialFiguresService } from '#src/services/financial-figures.service';
 import type { NotificationService } from '#src/services/notification.service';
 import type { OrganizationService } from '#src/services/organization.service';
+import type { MyStandingService } from '#src/services/my-standing.service';
 import type { ProjectService } from '#src/services/project.service';
 import type { PublicLeaderboardService } from '#src/services/public-leaderboard.service';
 import type { ReportService } from '#src/services/report.service';
@@ -89,6 +90,8 @@ export interface AppServices {
   leaderboard: PublicLeaderboardService;
   /** GET /leaderboard/stream: the open SSE streams of this instance. */
   leaderboardStream: Pick<LeaderboardStream, 'open'>;
+  /** GET /me/leaderboard: the signed-in organization's own standing. */
+  myStanding: Pick<MyStandingService, 'forUser'>;
 }
 
 export interface AppDeps {
@@ -146,6 +149,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     '/me',
     meRouter({
       dashboard: services.dashboard,
+      standing: services.myStanding,
       notifications: services.notifications,
       reveals: services.reveals,
       tokens: services.tokens,

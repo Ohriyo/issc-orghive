@@ -81,6 +81,7 @@ const unwiredServices: AppServices = {
     get: (_t, key) => () => unwired(`leaderboard.${String(key)}`),
   }),
   leaderboardStream: { open: () => unwired('leaderboardStream') },
+  myStanding: { forUser: () => unwired('myStanding') },
 };
 
 export function buildTestApp(

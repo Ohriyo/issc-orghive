@@ -27,6 +27,12 @@ function pages(): RouteObject[] {
       }),
     },
     {
+      path: 'leaderboard',
+      lazy: async () => ({
+        Component: (await import('@/features/leaderboard/leaderboard-page')).LeaderboardPage,
+      }),
+    },
+    {
       path: 'colleges',
       lazy: async () => ({
         Component: (await import('@/features/colleges/college-carousel-page')).CollegeCarouselPage,
@@ -199,6 +205,12 @@ function dashboardRoutes(): RouteObject[] {
         Component: (await import('@/features/admin/admin-pages')).AdminOrganizationsPage,
       }),
     },
+    {
+      path: 'admin/financial-figures',
+      lazy: async () => ({
+        Component: (await import('@/features/admin/admin-pages')).AdminFinancialFiguresPage,
+      }),
+    },
     ...systemRoutes(),
   ];
 }
@@ -232,6 +244,10 @@ function systemRoutes(): RouteObject[] {
     {
       path: 'system/end-of-term',
       lazy: async () => ({ Component: (await systemPages()).SystemEndOfTermPage }),
+    },
+    {
+      path: 'system/settings',
+      lazy: async () => ({ Component: (await systemPages()).SystemSettingsPage }),
     },
     {
       path: 'system/account-requests',

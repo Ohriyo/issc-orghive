@@ -112,7 +112,8 @@ export function FilterFields<K extends string>({
   );
 }
 
-function FilterSelect({
+/** One labelled pill select; also used alone (the leaderboard's semester and college). */
+export function FilterSelect({
   id,
   label,
   all,
@@ -122,7 +123,8 @@ function FilterSelect({
 }: {
   id: string;
   label: string;
-  all: string;
+  /** The empty option, e.g. "All colleges"; omitted when a value is always chosen. */
+  all?: string;
   value: string;
   options: FilterOption[];
   onChange: (value: string) => void;
@@ -139,7 +141,7 @@ function FilterSelect({
           onChange={(event) => onChange(event.target.value)}
           className={cn(FIELD, 'cursor-pointer appearance-none pr-11 pl-5')}
         >
-          <option value="">{all}</option>
+          {all !== undefined ? <option value="">{all}</option> : null}
           {options.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}

@@ -26,6 +26,7 @@ import {
   type DeadlineLabel,
 } from './project-format';
 import { uploadTaskFile, type TaskUploadStep } from './upload-task-file';
+import { useCorrectFigures, type CorrectFiguresModel } from './use-correct-figures';
 import { useFiguresDraft, type FiguresModel } from './use-figures-draft';
 
 export type TaskUploadState =
@@ -58,6 +59,8 @@ export interface TaskItem {
   uploadFile: (file: File) => void;
   /** The Financial Report's totals; null on other tasks. */
   figures: FiguresModel | null;
+  /** Correcting the stored totals (the Financial Report, own account, semester open). */
+  correction: CorrectFiguresModel | null;
 }
 
 export interface Phase {
@@ -121,6 +124,7 @@ interface TaskControls {
   uploadFile: (type: ProjectTaskType, file: File) => void;
   /** The Financial Report's totals, for its card. */
   figures: FiguresModel;
+  correction?: CorrectFiguresModel | null;
 }
 
 /** Shapes the API's project for the stepper. Pure apart from the callbacks it is given. */
@@ -145,6 +149,7 @@ export function toProjectPage(
     prepareUpload: () => controls.prepareUpload(task.type),
     uploadFile: (file) => controls.uploadFile(task.type, file),
     figures: task.type === 'FINANCIAL_REPORT' ? controls.figures : null,
+    correction: task.type === 'FINANCIAL_REPORT' ? (controls.correction ?? null) : null,
   });
   const pre = project.tasks.filter((t) => PROJECT_TASK_PHASE[t.type] === 'pre_event').map(item);
   const post = project.tasks.filter((t) => PROJECT_TASK_PHASE[t.type] === 'post_event').map(item);
@@ -184,6 +189,7 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
   const [uploads, setUploads] = useState<Partial<Record<ProjectTaskType, TaskUploadState>>>({});
   const actingAs = useActingAs();
   const figuresDraft = useFiguresDraft();
+  const correction = useCorrectFigures(id);
   const query = useQuery({
     queryKey: queryKeys.projects.detail(id),
     queryFn: () => api.get(`/projects/${id}`, { schema: projectDetailSchema }),
@@ -252,6 +258,12 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
           prepareUpload: (type) => type !== 'FINANCIAL_REPORT' || takeFigures() !== null,
           uploadFile: (type, file) => void uploadFile(type, file),
           figures: figuresDraft.model(project.financialFigures, canManage),
+          correction: correction.model(
+            project.financialFigures,
+            actingAs,
+            { acronym: project.organization.acronym, canManage },
+            now(),
+          ),
         },
         now(),
       ),

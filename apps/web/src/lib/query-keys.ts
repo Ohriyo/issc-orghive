@@ -88,4 +88,6 @@ export const queryKeys = {
   notifications: ['me', 'notifications'] as const,
   notificationCenter: (show: 'all' | 'unread') => ['me', 'notifications', 'center', show] as const,
   notificationPreferences: ['me', 'notification-preferences'] as const,
+  /** GET /me/leaderboard: the dashboard's rank card. Under 'me', with the dashboard. */
+  myStanding: ['me', 'leaderboard'] as const,
 };

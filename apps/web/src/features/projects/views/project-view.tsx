@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { Dialog } from 'radix-ui';
 import {
   CalendarDays,
   Check,
@@ -28,6 +29,9 @@ import type {
 } from '../presenters/use-project';
 import { TASK_FILE_TYPES_LABEL } from '../presenters/upload-task-file';
 import type { FiguresModel } from '../presenters/use-figures-draft';
+import type { CorrectFiguresModel } from '../presenters/use-correct-figures';
+import { FormAlert } from '@/features/auth/views/auth-layout';
+import { OVERLAY, PANEL, SECONDARY } from '@/features/system/views/system-dialogs';
 import { DeadlineBadge, LockedNote, ProjectStatusChip } from './project-badges';
 
 export type ProjectViewProps = Exclude<ProjectPageState, { status: 'not-found' }> & {
@@ -264,7 +268,9 @@ function TaskCard({ task }: { task: TaskItem }) {
           </span>
         ) : null}
         {task.file ? <TaskFile file={task.file} /> : null}
-        {task.figures?.saved ? <SavedFigures figures={task.figures} /> : null}
+        {task.figures?.saved ? (
+          <SavedFigures figures={task.figures} correction={task.correction} />
+        ) : null}
       </div>
 
       {task.canUpload ? <TaskUpload task={task} /> : null}
@@ -294,10 +300,17 @@ function TaskFile({ file }: { file: NonNullable<TaskItem['file']> }) {
 }
 
 /** The stored totals, and the ISSC's review when there is one (spec 5D). */
-function SavedFigures({ figures }: { figures: FiguresModel }) {
+function SavedFigures({
+  figures,
+  correction,
+}: {
+  figures: FiguresModel;
+  correction: CorrectFiguresModel | null;
+}) {
   const saved = figures.saved!;
   return (
     <div className="flex flex-col gap-3">
+      {correction ? <CorrectFiguresDialog correction={correction} /> : null}
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-small text-ink sm:grid-cols-3">
         <div className="flex gap-2 sm:flex-col sm:gap-0">
           <dt className="text-ink-muted">Total income</dt>
@@ -333,6 +346,56 @@ function SavedFigures({ figures }: { figures: FiguresModel }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * "Correct figures": the organization fixes the reported totals until its semester closes.
+ * The trigger sits above the totals; the dialog keeps focus until saved or cancelled.
+ */
+function CorrectFiguresDialog({ correction }: { correction: CorrectFiguresModel }) {
+  return (
+    <Dialog.Root open={correction.open} onOpenChange={correction.setOpen}>
+      <Dialog.Trigger asChild>
+        <PillButton variant="light" className="self-start">
+          Correct figures
+        </PillButton>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className={OVERLAY} />
+        <Dialog.Content className={PANEL}>
+          <Dialog.Title className="text-h3 font-bold text-ink">Correct the figures</Dialog.Title>
+          <Dialog.Description className="mt-2 text-body text-ink">
+            The totals of this Financial Report as they should read. You can correct them until{' '}
+            {correction.until}. Each change is recorded with who made it.
+          </Dialog.Description>
+          <form
+            noValidate
+            className="mt-6 flex flex-col gap-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              correction.submit();
+            }}
+          >
+            <FormAlert message={correction.error ?? undefined} />
+            <FiguresFields figures={correction.fields} disabled={correction.saving} />
+            <ActingAsField
+              orgAcronym={correction.orgAcronym}
+              value={correction.actingAs.value}
+              error={correction.actingAs.error}
+              onChange={(event) => correction.actingAs.onChange(event.target.value)}
+              disabled={correction.saving}
+            />
+            <div className="mt-2 flex flex-wrap items-center justify-end gap-6">
+              <Dialog.Close className={SECONDARY}>Cancel</Dialog.Close>
+              <PillButton type="submit" disabled={correction.saving}>
+                {correction.saving ? 'Saving…' : 'Save figures'}
+              </PillButton>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

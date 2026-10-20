@@ -203,6 +203,20 @@ beforeEach(() => {
       ];
       return json(stored[0], 201);
     }
+    if (url.endsWith(`/projects/${PROJECT_ID}/financial-figures`) && method === 'PATCH') {
+      const { incomeCentavos, expensesCentavos } = body as {
+        incomeCentavos: number;
+        expensesCentavos: number;
+      };
+      return json({
+        incomeCentavos,
+        expensesCentavos,
+        netCentavos: incomeCentavos - expensesCentavos,
+        underReview: null,
+        correctableUntil: new Date(Date.now() + 86_400_000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
     return json({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404);
   });
 });
@@ -556,6 +570,70 @@ describe('/projects/:id', () => {
     expect(
       within(report).queryByRole('textbox', { name: 'Total income (₱)' }),
     ).not.toBeInTheDocument();
+    expect(within(report).queryByRole('button', { name: 'Correct figures' })).toBeNull();
+  });
+
+  it('corrects the saved totals in a dialog, with who is acting', async () => {
+    stored = [
+      afterEvent({
+        financialFigures: {
+          incomeCentavos: 100_000,
+          expensesCentavos: 50_000,
+          netCentavos: 50_000,
+          underReview: null,
+          correctableUntil: new Date(Date.now() + 86_400_000).toISOString(),
+          updatedAt: '2026-10-11T02:00:00Z',
+        },
+      }),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    const report = await screen.findByRole(
+      'region',
+      { name: 'Financial Report' },
+      { timeout: 5000 },
+    );
+    fireEvent.click(within(report).getByRole('button', { name: 'Correct figures' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Correct the figures' });
+    expect(within(dialog).getByRole('textbox', { name: 'Total income (₱)' })).toHaveValue(
+      '1000.00',
+    );
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Total income (₱)' }), {
+      target: { value: '1,500.00' },
+    });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /Acting as/ }), {
+      target: { value: 'Juan Dela Cruz' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save figures' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({
+        incomeCentavos: 150_000,
+        expensesCentavos: 50_000,
+        actingAs: 'Juan Dela Cruz',
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('offers no correction once the semester closed', async () => {
+    stored = [
+      afterEvent({
+        financialFigures: {
+          incomeCentavos: 100_000,
+          expensesCentavos: 50_000,
+          netCentavos: 50_000,
+          underReview: null,
+          correctableUntil: '2020-12-31T15:59:59.999Z',
+          updatedAt: '2020-10-11T02:00:00Z',
+        },
+      }),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    const report = await screen.findByRole(
+      'region',
+      { name: 'Financial Report' },
+      { timeout: 5000 },
+    );
+    expect(within(report).queryByRole('button', { name: 'Correct figures' })).toBeNull();
   });
 
   it('starts the fields from the saved totals when replacing the report', async () => {

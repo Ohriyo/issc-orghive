@@ -14,6 +14,8 @@ import { createAuditLogRepository } from '#src/repositories/audit-log.repository
 import { createLeaderboardService } from '#src/services/leaderboard.service';
 import { createPublicLeaderboardService } from '#src/services/public-leaderboard.service';
 import { createSystemSettingsService } from '#src/services/system-settings.service';
+import { createTokenService } from '#src/services/token.service';
+import { testKeys } from './auth-fixtures';
 import { buildComplianceWorld, seedProject } from './compliance-fixtures';
 import { testDb } from './db';
 import { buildTestApp, TEST_ASSET_BASE_URL } from './helpers';
@@ -117,6 +119,23 @@ describe('GET /api/v1/leaderboard/stream', () => {
     const { app } = stubbed();
     const res = await request(app).get('/api/v1/leaderboard/stream?academicYear=2026');
     expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/v1/me/leaderboard', () => {
+  it('answers the signed-in account with its own standing, never cached', async () => {
+    const tokens = createTokenService(testKeys());
+    const userId = '0199f0a0-0000-7000-8000-0000000000aa';
+    const { token } = await tokens.sign({ userId, passwordChangeRequired: false });
+    const myStanding = { forUser: vi.fn(() => Promise.resolve({ standing: null })) };
+    const app = buildTestApp({ tokens, myStanding });
+    const res = await request(app)
+      .get('/api/v1/me/leaderboard')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ standing: null });
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    expect(myStanding.forUser).toHaveBeenCalledWith(userId);
   });
 });
 

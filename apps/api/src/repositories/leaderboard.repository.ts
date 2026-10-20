@@ -5,35 +5,44 @@ import type { Db } from './prisma';
 
 const asDate = (isoDate: string) => new Date(`${isoDate}T00:00:00Z`);
 
+/** The semester's undeleted projects: those whose target date falls in the range. */
+const inRange = (range: DateRange) =>
+  ({
+    deletedAt: null,
+    targetDate: { gte: asDate(range.start), lte: asDate(range.end) },
+  }) satisfies Prisma.ProjectWhereInput;
+
+/** What the ranking reads of one project. */
+const projectStandingSelect = {
+  createdAt: true,
+  targetDate: true,
+  nomRequired: true,
+  momRequired: true,
+  tasks: {
+    where: { submittedAt: { not: null } },
+    select: {
+      type: true,
+      submittedAt: true,
+      // System view of the task's file: a deleted or refused file no longer counts.
+      document: { select: { status: true, deletedAt: true } },
+    },
+  },
+  figures: { select: { incomeCentavos: true, expensesCentavos: true, flaggedAt: true } },
+} satisfies Prisma.ProjectSelect;
+
 /** What the ranking reads of one organization and its projects in a semester. */
 const standingSelect = (range: DateRange) =>
   ({
     id: true,
     type: true,
     name: true,
-    projects: {
-      where: {
-        deletedAt: null,
-        targetDate: { gte: asDate(range.start), lte: asDate(range.end) },
-      },
-      select: {
-        createdAt: true,
-        targetDate: true,
-        nomRequired: true,
-        momRequired: true,
-        tasks: {
-          where: { submittedAt: { not: null } },
-          select: {
-            type: true,
-            submittedAt: true,
-            // System view of the task's file: a deleted or refused file no longer counts.
-            document: { select: { status: true, deletedAt: true } },
-          },
-        },
-        figures: { select: { incomeCentavos: true, expensesCentavos: true, flaggedAt: true } },
-      },
-    },
+    projects: { where: inRange(range), select: projectStandingSelect },
   }) satisfies Prisma.OrganizationSelect;
+
+/** One of an organization's own projects, with what its dashboard names it by. */
+const ownProjectSelect = { id: true, name: true, ...projectStandingSelect } satisfies Prisma.ProjectSelect;
+
+export type OwnProjectRecord = Prisma.ProjectGetPayload<{ select: typeof ownProjectSelect }>;
 
 export type StandingOrgRecord = Prisma.OrganizationGetPayload<{
   select: ReturnType<typeof standingSelect>;
@@ -78,6 +87,15 @@ export function createLeaderboardRepository(db: Db) {
         where: { type: { in: ['SBO', 'CSC'] }, deletedAt: null, deactivatedAt: null },
         orderBy: { id: 'asc' },
         select: standingSelect(range),
+      });
+    },
+
+    /** One organization's projects of the semester, for its dashboard's hints. */
+    ownProjects(organizationId: string, range: DateRange): Promise<OwnProjectRecord[]> {
+      return db.project.findMany({
+        where: { organizationId, ...inRange(range) },
+        orderBy: [{ targetDate: 'asc' }, { id: 'asc' }],
+        select: ownProjectSelect,
       });
     },
 

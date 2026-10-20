@@ -40,6 +40,7 @@ interface NavItem {
 function navItems(signedIn: boolean): NavItem[] {
   const items: NavItem[] = [
     { to: '/colleges', label: 'Colleges', section: 'colleges' },
+    { to: '/leaderboard', label: 'Leaderboard', section: 'leaderboard' },
     { to: '/orgs/issc', label: 'ISSC', section: 'issc' },
   ];
   if (signedIn) items.push({ to: '/dashboard', label: 'Dashboard', section: 'dashboard' });

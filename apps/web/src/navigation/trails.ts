@@ -123,6 +123,15 @@ export const chrome = {
     };
   },
 
+  /** /leaderboard: both boards, linked from the homepage band; parent home. */
+  leaderboard(): PageChrome {
+    return {
+      section: 'leaderboard',
+      trail: [HOME, here('Leaderboard')],
+      parent: toDestination(HOME),
+    };
+  },
+
   /** /updates: the ISSC's and the CSCs' posts, linked from the ISSC card; parent home. */
   updates(): PageChrome {
     return { section: 'issc', trail: [HOME, here('Updates')], parent: toDestination(HOME) };

@@ -99,7 +99,7 @@ describe('AppHeader', () => {
       within(site)
         .getAllByRole('link')
         .map((a) => a.textContent),
-    ).toEqual(['Home', 'Colleges', 'ISSC']);
+    ).toEqual(['Home', 'Colleges', 'Leaderboard', 'ISSC']);
     expect(within(site).getByRole('link', { name: 'Home' })).toHaveAttribute(
       'aria-current',
       'true',

@@ -61,6 +61,8 @@ Decisions (2026-10-20):
 
 ## Phase 3: UI, the leaderboard page and the homepage headline
 
+Decisions (2026-10-20): SBO / CSC tabs only (no "All", per Phase 0 decision 3); two homepage podiums; cards and the note follow spec 5C (points breakdown, under-review note, the live late value); the admin screens of item 7 are part of this phase.
+
 Use the frontend-design skill with our design tokens, the hexagon motif, and the responsive and navigation rules. Load `orghive-responsive` and check 360, 768, 1366 and 1920.
 
 1. **Homepage headline.** A "Top Organizations this Semester" band directly under the hero with **two podiums: Top 3 SBOs and Top 3 CSCs**, side by side from `lg`. Below that, a segmented toggle (SBO | CSC) shows one podium at a time. Each podium is three HexFrames: #1 in the center and larger, #2 and #3 beside it. Each card shows logo, name, college, rank number, the breakdown "4.5 pts · 5 projects (1 late)", the net profit as `₱12,345.00` (negative shown as `−₱1,234.00`), and "(1 report under review)" when it applies. Below: "View full leaderboard →".
@@ -73,7 +75,7 @@ Use the frontend-design skill with our design tokens, the hexagon motif, and the
 3. **/leaderboard page.** Semester picker, **SBO / CSC tabs** (no "All"), and a college filter on the SBO tab (each college has one CSC, so the CSC tab doesn't need it). Ranked list: rows 4 and below are numbered plainly, each with an up/down/same arrow for rank change, the points breakdown, net profit (with the under-review note), and a link to the organization's page. A "Live" indicator shows the SSE connection state. Rows animate smoothly when positions change.
 4. **Empty state** for a semester with no implemented projects yet: "Rankings appear once organizations complete their first projects". Plus loading and error states.
 5. **Note under the board**, using the live late value: "Ranked by points (1 per implemented project, 0.5 if any of its reports was late), then by net profit reported in submitted Financial Reports."
-6. **Organization dashboard** (SBOs and CSCs, not the ISSC): its own rank on its board, its breakdown, and what would move it up, e.g. "Submit the ACR for 'Tree Planting' to count it", or "1 report under review: check the figures for 'Tree Planting'".
+6. **Organization dashboard** (SBOs and CSCs, not the ISSC): its own rank on its board, its breakdown, and what would move it up, e.g. "Submit the ACR for 'Tree Planting' to count it", or "1 report under review: check the figures for 'Tree Planting'". Served by `GET /api/v1/me/leaderboard` (its own account only, `private, no-store`); the hints come from one pure function, `standingHints` in `leaderboard-rules.ts`, which reuses `scoreProject`.
 7. **Forms and admin screens.** A "Correct figures" form on the project page, the under-review flag and clear in `/admin` for the ISSC account, and the late-value setting in `/system`. (The income and expense fields on the Financial Report upload, the saved totals and the under-review notice were built in Phase 1, since the API requires the totals from then on.)
 8. **Mobile.** The SBO | CSC toggle picks a podium. Each podium becomes a swipeable row with #1 first. The list stays readable at 360px.
 

@@ -3,6 +3,7 @@ import {
   figuresCorrectableUntil,
   rankStandings,
   scoreProject,
+  standingHints,
   type OrganizationStandingFacts,
   type ProjectStandingFacts,
   type RankingOptions,
@@ -411,5 +412,54 @@ describe('figuresCorrectableUntil', () => {
     expect(figuresCorrectableUntil('2027-06-10', null)).toEqual(
       new Date('2027-07-31T15:59:59.999Z'),
     );
+  });
+});
+
+describe('standingHints', () => {
+  const own = (id: string, overrides: Partial<ProjectStandingFacts> = {}) => ({
+    id: `00000000-0000-7000-8000-00000000000${id}`,
+    name: `Project ${id}`,
+    ...project(overrides),
+  });
+
+  it('names nothing for an organization whose projects all count', () => {
+    expect(standingHints([own('1')], NOW)).toEqual([]);
+  });
+
+  it('names the missing reports of an event that has passed', () => {
+    const hints = standingHints(
+      [
+        own('2', { targetDate: '2026-11-05', submitted: { PROPOSAL: PROPOSAL_ON_TIME } }),
+        own('1', { submitted: { PROPOSAL: PROPOSAL_ON_TIME, ACR: REPORT_ON_TIME } }),
+      ],
+      NOW,
+    );
+    // By event date, each with only what is still missing.
+    expect(hints).toEqual([
+      expect.objectContaining({ kind: 'submit_reports', projectName: 'Project 1', missing: ['FINANCIAL_REPORT'] }),
+      expect.objectContaining({ kind: 'submit_reports', projectName: 'Project 2', missing: ['ACR', 'FINANCIAL_REPORT'] }),
+    ]);
+  });
+
+  it('waits for the event day before asking for its reports (Manila time)', () => {
+    const upcoming = own('1', { targetDate: '2026-12-01', submitted: { PROPOSAL: PROPOSAL_ON_TIME } });
+    // 23:00 UTC on Nov 30 is already Dec 1 in Manila.
+    expect(standingHints([upcoming], new Date('2026-11-30T15:00:00Z'))).toEqual([]);
+    expect(standingHints([upcoming], new Date('2026-11-30T16:00:00Z'))).toHaveLength(1);
+  });
+
+  it('names figures under review after the missing reports', () => {
+    const hints = standingHints(
+      [
+        own('1', { figures: { incomeCentavos: 1, expensesCentavos: 0, underReview: true } }),
+        own('2', { submitted: { PROPOSAL: PROPOSAL_ON_TIME } }),
+      ],
+      NOW,
+    );
+    expect(hints.map((h) => [h.kind, h.projectName])).toEqual([
+      ['submit_reports', 'Project 2'],
+      ['check_figures', 'Project 1'],
+    ]);
+    expect(hints[1]!.missing).toEqual([]);
   });
 });

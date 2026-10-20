@@ -4,9 +4,11 @@ import {
   endOfManilaDay,
   manilaDate,
   semesterOf,
+  POST_EVENT_REPORTS,
   semesterRange,
   type LeaderboardType,
   type ProjectTaskType,
+  type StandingHint,
 } from '@orghive/shared';
 
 /** What the ranking needs to know about one project of the semester. */
@@ -200,6 +202,36 @@ export function rankStandings(
       options,
     ),
   };
+}
+
+/** A project of the organization's own, with what its dashboard names it by. */
+export interface OwnProjectFacts extends ProjectStandingFacts {
+  id: string;
+  name: string;
+}
+
+/**
+ * What would move an organization up its board (its dashboard, spec section 5), from the
+ * same scoring as the ranking:
+ * - an event day that has come whose ACR or Financial Report is still missing: submitting
+ *   them implements the project (a point, or the late value);
+ * - a Financial Report under review: its profit counts again once the ISSC clears it.
+ * Missing reports come first (they add points), each list by event date.
+ */
+export function standingHints(projects: OwnProjectFacts[], now: Date): StandingHint[] {
+  const byEvent = [...projects].sort((a, b) => a.targetDate.localeCompare(b.targetDate));
+  const submit: StandingHint[] = [];
+  const check: StandingHint[] = [];
+  for (const project of byEvent) {
+    const score = scoreProject(project, { latePoints: 1, now });
+    const ref = { projectId: project.id, projectName: project.name };
+    if (!score.implemented && manilaDate(now) >= project.targetDate) {
+      const missing = POST_EVENT_REPORTS.filter((type) => !project.submitted[type]);
+      if (missing.length > 0) submit.push({ kind: 'submit_reports', ...ref, missing });
+    }
+    if (score.underReview) check.push({ kind: 'check_figures', ...ref, missing: [] });
+  }
+  return [...submit, ...check];
 }
 
 /**

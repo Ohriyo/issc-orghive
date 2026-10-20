@@ -14,6 +14,7 @@ import type {
 import {
   rankStandings,
   type OrganizationStandingFacts,
+  type ProjectStandingFacts,
   type Standing,
 } from '#src/services/leaderboard-rules';
 import type { SystemSettingsService } from '#src/services/system-settings.service';
@@ -43,33 +44,38 @@ const DAILY_MS = 24 * 60 * 60 * 1000;
 /** A task's file counts while it passed the scan and is not deleted. */
 const FILED_STATUSES = new Set(['available', 'archived']);
 
+/** One project's ranking input, read from the stored project. */
+export function projectFactsOf(
+  project: StandingOrgRecord['projects'][number],
+): ProjectStandingFacts {
+  const submitted: Partial<Record<ProjectTaskType, Date>> = {};
+  for (const task of project.tasks) {
+    const doc = task.document;
+    if (task.submittedAt && doc && !doc.deletedAt && FILED_STATUSES.has(doc.status)) {
+      submitted[task.type] = task.submittedAt;
+    }
+  }
+  return {
+    createdAt: project.createdAt,
+    targetDate: project.targetDate.toISOString().slice(0, 10),
+    nomRequired: project.nomRequired,
+    momRequired: project.momRequired,
+    submitted,
+    figures: project.figures && {
+      incomeCentavos: project.figures.incomeCentavos,
+      expensesCentavos: project.figures.expensesCentavos,
+      underReview: project.figures.flaggedAt !== null,
+    },
+  };
+}
+
 /** The ranking's input, read from the stored organizations and projects. */
 export function standingFactsOf(record: StandingOrgRecord): OrganizationStandingFacts {
   return {
     organizationId: record.id,
     type: record.type,
     name: record.name,
-    projects: record.projects.map((project) => {
-      const submitted: Partial<Record<ProjectTaskType, Date>> = {};
-      for (const task of project.tasks) {
-        const doc = task.document;
-        if (task.submittedAt && doc && !doc.deletedAt && FILED_STATUSES.has(doc.status)) {
-          submitted[task.type] = task.submittedAt;
-        }
-      }
-      return {
-        createdAt: project.createdAt,
-        targetDate: project.targetDate.toISOString().slice(0, 10),
-        nomRequired: project.nomRequired,
-        momRequired: project.momRequired,
-        submitted,
-        figures: project.figures && {
-          incomeCentavos: project.figures.incomeCentavos,
-          expensesCentavos: project.figures.expensesCentavos,
-          underReview: project.figures.flaggedAt !== null,
-        },
-      };
-    }),
+    projects: record.projects.map(projectFactsOf),
   };
 }
 

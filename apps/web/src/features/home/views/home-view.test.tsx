@@ -2,8 +2,17 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import type { OrganizationDetail } from '@orghive/shared';
+import type { HomeLeaderboardModel } from '@/features/leaderboard/presenters/use-leaderboard-views';
 import type { HomeData } from '../presenters/use-home-data';
 import { HomeView } from './home-view';
+
+const LEADERBOARD: HomeLeaderboardModel = {
+  live: 'live',
+  semester: '1st semester 2026–2027',
+  boards: { SBO: { status: 'loading' }, CSC: { status: 'loading' } },
+  shown: 'SBO',
+  show: vi.fn(),
+};
 
 // jsdom has no WebGL; the background's own logic is tested in use-animated-hero.test.ts.
 vi.mock('../hooks/use-animated-hero', () => ({ useAnimatedHero: () => false }));
@@ -46,7 +55,7 @@ function props(overrides: Partial<HomeData> = {}): HomeData {
 function renderView(data: HomeData) {
   return render(
     <MemoryRouter>
-      <HomeView {...data} />
+      <HomeView {...data} leaderboard={LEADERBOARD} />
     </MemoryRouter>,
   );
 }

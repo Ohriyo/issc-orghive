@@ -285,3 +285,38 @@ export type LeaderboardEvent = z.infer<typeof leaderboardEventSchema>;
 /** The SSE event name of a standings update. */
 export const LEADERBOARD_STANDINGS_EVENT = 'standings';
 
+/**
+ * What would move an organization up its board (its dashboard only, never public):
+ * `submit_reports` names an event that has passed whose ACR or Financial Report is not
+ * submitted yet (it earns no point until both are); `check_figures` names a Financial
+ * Report the ISSC put under review (its profit is left out until cleared).
+ */
+export const STANDING_HINT_KINDS = ['submit_reports', 'check_figures'] as const;
+export const POST_EVENT_REPORTS = ['ACR', 'FINANCIAL_REPORT'] as const;
+
+export const standingHintSchema = z.object({
+  kind: z.enum(STANDING_HINT_KINDS),
+  projectId: z.uuid(),
+  projectName: z.string(),
+  /** `submit_reports`: which of the two reports are still missing. Empty otherwise. */
+  missing: z.array(z.enum(POST_EVENT_REPORTS)),
+});
+export type StandingHint = z.infer<typeof standingHintSchema>;
+
+/** GET /me/leaderboard: the signed-in SBO's or CSC's own standing this semester. */
+export const myStandingSchema = z.object({
+  ...boardMeta,
+  type: leaderboardTypeSchema,
+  /** Organizations ranked on its board. */
+  boardSize: z.number().int().nonnegative(),
+  /** Its row, or null while it has no implemented project this semester. */
+  row: publicLeaderboardRowSchema.nullable(),
+  hints: z.array(standingHintSchema),
+});
+export type MyStanding = z.infer<typeof myStandingSchema>;
+
+/** `standing` is null for the ISSC account, which is never ranked (spec 5A). */
+export const myStandingResponseSchema = z
+  .object({ standing: myStandingSchema.nullable() })
+  .meta({ id: 'MyStandingResponse' });
+export type MyStandingResponse = z.infer<typeof myStandingResponseSchema>;

@@ -3,7 +3,10 @@ import { Container } from '@/components/container';
 import { cn } from '@/lib/utils';
 
 /** The /admin sections. New ones join this list as they are built. */
-const ADMIN_SECTIONS = [{ to: '/admin/organizations', label: 'Organizations' }] as const;
+const ADMIN_SECTIONS = [
+  { to: '/admin/organizations', label: 'Organizations' },
+  { to: '/admin/financial-figures', label: 'Financial figures' },
+] as const;
 
 const NAV_LINK = cn(
   '-mb-px flex min-h-11 shrink-0 items-center border-b-2 border-transparent px-1 text-body font-medium text-ink-muted',

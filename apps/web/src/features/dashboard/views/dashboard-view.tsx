@@ -14,6 +14,8 @@ import type { SemestralReportsModel } from '@/features/reports/presenters/use-se
 import { SemestralReportsPanel } from '@/features/reports/views/semestral-reports-panel';
 import { ProjectsOverview } from '@/features/projects/views/projects-overview';
 import type { ActingAsModel } from '@/features/auth/presenters/use-acting-as';
+import type { MyStandingModel } from '@/features/leaderboard/presenters/use-my-standing';
+import { StandingCard } from '@/features/leaderboard/views/standing-card';
 import type { DashboardModel, SelectedOrganization } from '../presenters/use-dashboard';
 import {
   NeedsAttention,
@@ -32,6 +34,8 @@ export interface DashboardViewProps {
   compliance?: ComplianceModel | null;
   /** The Semestral End Report panel, for the selected organization's officers only. */
   reports?: SemestralReportsModel | null;
+  /** Its place on the leaderboard (SBOs and CSCs; off for the ISSC). */
+  standing?: MyStandingModel | null;
 }
 
 /**
@@ -44,6 +48,7 @@ export function DashboardView({
   projects = null,
   compliance = null,
   reports = null,
+  standing = null,
 }: DashboardViewProps) {
   const selected = model.status === 'ready' ? model.selected : null;
   return (
@@ -88,6 +93,7 @@ export function DashboardView({
                   <ComplianceBanner model={compliance} showProjectLink className="mt-6" />
                 }
                 reports={reports ? <SemestralReportsPanel model={reports} /> : null}
+                standing={standing ? <StandingCard model={standing} /> : null}
               />
             ) : (
               <NoOrganization panels={<RolePanels panels={model.panels} />} />
@@ -108,6 +114,7 @@ function OrganizationDashboard({
   projects,
   compliance,
   reports,
+  standing,
 }: {
   org: SelectedOrganization;
   onRevise: (documentId: string, file: File) => void;
@@ -116,6 +123,7 @@ function OrganizationDashboard({
   projects: React.ReactNode;
   compliance: React.ReactNode;
   reports: React.ReactNode;
+  standing: React.ReactNode;
 }) {
   const { org: summary, term } = org;
   return (
@@ -200,6 +208,7 @@ function OrganizationDashboard({
         <div className="mt-8 flex flex-col gap-12">
           <StatTiles tiles={org.tiles} />
           {org.semester ? <ThisSemester semester={org.semester} /> : null}
+          {standing}
           {projects}
           {reports}
           {panels}

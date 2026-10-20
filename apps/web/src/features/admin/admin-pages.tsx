@@ -4,8 +4,10 @@ import { AuthSkeleton } from '@/features/auth/views/auth-skeleton';
 import { usePageChrome } from '@/navigation/page-chrome';
 import { chrome } from '@/navigation/trails';
 import { useAdminAccess } from './presenters/use-admin-access';
+import { useAdminFigures } from './presenters/use-admin-figures';
 import { useAdminOrganizations } from './presenters/use-admin-organizations';
 import { AdminForbidden, AdminLayout } from './views/admin-layout';
+import { FiguresView } from './views/figures-view';
 import { OrganizationsView } from './views/organizations-view';
 
 /** Signed in, then ISSC admins only; everyone else sees why they cannot enter. */
@@ -36,6 +38,27 @@ export function AdminOrganizationsPage() {
     <RequireAuth>
       <AdminGate>
         <Organizations />
+      </AdminGate>
+    </RequireAuth>
+  );
+}
+
+function FinancialFigures() {
+  usePageChrome(chrome.admin('Financial figures'));
+  const model = useAdminFigures();
+  return (
+    <AdminLayout title="Financial figures">
+      <FiguresView model={model} />
+    </AdminLayout>
+  );
+}
+
+/** /admin/financial-figures: the ISSC's review of reported totals (spec 5D). */
+export function AdminFinancialFiguresPage() {
+  return (
+    <RequireAuth>
+      <AdminGate>
+        <FinancialFigures />
       </AdminGate>
     </RequireAuth>
   );

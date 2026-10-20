@@ -1,6 +1,10 @@
 import { z } from 'zod';
-import { academicYearSchema, semesterSchema } from './academic-term';
+import { academicYearSchema, semesterSchema, type Semester } from './academic-term';
 import { actingAsSchema } from './acting-as';
+import { academicYearOf, manilaDate } from './manila-time';
+import { slugSchema } from './organization';
+import { collegeRefSchema, organizationSummarySchema } from './public-read';
+import { semesterOf } from './report';
 
 /*
  * The leaderboard (docs/PROJECT_WORKFLOW_SPEC.md, section 5 "Leaderboard rules"). Money is
@@ -178,3 +182,106 @@ export function underReviewNote(count: number): string {
   if (count <= 0) return '';
   return `(${count} ${count === 1 ? 'report' : 'reports'} under review)`;
 }
+
+/** One semester's boards are keyed by its academic year and semester. */
+export interface SemesterKey {
+  academicYear: string;
+  semester: Semester;
+}
+
+/** The semester a Manila calendar date (`YYYY-MM-DD`) belongs to (spec 5B). */
+export function semesterKeyOf(isoDate: string): SemesterKey {
+  return { academicYear: academicYearOf(isoDate), semester: semesterOf(isoDate) };
+}
+
+/** The semester running at an instant, in Manila. */
+export function currentSemesterKey(now: Date): SemesterKey {
+  return semesterKeyOf(manilaDate(now));
+}
+
+/** The semester before: 1st ← midyear of the year before, 2nd ← 1st, midyear ← 2nd. */
+export function previousSemesterKey({ academicYear, semester }: SemesterKey): SemesterKey {
+  if (semester === 'second') return { academicYear, semester: 'first' };
+  if (semester === 'midyear') return { academicYear, semester: 'second' };
+  const start = Number(academicYear.slice(0, 4)) - 1;
+  return { academicYear: `${start}-${start + 1}`, semester: 'midyear' };
+}
+
+/** `academicYear` and `semester` together, or neither (the current semester). */
+const semesterQueryShape = {
+  academicYear: academicYearSchema.optional(),
+  semester: semesterSchema.optional(),
+};
+const bothOrNeither = (query: { academicYear?: string; semester?: Semester }) =>
+  (query.academicYear === undefined) === (query.semester === undefined);
+const BOTH_OR_NEITHER = {
+  message: 'Give both academicYear and semester, or neither for the current semester',
+  path: ['semester'],
+};
+
+/** GET /leaderboard: one board. `type` is required, as there is no combined board (spec 5A). */
+export const leaderboardQuerySchema = z
+  .strictObject({
+    ...semesterQueryShape,
+    type: leaderboardTypeSchema,
+    /** A college's slug: only its organizations, each keeping its rank on the whole board. */
+    college: slugSchema.optional(),
+  })
+  .refine(bothOrNeither, BOTH_OR_NEITHER);
+export type LeaderboardQuery = z.infer<typeof leaderboardQuerySchema>;
+
+/** GET /leaderboard/stream: both boards of a semester. */
+export const leaderboardStreamQuerySchema = z
+  .strictObject(semesterQueryShape)
+  .refine(bothOrNeither, BOTH_OR_NEITHER);
+export type LeaderboardStreamQuery = z.infer<typeof leaderboardStreamQuerySchema>;
+
+/**
+ * One ranked organization, public (spec 5F): never officer or acting-as names, never file
+ * links. `slug` links to the organization's page.
+ */
+export const publicLeaderboardRowSchema = z
+  .object({
+    rank: z.number().int().positive(),
+    /** Places gained (positive) or lost (negative) since the standings last changed; null when new. */
+    rankChange: z.number().int().nullable(),
+    points: z.number().nonnegative(),
+    implementedCount: z.number().int().nonnegative(),
+    lateCount: z.number().int().nonnegative(),
+    /** Can be negative (spec 5D). */
+    netProfitCentavos: z.number().int(),
+    underReviewCount: z.number().int().nonnegative(),
+    organization: organizationSummarySchema,
+    college: collegeRefSchema.nullable(),
+  })
+  .meta({ id: 'LeaderboardRow' });
+export type PublicLeaderboardRow = z.infer<typeof publicLeaderboardRowSchema>;
+
+const boardMeta = {
+  academicYear: z.string(),
+  semester: semesterSchema,
+  /** The late value the points were computed with, so the UI can explain the scoring. */
+  latePoints: latePointsSchema,
+};
+
+/** GET /leaderboard. */
+export const leaderboardResponseSchema = z
+  .object({ ...boardMeta, type: leaderboardTypeSchema, rows: z.array(publicLeaderboardRowSchema) })
+  .meta({ id: 'LeaderboardResponse' });
+export type LeaderboardResponse = z.infer<typeof leaderboardResponseSchema>;
+
+/** One `standings` event of GET /leaderboard/stream: both boards, whole. */
+export const leaderboardEventSchema = z
+  .object({
+    ...boardMeta,
+    boards: z.object({
+      SBO: z.array(publicLeaderboardRowSchema),
+      CSC: z.array(publicLeaderboardRowSchema),
+    }),
+  })
+  .meta({ id: 'LeaderboardEvent' });
+export type LeaderboardEvent = z.infer<typeof leaderboardEventSchema>;
+
+/** The SSE event name of a standings update. */
+export const LEADERBOARD_STANDINGS_EVENT = 'standings';
+

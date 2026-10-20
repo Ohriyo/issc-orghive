@@ -28,6 +28,7 @@ import type { ProjectRepository } from '#src/repositories/project.repository';
 import type { OrgRef } from './access.service';
 import { decisionAuthority, type AppellantOrg, type DecisionAuthority } from './appeal-rules';
 import type { Actor } from './document.service';
+import type { LeaderboardRecompute } from './leaderboard-recompute';
 import type { NotificationService } from './notification.service';
 import { deadlinesAfterApproval } from './project-rules';
 import type { ProjectSync } from './project-sync.service';
@@ -46,6 +47,11 @@ export interface AppealServiceDeps {
   queue: AttachmentQueue;
   storage: Pick<Storage, 'presignGet'>;
   audit: Pick<AuditLogRepository, 'record'>;
+  /**
+   * An approval never makes a task on time (spec 5C), but it lets the late tasks in, so the
+   * project's semester is recomputed as a safety net.
+   */
+  leaderboard?: Pick<LeaderboardRecompute, 'forEventDates'>;
   now?: () => Date;
 }
 
@@ -96,6 +102,7 @@ export function createAppealService({
   queue,
   storage,
   audit,
+  leaderboard,
   now = () => new Date(),
 }: AppealServiceDeps) {
   /** The actor's authority over one appellant's appeals; the vacancy check is lazy. */
@@ -388,6 +395,7 @@ export function createAppealService({
           }
           // Applies the new deadline now; an unblock is audited by the compliance hooks.
           await sync.sync(rec.project.id);
+          await leaderboard?.forEventDates(rec.project.targetDate);
         }
       } else {
         ok = await appeals.reject(rec.id, { ...base, remarks: input.remarks });

@@ -29,7 +29,17 @@ const db = testDb();
 const tokens = createTokenService(testKeys());
 const documentRepo = createDocumentRepository(db);
 const projectRepo = createProjectRepository(db);
-const projectSync = createProjectSync({ projects: projectRepo });
+/** Semesters whose leaderboard a scanned task file asked to recompute. */
+const recomputed: string[] = [];
+const projectSync = createProjectSync({
+  projects: projectRepo,
+  leaderboard: {
+    forEventDates: (...dates) => {
+      recomputed.push(...dates.map((d) => (typeof d === 'string' ? d : d.toISOString().slice(0, 10))));
+      return Promise.resolve();
+    },
+  },
+});
 
 /** Storage stand-in: an upload "exists" once its intent exists, as declared. */
 const storage: Storage = {
@@ -358,7 +368,10 @@ describe('submitting tasks through the document pipeline', () => {
     expect(asCsc.tasks[0]).toMatchObject({ status: 'open', document: null });
     expect(statusOf(asCsc, 'NOM')).toBe('locked');
 
+    recomputed.length = 0;
     await scanClean(proposal.document!.id);
+    // A submitted task may move the standings of its event's semester.
+    expect(recomputed).toEqual([project.targetDate]);
 
     const after = (await call('get', `/projects/${project.id}`, 'governor').expect(200))
       .body as ProjectDetail;

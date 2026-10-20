@@ -203,6 +203,15 @@ export function createProjectRepository(db: Db) {
       return task?.projectId ?? null;
     },
 
+    /** The target date of the project whose task holds this file; null for other files. */
+    async targetDateOfDocument(documentId: string): Promise<Date | null> {
+      const task = await db.projectTask.findUnique({
+        where: { documentId },
+        select: { project: { select: { targetDate: true } } },
+      });
+      return task?.project.targetDate ?? null;
+    },
+
     /**
      * Projects whose checklist can still change with time: not completed. Of one
      * organization when given (the check on read), else all of them (the hourly job).

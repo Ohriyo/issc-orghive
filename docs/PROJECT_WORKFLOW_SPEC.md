@@ -89,7 +89,7 @@ Decided 2026-10-20 (Phase 0 of `docs/LEADERBOARD_PHASES.md`). The ranking lives 
   - A new deadline from an approved appeal (`proposalDueOverride`, `postEventDueOverride`) does not make a task on time. A task submitted after an approved appeal is late. The stored `proposalDueAt` and `postEventDueAt` columns already include overrides, so the original dates are computed, never read from them.
   - NOM and MOM have no deadline (section 2B), so they are never late.
 - A task's submission time is its `submittedAt`: the moment its file first passed the scan. Later versions do not change it.
-- The late value is a system setting the super admin edits in `/system` (0 to 1). Every change is audit-logged with the old and new values and triggers a recompute. Earlier snapshots are not rewritten.
+- The late value is a system setting the super admin edits in `/system` (0 to 1). Every change is audit-logged with the old and new values and triggers a recompute of the current and the previous semester. Older semesters keep their standings, and earlier snapshots are not rewritten.
 - The breakdown is shown wherever points are: **"4.5 pts · 5 projects (1 late)"**.
 
 ### D. Net profit

@@ -102,6 +102,7 @@ function setup(doc: DocumentRecord | null = record(), viewer: DocumentViewer = V
   const storage = {
     presignGet: vi.fn((key: string) => Promise.resolve(`https://storage.test/${key}?signed`)),
   };
+  const leaderboard = { forDocument: vi.fn(() => Promise.resolve()) };
   const service = createDocumentService({
     documents,
     documentTypes: {
@@ -117,13 +118,24 @@ function setup(doc: DocumentRecord | null = record(), viewer: DocumentViewer = V
     storage,
     audit,
     cache,
+    leaderboard,
     now: () => new Date('2026-10-16T00:00:00Z'),
   });
   // A cached list that every write must clear.
   cache.store.set(cacheKeys.organizationDocuments('jpice', 'abc'), '{}');
   cache.store.set(cacheKeys.organizationDocuments('psme', 'abc'), '{}');
   const jpiceListCached = () => cache.store.has(cacheKeys.organizationDocuments('jpice', 'abc'));
-  return { service, documents, audit, cache, jpiceListCached, uploads, queue, storage };
+  return {
+    service,
+    documents,
+    audit,
+    cache,
+    jpiceListCached,
+    uploads,
+    queue,
+    storage,
+    leaderboard,
+  };
 }
 
 describe('documentService.list', () => {
@@ -425,8 +437,10 @@ describe('documentService.setVisibility', () => {
 
 describe('documentService.remove', () => {
   it('soft-deletes, audits and clears the cache', async () => {
-    const { service, documents, audit, jpiceListCached } = setup();
+    const { service, documents, audit, jpiceListCached, leaderboard } = setup();
     await service.remove(ACTOR, JPICE, 'd1', 'Juan Dela Cruz');
+    // A task's file deleted can un-implement its project (spec 5B).
+    expect(leaderboard.forDocument).toHaveBeenCalledWith('d1');
     expect(documents.softDelete).toHaveBeenCalledWith(VIEWER, 'd1');
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({

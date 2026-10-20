@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import type { Config } from '#src/config';
+import type { LeaderboardStream } from '#src/lib/leaderboard-stream';
 import type { Logger } from '#src/logger';
 import { createErrorHandler, notFoundHandler } from '#src/middleware/error-handler';
 import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
@@ -16,6 +17,7 @@ import { authRouter } from '#src/routes/auth.routes';
 import { collegesRouter } from '#src/routes/colleges.routes';
 import { documentsRouter } from '#src/routes/documents.routes';
 import { healthRouter } from '#src/routes/health.routes';
+import { leaderboardRouter } from '#src/routes/leaderboard.routes';
 import { meRouter } from '#src/routes/me.routes';
 import { organizationsRouter } from '#src/routes/organizations.routes';
 import { projectsRouter } from '#src/routes/projects.routes';
@@ -39,6 +41,7 @@ import type { FinancialFiguresService } from '#src/services/financial-figures.se
 import type { NotificationService } from '#src/services/notification.service';
 import type { OrganizationService } from '#src/services/organization.service';
 import type { ProjectService } from '#src/services/project.service';
+import type { PublicLeaderboardService } from '#src/services/public-leaderboard.service';
 import type { ReportService } from '#src/services/report.service';
 import type { RevealService } from '#src/services/reveal.service';
 import type { SearchService } from '#src/services/search.service';
@@ -82,6 +85,10 @@ export interface AppServices {
   financialFigures: FinancialFiguresService;
   /** /system/settings, such as the leaderboard's late value. */
   systemSettings: SystemSettingsService;
+  /** GET /leaderboard: the public boards (spec section 5). */
+  leaderboard: PublicLeaderboardService;
+  /** GET /leaderboard/stream: the open SSE streams of this instance. */
+  leaderboardStream: Pick<LeaderboardStream, 'open'>;
 }
 
 export interface AppDeps {
@@ -131,6 +138,10 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   );
   v1.use('/colleges', collegesRouter(services.colleges));
   v1.use('/organizations', organizationsRouter(services.organizations));
+  v1.use(
+    '/leaderboard',
+    leaderboardRouter({ leaderboard: services.leaderboard, stream: services.leaderboardStream }),
+  );
   v1.use(
     '/me',
     meRouter({

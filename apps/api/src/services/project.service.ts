@@ -29,6 +29,7 @@ import {
   type FinancialFiguresService,
 } from '#src/services/financial-figures.service';
 import { nextDeadline, planProject, type ProjectPlan } from '#src/services/project-rules';
+import type { LeaderboardRecompute } from '#src/services/leaderboard-recompute';
 import { factsOf, type ProjectSync } from '#src/services/project-sync.service';
 import type { UploadService } from '#src/services/upload.service';
 
@@ -47,6 +48,8 @@ export interface ProjectServiceDeps {
   /** The Financial Report's totals (spec 5D), saved with its file. */
   figures: Pick<FinancialFiguresService, 'saveWithFile'>;
   audit: Pick<AuditLogRepository, 'record'>;
+  /** A moved target date moves the project between semesters' standings (spec 5B). */
+  leaderboard?: Pick<LeaderboardRecompute, 'forEventDates'>;
   now?: () => Date;
 }
 
@@ -75,6 +78,7 @@ export function createProjectService({
   viewers,
   figures,
   audit,
+  leaderboard,
   now = () => new Date(),
 }: ProjectServiceDeps) {
   function toSummary(record: ProjectRecord, plan: ProjectPlan): ProjectSummary {
@@ -260,6 +264,9 @@ export function createProjectService({
         metadata: { fields: Object.keys(patch) },
         ip: actor.ip,
       });
+      if (patch.targetDate !== undefined) {
+        await leaderboard?.forEventDates(record.targetDate, updated.targetDate);
+      }
       return toDetail(await viewers.forUser(actor.userId), updated);
     },
 

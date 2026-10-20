@@ -3,6 +3,10 @@ import {
   apiErrorBodySchema,
   collegeDetailSchema,
   collegeListResponseSchema,
+  leaderboardEventSchema,
+  leaderboardQuerySchema,
+  leaderboardResponseSchema,
+  leaderboardStreamQuerySchema,
   organizationDetailSchema,
   searchQuerySchema,
   searchResponseSchema,
@@ -95,6 +99,47 @@ export function createOpenApiDocument(): ReturnType<typeof createDocument> {
             },
             '304': { description: 'Not modified (ETag matched)' },
             '400': { description: 'Invalid query', content: json(apiErrorBodySchema) },
+          },
+        },
+      },
+      '/leaderboard': {
+        get: {
+          summary: 'One leaderboard (SBO or CSC) of a semester',
+          description:
+            'Ranked by points, then net profit, then the earliest last completion (spec 5E). Without academicYear and semester, the current semester in Manila. Public fields only (spec 5F).',
+          tags: ['Public'],
+          requestParams: { query: leaderboardQuerySchema },
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: {
+                ...publicCacheHeaders,
+                'Cache-Control': {
+                  description: 'public, max-age=15',
+                  schema: { type: 'string' as const },
+                },
+              },
+              content: json(leaderboardResponseSchema),
+            },
+            '304': { description: 'Not modified (ETag matched)' },
+            '400': { description: 'Invalid query', content: json(apiErrorBodySchema) },
+          },
+        },
+      },
+      '/leaderboard/stream': {
+        get: {
+          summary: 'Both leaderboards of a semester, live (Server-Sent Events)',
+          description:
+            'Sends a `standings` event with both boards on connect and whenever they change, and a comment every 25 s. Refused with 429 past the connection limits; poll GET /leaderboard instead.',
+          tags: ['Public'],
+          requestParams: { query: leaderboardStreamQuerySchema },
+          responses: {
+            '200': {
+              description: 'An event stream; each `standings` event carries this JSON',
+              content: { 'text/event-stream': { schema: leaderboardEventSchema } },
+            },
+            '400': { description: 'Invalid query', content: json(apiErrorBodySchema) },
+            '429': { description: 'Too many open streams', content: json(apiErrorBodySchema) },
           },
         },
       },

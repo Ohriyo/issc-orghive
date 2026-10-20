@@ -10,6 +10,15 @@ export const publicCache: RequestHandler = (_req, res, next) => {
 };
 
 /**
+ * The leaderboard changes live, so it is cached for 15 s only (the stream carries the rest).
+ * Express adds the ETag, as for publicCache.
+ */
+export const leaderboardCache: RequestHandler = (_req, res, next) => {
+  res.set('Cache-Control', 'public, max-age=15');
+  next();
+};
+
+/**
  * For GETs whose body depends on who is signed in: public caching only for signed-out
  * requests, `private, no-store` as soon as an Authorization header is sent.
  */

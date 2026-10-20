@@ -39,6 +39,22 @@ export type StandingOrgRecord = Prisma.OrganizationGetPayload<{
   select: ReturnType<typeof standingSelect>;
 }>;
 
+/** Only what spec 5F allows on a public board: no account, officer or document fields. */
+const publicOrganizationSelect = {
+  id: true,
+  type: true,
+  slug: true,
+  acronym: true,
+  name: true,
+  logoKey: true,
+  logoWidths: true,
+  college: { select: { code: true, slug: true, name: true } },
+} satisfies Prisma.OrganizationSelect;
+
+export type PublicOrganizationRecord = Prisma.OrganizationGetPayload<{
+  select: typeof publicOrganizationSelect;
+}>;
+
 export interface SnapshotKey {
   academicYear: string;
   semester: Semester;
@@ -62,6 +78,15 @@ export function createLeaderboardRepository(db: Db) {
         where: { type: { in: ['SBO', 'CSC'] }, deletedAt: null, deactivatedAt: null },
         orderBy: { id: 'asc' },
         select: standingSelect(range),
+      });
+    },
+
+    /** The public fields of every SBO and CSC that is not deleted, for the boards' rows. */
+    publicOrganizations(): Promise<PublicOrganizationRecord[]> {
+      return db.organization.findMany({
+        where: { type: { in: ['SBO', 'CSC'] }, deletedAt: null },
+        orderBy: { id: 'asc' },
+        select: publicOrganizationSelect,
       });
     },
 

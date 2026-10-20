@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { memoryLeaderboardEvents } from '#src/lib/leaderboard-events';
 import { memoryLeaderboardStore } from '#src/lib/leaderboard-store';
 import type {
   SnapshotKey,
@@ -68,8 +69,9 @@ function setup(records: StandingOrgRecord[], now = () => NOW) {
   };
   const settings = { latePoints: vi.fn(() => Promise.resolve(0.5)) };
   const store = memoryLeaderboardStore();
-  const service = createLeaderboardService({ leaderboard, settings, store, now });
-  return { service, leaderboard, settings, store, snapshots };
+  const events = memoryLeaderboardEvents();
+  const service = createLeaderboardService({ leaderboard, settings, store, events, now });
+  return { service, leaderboard, settings, store, snapshots, events };
 }
 
 describe('standingFactsOf', () => {
@@ -180,6 +182,40 @@ describe('leaderboardService.compute', () => {
     expect(await service.compute(SEMESTER)).toEqual({ SBO: [], CSC: [] });
     expect(await store.read({ ...SEMESTER, type: 'CSC' })).toEqual([]);
   });
+
+  it('snapshots and publishes nothing for a semester that never ranked anyone', async () => {
+    const { service, snapshots, events } = setup([org('jpice', 'SBO', [])]);
+    await service.compute(SEMESTER);
+    expect(snapshots).toEqual([]);
+    expect(events.published).toEqual([]);
+  });
+
+  it('publishes the semester when its standings change, once per recompute', async () => {
+    const { service, events } = setup([
+      org('jpice', 'SBO', [project()]),
+      org('csc-cea', 'CSC', [project()]),
+    ]);
+    await service.compute(SEMESTER);
+    expect(events.published).toEqual([SEMESTER]);
+  });
+
+  it('publishes nothing when a recompute changes nothing', async () => {
+    const records = [org('jpice', 'SBO', [project()])];
+    const { service, events } = setup(records);
+    await service.compute(SEMESTER);
+    await service.compute(SEMESTER);
+    expect(events.published).toHaveLength(1);
+  });
+
+  it('publishes when a board empties (its last organization dropped out)', async () => {
+    const records = [org('jpice', 'SBO', [project()])];
+    const { service, events } = setup(records);
+    await service.compute(SEMESTER);
+    records[0]!.projects = [];
+    const { SBO } = await service.compute(SEMESTER);
+    expect(SBO).toEqual([]);
+    expect(events.published).toHaveLength(2);
+  });
 });
 
 describe('leaderboardService.board', () => {
@@ -195,5 +231,20 @@ describe('leaderboardService.board', () => {
     const { service } = setup([org('csc-cea', 'CSC', [project()])]);
     const rows = await service.board(SEMESTER, 'CSC');
     expect(rows.map((r) => r.organizationId)).toEqual(['csc-cea']);
+  });
+
+  it('shares one computation between reads that miss at the same time', async () => {
+    const { service, leaderboard, store } = setup([org('jpice', 'SBO', [project()])]);
+    store.read = () => Promise.resolve(null); // Redis gone: every read misses.
+    const [sbo, csc] = await Promise.all([
+      service.board(SEMESTER, 'SBO'),
+      service.board(SEMESTER, 'CSC'),
+    ]);
+    expect(sbo).toHaveLength(1);
+    expect(csc).toEqual([]);
+    expect(leaderboard.standingFacts).toHaveBeenCalledOnce();
+    // Once it is done, a later miss computes again.
+    await service.board(SEMESTER, 'SBO');
+    expect(leaderboard.standingFacts).toHaveBeenCalledTimes(2);
   });
 });

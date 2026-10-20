@@ -202,8 +202,11 @@ describe('GET /api/docs', () => {
       '/colleges/{slug}',
       '/organizations/{slug}',
       '/search',
+      '/leaderboard',
+      '/leaderboard/stream',
     ]);
     expect(spec.body.components.schemas).toHaveProperty('CollegeDetail');
+    expect(spec.body.components.schemas).toHaveProperty('LeaderboardResponse');
   });
 
   it('is not served outside development', async () => {

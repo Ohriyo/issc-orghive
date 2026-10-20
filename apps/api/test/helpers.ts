@@ -77,6 +77,10 @@ const unwiredServices: AppServices = {
   systemSettings: new Proxy({} as AppServices['systemSettings'], {
     get: (_t, key) => () => unwired(`systemSettings.${String(key)}`),
   }),
+  leaderboard: new Proxy({} as AppServices['leaderboard'], {
+    get: (_t, key) => () => unwired(`leaderboard.${String(key)}`),
+  }),
+  leaderboardStream: { open: () => unwired('leaderboardStream') },
 };
 
 export function buildTestApp(

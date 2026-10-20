@@ -34,6 +34,7 @@ import { PUBLIC_VIEWER, type DocumentViewer } from '#src/repositories/document-v
 import type { OrganizationRepository } from '#src/repositories/organization.repository';
 import type { OrgRef } from '#src/services/access.service';
 import type { DocumentViewerService } from '#src/services/document-viewer.service';
+import type { LeaderboardRecompute } from '#src/services/leaderboard-recompute';
 import type { UploadService } from '#src/services/upload.service';
 
 /** Signed-out document lists are cached for 5 minutes under `org:{slug}:docs:{hash}`. */
@@ -81,6 +82,8 @@ export interface DocumentServiceDeps {
   storage: Pick<Storage, 'presignGet'>;
   audit: Pick<AuditLogRepository, 'record'>;
   cache: Cache;
+  /** Deleting a task's file can un-implement its project (spec 5B). */
+  leaderboard?: Pick<LeaderboardRecompute, 'forDocument'>;
   now?: () => Date;
 }
 
@@ -192,6 +195,7 @@ export function createDocumentService({
   storage,
   audit,
   cache,
+  leaderboard,
   now = () => new Date(),
 }: DocumentServiceDeps) {
   function viewerFor(userId: string | undefined): Promise<DocumentViewer> {
@@ -534,6 +538,7 @@ export function createDocumentService({
         actingAs,
       });
       await invalidate(org);
+      await leaderboard?.forDocument(id);
     },
   };
 }

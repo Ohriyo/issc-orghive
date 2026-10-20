@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   correctFinancialFiguresRequestSchema,
+  currentSemesterKey,
   financialFiguresFormSchema,
   formatPesos,
   latePointsSchema,
+  leaderboardQuerySchema,
+  leaderboardStreamQuerySchema,
   MAX_FIGURE_CENTAVOS,
   parsePesos,
   pesosInputValue,
   pointsBreakdown,
+  previousSemesterKey,
+  publicLeaderboardRowSchema,
+  semesterKeyOf,
   underReviewNote,
   updateSystemSettingsRequestSchema,
 } from './leaderboard';
@@ -146,5 +152,98 @@ describe('labels', () => {
     expect(underReviewNote(0)).toBe('');
     expect(underReviewNote(1)).toBe('(1 report under review)');
     expect(underReviewNote(2)).toBe('(2 reports under review)');
+  });
+});
+
+describe('semesters', () => {
+  it.each([
+    ['2026-08-01', '2026-2027', 'first'],
+    ['2026-12-28', '2026-2027', 'first'],
+    ['2027-01-05', '2026-2027', 'second'],
+    ['2027-06-15', '2026-2027', 'midyear'],
+    ['2027-07-31', '2026-2027', 'midyear'],
+  ])('%s is in %s %s', (date, academicYear, semester) => {
+    expect(semesterKeyOf(date)).toEqual({ academicYear, semester });
+  });
+
+  it('takes the current semester in Manila time', () => {
+    // 16:30 UTC on Jul 31 is already Aug 1 in Manila.
+    expect(currentSemesterKey(new Date('2026-07-31T16:30:00Z'))).toEqual({
+      academicYear: '2026-2027',
+      semester: 'first',
+    });
+  });
+
+  it.each([
+    [{ academicYear: '2026-2027', semester: 'first' }, { academicYear: '2025-2026', semester: 'midyear' }],
+    [{ academicYear: '2026-2027', semester: 'second' }, { academicYear: '2026-2027', semester: 'first' }],
+    [{ academicYear: '2026-2027', semester: 'midyear' }, { academicYear: '2026-2027', semester: 'second' }],
+  ] as const)('the semester before %o is %o', (key, before) => {
+    expect(previousSemesterKey(key)).toEqual(before);
+  });
+});
+
+describe('leaderboard queries', () => {
+  it('requires a board type', () => {
+    expect(leaderboardQuerySchema.safeParse({}).success).toBe(false);
+    expect(leaderboardQuerySchema.safeParse({ type: 'ALL' }).success).toBe(false);
+    expect(leaderboardQuerySchema.safeParse({ type: 'ISSC' }).success).toBe(false);
+    expect(leaderboardQuerySchema.parse({ type: 'SBO' })).toEqual({ type: 'SBO' });
+  });
+
+  it('takes the academic year and semester together or not at all', () => {
+    const both = { type: 'CSC', academicYear: '2026-2027', semester: 'first' };
+    expect(leaderboardQuerySchema.safeParse(both).success).toBe(true);
+    expect(leaderboardQuerySchema.safeParse({ type: 'CSC', semester: 'first' }).success).toBe(false);
+    expect(
+      leaderboardStreamQuerySchema.safeParse({ academicYear: '2026-2027' }).success,
+    ).toBe(false);
+    expect(leaderboardStreamQuerySchema.safeParse({}).success).toBe(true);
+  });
+
+  it('refuses unknown parameters and bad values', () => {
+    expect(leaderboardQuerySchema.safeParse({ type: 'SBO', page: '2' }).success).toBe(false);
+    expect(leaderboardQuerySchema.safeParse({ type: 'SBO', college: 'Not A Slug' }).success).toBe(
+      false,
+    );
+    expect(
+      leaderboardStreamQuerySchema.safeParse({ academicYear: '2026-2028', semester: 'first' })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('publicLeaderboardRowSchema', () => {
+  const row = {
+    rank: 1,
+    rankChange: null,
+    points: 4.5,
+    implementedCount: 5,
+    lateCount: 1,
+    netProfitCentavos: -123400,
+    underReviewCount: 0,
+    organization: {
+      type: 'SBO',
+      slug: 'jpice',
+      acronym: 'JPICE',
+      name: 'Junior Philippine Institute of Civil Engineers',
+      logoUrl: null,
+      logoSrcSet: null,
+    },
+    college: { code: 'CEA', slug: 'cea', name: 'College of Engineering and Architecture' },
+  };
+
+  it('accepts a negative net profit', () => {
+    expect(publicLeaderboardRowSchema.safeParse(row).success).toBe(true);
+  });
+
+  it('drops anything outside the public fields (spec 5F)', () => {
+    const parsed = publicLeaderboardRowSchema.parse({
+      ...row,
+      organizationId: 'internal',
+      actingAs: 'Juan dela Cruz',
+    });
+    expect(parsed).not.toHaveProperty('actingAs');
+    expect(parsed).not.toHaveProperty('organizationId');
   });
 });

@@ -4,6 +4,11 @@ import { authStore } from './auth-store';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
 
+/** A full API URL, for what cannot go through apiFetch (an EventSource stream). */
+export function apiUrl(path: string): string {
+  return `${BASE_URL}${path}`;
+}
+
 /** Any failed API call. `status` is 0 when the request never reached the server. */
 export class ApiError extends Error {
   constructor(

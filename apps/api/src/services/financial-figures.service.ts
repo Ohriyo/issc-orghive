@@ -18,6 +18,7 @@ import type { ProjectRecord, ProjectRepository } from '#src/repositories/project
 import type { OrgRef } from '#src/services/access.service';
 import type { RequestContext } from '#src/services/auth.service';
 import type { Actor } from '#src/services/document.service';
+import type { LeaderboardRecompute } from '#src/services/leaderboard-recompute';
 import { figuresCorrectableUntil } from '#src/services/leaderboard-rules';
 import type { NotificationService } from '#src/services/notification.service';
 import type { Recipients } from '#src/services/recipients.service';
@@ -28,6 +29,8 @@ export interface FinancialFiguresServiceDeps {
   recipients: Pick<Recipients, 'officersOf'>;
   notifications: Pick<NotificationService, 'notify'>;
   audit: Pick<AuditLogRepository, 'record'>;
+  /** New, corrected, flagged or cleared figures move the profit totals (spec 5D). */
+  leaderboard?: Pick<LeaderboardRecompute, 'forEventDates'>;
   now?: () => Date;
 }
 
@@ -102,6 +105,7 @@ export function createFinancialFiguresService({
   recipients,
   notifications,
   audit,
+  leaderboard,
   now = () => new Date(),
 }: FinancialFiguresServiceDeps) {
   async function loadProject(projectId: string): Promise<ProjectRecord> {
@@ -160,6 +164,7 @@ export function createFinancialFiguresService({
       ip: actor.ip,
       actingAs,
     });
+    await leaderboard?.forEventDates(record.targetDate);
     return toFiguresView({ ...record, figures: after })!;
   }
 
@@ -213,6 +218,7 @@ export function createFinancialFiguresService({
         ip: ctx.ip,
         userAgent: ctx.userAgent,
       });
+      await leaderboard?.forEventDates(record.targetDate);
       const net = formatPesos(flagged.incomeCentavos - flagged.expensesCentavos);
       await tellOfficers(
         record,
@@ -244,6 +250,7 @@ export function createFinancialFiguresService({
           ip: ctx.ip,
           userAgent: ctx.userAgent,
         });
+        await leaderboard?.forEventDates(record.targetDate);
         await tellOfficers(
           record,
           `Financial Report figures cleared: ${record.name}`,

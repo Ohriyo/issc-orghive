@@ -105,6 +105,7 @@ function setup(found: ProjectRecord | null = record()) {
   const uploads = { issueUrl: vi.fn(() => Promise.resolve({ uploadKey: 'k' } as never)) };
   const audit = { record: vi.fn(() => Promise.resolve()) };
   const figures = { saveWithFile: vi.fn(() => Promise.resolve({} as never)) };
+  const leaderboard = { forEventDates: vi.fn(() => Promise.resolve()) };
   const service = createProjectService({
     projects,
     sync,
@@ -116,10 +117,12 @@ function setup(found: ProjectRecord | null = record()) {
     viewers: { forUser: () => Promise.resolve(VIEWER) },
     figures,
     audit,
+    leaderboard,
     now: () => NOW,
   });
   return {
     service,
+    leaderboard,
     figures,
     projects,
     sync,
@@ -231,10 +234,15 @@ describe('projectService.list and get', () => {
 
 describe('projectService.update', () => {
   it('saves, re-applies the rules and audits which fields changed', async () => {
-    const { service, projects, sync, audit } = setup();
-    await service.update(ACTOR, JPICE, 'p1', { targetDate: '2026-11-05', momRequired: true });
+    const before = record();
+    const after = record({ targetDate: new Date('2027-01-10T00:00:00Z') });
+    const { service, projects, sync, audit, leaderboard } = setup(before);
+    sync.sync.mockResolvedValueOnce(after);
+    await service.update(ACTOR, JPICE, 'p1', { targetDate: '2027-01-10', momRequired: true });
+    // Moved across semesters: both boards are recomputed.
+    expect(leaderboard.forEventDates).toHaveBeenCalledWith(before.targetDate, after.targetDate);
     expect(projects.update).toHaveBeenCalledWith('p1', {
-      targetDate: '2026-11-05',
+      targetDate: '2027-01-10',
       momRequired: true,
     });
     expect(sync.sync).toHaveBeenCalledWith('p1');
@@ -244,6 +252,12 @@ describe('projectService.update', () => {
         metadata: { fields: ['targetDate', 'momRequired'] },
       }),
     );
+  });
+
+  it('recomputes nothing when the target date stays', async () => {
+    const { service, leaderboard } = setup();
+    await service.update(ACTOR, JPICE, 'p1', { name: 'Renamed' });
+    expect(leaderboard.forEventDates).not.toHaveBeenCalled();
   });
 
   it('409s dropping an optional task that already has a file', async () => {

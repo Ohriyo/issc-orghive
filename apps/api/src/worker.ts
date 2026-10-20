@@ -1,23 +1,30 @@
 // The worker: a separate process from the API. It drains the BullMQ queues the API fills
 // (src/lib/queue.ts): checks, scans and processes each uploaded version and appeal
 // attachment, sweeps abandoned uploads, runs the hourly compliance check, sends
-// notification emails, and makes Semestral End Reports. Run with `pnpm --filter api dev:worker` (part of `pnpm dev`).
+// notification emails, makes Semestral End Reports and recomputes the leaderboard. Run with `pnpm --filter api dev:worker` (part of `pnpm dev`).
 import { UnrecoverableError, Worker, type Job } from 'bullmq';
+import { academicYearSchema, semesterSchema } from '@orghive/shared';
+import { z } from 'zod';
 import { ConfigError, loadConfig, type Config } from '#src/config';
 import { createRedis, createRedisCache } from '#src/lib/cache';
 import { createClamavScanner } from '#src/lib/clamav';
 import * as tools from '#src/lib/file-processing';
+import { createRedisLeaderboardEvents } from '#src/lib/leaderboard-events';
+import { createRedisLeaderboardStore } from '#src/lib/leaderboard-store';
 import { createSmtpMailer } from '#src/lib/mailer';
 import {
+  createBullLeaderboardQueue,
   createBullNotificationQueue,
   createBullQueue,
   createBullReportQueue,
   createQueueConnection,
   DOCUMENT_QUEUE,
   EMAILS_PER_SECOND,
+  LEADERBOARD_QUEUE,
   NOTIFICATION_QUEUE,
   REPORT_QUEUE,
   type DocumentJob,
+  type LeaderboardJob,
   type NotificationJob,
   type ReportJob,
 } from '#src/lib/queue';
@@ -32,11 +39,18 @@ import { createNotificationRepository } from '#src/repositories/notification.rep
 import { createOrgFreezeRepository } from '#src/repositories/org-freeze.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
+import { createLeaderboardRepository } from '#src/repositories/leaderboard.repository';
 import { createDb } from '#src/repositories/prisma';
 import { createProjectRepository } from '#src/repositories/project.repository';
 import { createReportRepository } from '#src/repositories/report.repository';
+import { createSystemSettingRepository } from '#src/repositories/system-setting.repository';
 import { createUploadIntentRepository } from '#src/repositories/upload-intent.repository';
 import { createCompliance } from '#src/services/compliance.service';
+import {
+  createLeaderboardRecompute,
+  openSemesters,
+} from '#src/services/leaderboard-recompute';
+import { createLeaderboardService } from '#src/services/leaderboard.service';
 import {
   createNotificationMailer,
   createNotificationService,
@@ -51,6 +65,7 @@ import { createTermReminders } from '#src/services/term-reminders.service';
 import { createRevealRepository } from '#src/repositories/reveal.repository';
 import { createRecipients } from '#src/services/recipients.service';
 import { createReportService } from '#src/services/report.service';
+import { createSystemSettingsService } from '#src/services/system-settings.service';
 
 /**
  * A report's lock: long enough that merging hundreds of pages (CPU-bound, so lock renewals
@@ -66,6 +81,12 @@ const SWEEP_EVERY_MS = 30 * 60 * 1000;
  * for what they show, so this only matters for projects nobody opens.
  */
 const COMPLIANCE_EVERY_MS = 60 * 60 * 1000;
+/**
+ * The leaderboard's daily run: Manila midnight, when event days pass and semesters roll
+ * over (docs/PROJECT_WORKFLOW_SPEC.md, section 5B). Seconds first, as BullMQ cron reads it.
+ */
+const LEADERBOARD_DAILY_CRON = '0 0 0 * * *';
+const MANILA_TZ = 'Asia/Manila';
 
 let config: Config;
 try {
@@ -89,6 +110,9 @@ const documents = createDocumentRepository(db);
 const audit = createAuditLogRepository(db);
 const storage = createS3Storage(config);
 const scanner = createClamavScanner({ host: config.CLAMAV_HOST, port: config.CLAMAV_PORT });
+const leaderboardQueue = createBullLeaderboardQueue(connection);
+const projectRepo = createProjectRepository(db);
+const recompute = createLeaderboardRecompute({ queue: leaderboardQueue, projects: projectRepo, logger });
 const notificationRepo = createNotificationRepository(db);
 const notifications = createNotificationService({
   notifications: notificationRepo,
@@ -96,7 +120,8 @@ const notifications = createNotificationService({
   logger,
 });
 const projectSync = createProjectSync({
-  projects: createProjectRepository(db),
+  projects: projectRepo,
+  leaderboard: recompute,
   compliance: createCompliance({
     freezes: createOrgFreezeRepository(db),
     recipients: createRecipients({
@@ -142,6 +167,12 @@ const mail = createNotificationMailer({
   notifications: notificationRepo,
   mailer: createSmtpMailer(config),
   webOrigin: config.WEB_ORIGIN,
+});
+const leaderboard = createLeaderboardService({
+  leaderboard: createLeaderboardRepository(db),
+  settings: createSystemSettingsService({ settings: createSystemSettingRepository(db), audit }),
+  store: createRedisLeaderboardStore(redis, logger),
+  events: createRedisLeaderboardEvents(redis, logger),
 });
 const reportQueue = createBullReportQueue(connection);
 const reports = createReportService({
@@ -200,6 +231,29 @@ async function handleNotification(
   return mail.sendEmail(notificationId);
 }
 
+const semesterJobSchema = z.object({ academicYear: academicYearSchema, semester: semesterSchema });
+
+async function handleLeaderboard(
+  job: Job<LeaderboardJob['data'], unknown, LeaderboardJob['name']>,
+) {
+  switch (job.name) {
+    case 'recompute': {
+      const parsed = semesterJobSchema.safeParse(job.data);
+      if (!parsed.success) throw new UnrecoverableError('Job has no semester');
+      await leaderboard.compute(parsed.data);
+      return parsed.data;
+    }
+    case 'daily': {
+      const semesters = openSemesters(new Date());
+      for (const semester of semesters) await leaderboard.compute(semester);
+      logger.info({ semesters }, 'Leaderboard daily recompute');
+      return semesters;
+    }
+    default:
+      throw new UnrecoverableError(`Unknown job ${String(job.name)}`);
+  }
+}
+
 async function handleReport(job: Job<ReportJob['data'], unknown, ReportJob['name']>) {
   const { reportId } = job.data as { reportId?: unknown };
   if (typeof reportId !== 'string') throw new UnrecoverableError('Job has no reportId');
@@ -219,7 +273,12 @@ const reportWorker = new Worker(REPORT_QUEUE, handleReport, {
   concurrency: 1,
   lockDuration: REPORT_LOCK_MS,
 });
-for (const w of [worker, mailWorker, reportWorker]) {
+// One recompute at a time: each reads every project of a semester.
+const leaderboardWorker = new Worker(LEADERBOARD_QUEUE, handleLeaderboard, {
+  connection,
+  concurrency: 1,
+});
+for (const w of [worker, mailWorker, reportWorker, leaderboardWorker]) {
   w.on('failed', (job, err) => {
     logger.error({ err, jobId: job?.id, attempts: job?.attemptsMade }, 'Job failed');
   });
@@ -237,15 +296,29 @@ await jobs.queue.upsertJobScheduler(
   { every: COMPLIANCE_EVERY_MS },
   { name: 'check-compliance', data: {} },
 );
-logger.info({ queues: [DOCUMENT_QUEUE, NOTIFICATION_QUEUE, REPORT_QUEUE] }, 'Worker started');
+await leaderboardQueue.queue.upsertJobScheduler(
+  'leaderboard-daily',
+  { pattern: LEADERBOARD_DAILY_CRON, tz: MANILA_TZ },
+  { name: 'daily', data: {} },
+);
+logger.info(
+  { queues: [DOCUMENT_QUEUE, NOTIFICATION_QUEUE, REPORT_QUEUE, LEADERBOARD_QUEUE] },
+  'Worker started',
+);
 
 async function shutdown(signal: string) {
   logger.info({ signal }, 'Worker shutting down');
-  await Promise.allSettled([worker.close(), mailWorker.close(), reportWorker.close()]);
+  await Promise.allSettled([
+    worker.close(),
+    mailWorker.close(),
+    reportWorker.close(),
+    leaderboardWorker.close(),
+  ]);
   await Promise.allSettled([
     jobs.queue.close(),
     notificationQueue.queue.close(),
     reportQueue.queue.close(),
+    leaderboardQueue.queue.close(),
     connection.quit(),
     redis.quit(),
     db.$disconnect(),

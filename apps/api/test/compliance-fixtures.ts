@@ -1,5 +1,5 @@
 import { pino } from 'pino';
-import type { ProjectTaskType } from '@orghive/shared';
+import type { ProjectTaskType, SemesterKey } from '@orghive/shared';
 import type { Storage } from '#src/lib/storage';
 import { createAppealRepository } from '#src/repositories/appeal.repository';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
@@ -18,6 +18,7 @@ import { createCompliance } from '#src/services/compliance.service';
 import { createDocumentService } from '#src/services/document.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createFinancialFiguresService } from '#src/services/financial-figures.service';
+import { createLeaderboardRecompute } from '#src/services/leaderboard-recompute';
 import { createNotificationService } from '#src/services/notification.service';
 import { createAttachmentProcessing } from '#src/services/processing.service';
 import { createProjectService } from '#src/services/project.service';
@@ -106,7 +107,13 @@ export function fakeStorage(db: Db): Storage {
 
 /** Every section 3 service, wired to the test database with in-memory queues. */
 export function buildComplianceServices(db: Db) {
-  const queued = { emails: [] as string[], scans: [] as string[], versions: [] as string[] };
+  const queued = {
+    emails: [] as string[],
+    scans: [] as string[],
+    versions: [] as string[],
+    /** Semesters whose leaderboard a change asked to recompute. */
+    recomputes: [] as SemesterKey[],
+  };
   const storage = fakeStorage(db);
   const audit = createAuditLogRepository(db);
   const accounts = createAccountRepository(db);
@@ -129,8 +136,19 @@ export function buildComplianceServices(db: Db) {
     logger: pino({ level: 'silent' }),
   });
   const recipients = createRecipients({ accounts, organizations });
+  const leaderboard = createLeaderboardRecompute({
+    queue: {
+      enqueueRecompute: (key) => {
+        queued.recomputes.push(key);
+        return Promise.resolve();
+      },
+    },
+    projects,
+    logger: pino({ level: 'silent' }),
+  });
   const sync = createProjectSync({
     projects,
+    leaderboard,
     compliance: createCompliance({ freezes, recipients, notifications, audit }),
   });
   const documents = createDocumentService({
@@ -148,6 +166,7 @@ export function buildComplianceServices(db: Db) {
     storage,
     audit,
     cache: memoryCache(),
+    leaderboard,
   });
   const figures = createFinancialFiguresService({
     figures: createFinancialFiguresRepository(db),
@@ -155,6 +174,7 @@ export function buildComplianceServices(db: Db) {
     recipients,
     notifications,
     audit,
+    leaderboard,
   });
   const projectService = createProjectService({
     projects,
@@ -167,6 +187,7 @@ export function buildComplianceServices(db: Db) {
     viewers,
     figures,
     audit,
+    leaderboard,
   });
   const appeals = createAppealService({
     appeals: appealRepo,
@@ -185,6 +206,7 @@ export function buildComplianceServices(db: Db) {
     },
     storage,
     audit,
+    leaderboard,
   });
   const verdict = { clean: true };
   const attachments = createAttachmentProcessing({

@@ -3,8 +3,9 @@ import {
   semesterRange,
   type LeaderboardType,
   type ProjectTaskType,
-  type Semester,
+  type SemesterKey,
 } from '@orghive/shared';
+import type { LeaderboardEvents } from '#src/lib/leaderboard-events';
 import type { LeaderboardStore } from '#src/lib/leaderboard-store';
 import type {
   LeaderboardRepository,
@@ -23,10 +24,7 @@ export interface LeaderboardRow extends Standing {
   rankChange: number | null;
 }
 
-export interface SemesterKey {
-  academicYear: string;
-  semester: Semester;
-}
+export type { SemesterKey };
 
 export type Boards = Record<LeaderboardType, LeaderboardRow[]>;
 
@@ -34,6 +32,8 @@ export interface LeaderboardServiceDeps {
   leaderboard: Pick<LeaderboardRepository, 'standingFacts' | 'latestSnapshot' | 'saveSnapshot'>;
   settings: Pick<SystemSettingsService, 'latePoints'>;
   store: LeaderboardStore;
+  /** Told when a semester's standings changed (the API instances push it to SSE clients). */
+  events?: LeaderboardEvents;
   now?: () => Date;
 }
 
@@ -96,13 +96,15 @@ const standingsKey = (rows: Standing[]) =>
 /**
  * The leaderboard (docs/PROJECT_WORKFLOW_SPEC.md, section 5). `compute` ranks a semester with
  * `rankStandings`, works out each row's rank change against the last different standings,
- * writes a snapshot when the standings changed (or a day passed) and puts the boards in the
- * store. Recomputing unchanged standings writes nothing new, so it is safe to run often.
+ * writes a snapshot when the standings changed (or a day passed), puts the boards in the
+ * store and, when they changed, publishes the semester. Recomputing unchanged standings
+ * writes and publishes nothing new, so it is safe to run often.
  */
 export function createLeaderboardService({
   leaderboard,
   settings,
   store,
+  events,
   now = () => new Date(),
 }: LeaderboardServiceDeps) {
   async function computeBoard(
@@ -110,28 +112,36 @@ export function createLeaderboardService({
     type: LeaderboardType,
     standings: Standing[],
     at: Date,
-  ): Promise<LeaderboardRow[]> {
+  ): Promise<{ rows: LeaderboardRow[]; changed: boolean }> {
     const key = { ...semester, type };
     const previous = await leaderboard.latestSnapshot(key);
     const before = previous ? snapshotRows(previous.rows) : null;
 
     let rows: LeaderboardRow[];
+    let changed: boolean;
     if (before && standingsKey(before) === standingsKey(standings)) {
       // Nothing moved: keep the arrows from the last change.
       rows = before;
+      changed = false;
       if (at.getTime() - previous!.computedAt.getTime() >= DAILY_MS) {
         await leaderboard.saveSnapshot(key, rows, at);
       }
+    } else if (!before && standings.length === 0) {
+      // Never ranked anyone: nothing to record, so a read of any old or future semester
+      // leaves no snapshot behind.
+      rows = [];
+      changed = false;
     } else {
       const rankBefore = new Map((before ?? []).map((r) => [r.organizationId, r.rank]));
       rows = standings.map((row) => {
         const was = rankBefore.get(row.organizationId);
         return { ...row, rankChange: was === undefined ? null : was - row.rank };
       });
+      changed = true;
       await leaderboard.saveSnapshot(key, rows, at);
     }
     await store.write(key, rows);
-    return rows;
+    return { rows, changed };
   }
 
   async function compute(semester: SemesterKey): Promise<Boards> {
@@ -142,10 +152,27 @@ export function createLeaderboardService({
     ]);
     const ranked = rankStandings(records.map(standingFactsOf), { latePoints, now: at });
     const boards = {} as Boards;
+    let changed = false;
     for (const type of LEADERBOARD_TYPES) {
-      boards[type] = await computeBoard(semester, type, ranked[type], at);
+      const board = await computeBoard(semester, type, ranked[type], at);
+      boards[type] = board.rows;
+      changed ||= board.changed;
     }
+    if (changed) await events?.publish(semester);
     return boards;
+  }
+
+  // When the store misses (Redis restarted), every stream reconnecting at once would compute
+  // the same semester; they share one computation instead.
+  const computing = new Map<string, Promise<Boards>>();
+  function computeShared(semester: SemesterKey): Promise<Boards> {
+    const id = `${semester.academicYear}:${semester.semester}`;
+    let running = computing.get(id);
+    if (!running) {
+      running = compute(semester).finally(() => computing.delete(id));
+      computing.set(id, running);
+    }
+    return running;
   }
 
   return {
@@ -154,7 +181,7 @@ export function createLeaderboardService({
     /** One board's current rows: from the store, or computed when it holds none. */
     async board(semester: SemesterKey, type: LeaderboardType): Promise<LeaderboardRow[]> {
       const stored = await store.read<LeaderboardRow>({ ...semester, type });
-      return stored ?? (await compute(semester))[type];
+      return stored ?? (await computeShared(semester))[type];
     },
   };
 }

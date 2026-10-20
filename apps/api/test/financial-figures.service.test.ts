@@ -53,15 +53,17 @@ function setup(found: ProjectRecord | null = record(), now = OPEN) {
   const recipients = { officersOf: vi.fn(() => Promise.resolve(['acct-jpice'])) };
   const notifications = { notify: vi.fn(() => Promise.resolve()) };
   const audit = { record: vi.fn(() => Promise.resolve()) };
+  const leaderboard = { forEventDates: vi.fn(() => Promise.resolve()) };
   const service = createFinancialFiguresService({
     figures: figures as never,
     projects,
     recipients,
     notifications,
     audit,
+    leaderboard,
     now: () => now,
   });
-  return { service, figures, projects, recipients, notifications, audit };
+  return { service, figures, projects, recipients, notifications, audit, leaderboard };
 }
 
 describe('toFiguresView', () => {
@@ -111,7 +113,7 @@ describe('financialFiguresService.saveWithFile', () => {
   });
 
   it('does nothing when a new version keeps the same totals, even after the semester', async () => {
-    const { service, figures, audit } = setup(record(), CLOSED);
+    const { service, figures, audit, leaderboard } = setup(record(), CLOSED);
     await service.saveWithFile(
       ACTOR,
       record(),
@@ -120,6 +122,7 @@ describe('financialFiguresService.saveWithFile', () => {
     );
     expect(figures.save).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
+    expect(leaderboard.forEventDates).not.toHaveBeenCalled();
   });
 
   it('enters first totals even after the semester closed (a late report)', async () => {
@@ -146,9 +149,11 @@ describe('financialFiguresService.correct', () => {
   const body = { incomeCentavos: 70_000, expensesCentavos: 20_000, actingAs: 'Maria' };
 
   it('corrects and audits before and after', async () => {
-    const { service, audit } = setup();
+    const { service, audit, leaderboard } = setup();
     const view = await service.correct(ACTOR, JPICE, 'p1', body);
     expect(view.netCentavos).toBe(50_000);
+    // The profit total moves: the project's semester is recomputed.
+    expect(leaderboard.forEventDates).toHaveBeenCalledWith(new Date('2026-10-20T00:00:00Z'));
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
         actingAs: 'Maria',
@@ -179,8 +184,9 @@ describe('financialFiguresService.correct', () => {
 
 describe('financialFiguresService.flag', () => {
   it('flags, audits and tells the organization once', async () => {
-    const { service, figures, audit, notifications } = setup();
+    const { service, figures, audit, notifications, leaderboard } = setup();
     const item = await service.flag('issc', 'p1', 'Receipts do not add up', CTX);
+    expect(leaderboard.forEventDates).toHaveBeenCalledWith(new Date('2026-10-20T00:00:00Z'));
     expect(figures.flag).toHaveBeenCalledWith('p1', {
       remark: 'Receipts do not add up',
       flaggedById: 'issc',
@@ -234,9 +240,10 @@ describe('financialFiguresService.clearFlag', () => {
   );
 
   it('clears, audits the old remark and tells the organization', async () => {
-    const { service, audit, notifications } = setup(flagged);
+    const { service, audit, notifications, leaderboard } = setup(flagged);
     const item = await service.clearFlag('issc', 'p1', CTX);
     expect(item.underReview).toBeNull();
+    expect(leaderboard.forEventDates).toHaveBeenCalledWith(new Date('2026-10-20T00:00:00Z'));
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'financial_figures_unflag',
@@ -249,11 +256,12 @@ describe('financialFiguresService.clearFlag', () => {
   });
 
   it('is a no-op when nothing was flagged', async () => {
-    const { service, figures, audit, notifications } = setup();
+    const { service, figures, audit, notifications, leaderboard } = setup();
     figures.clearFlag.mockResolvedValueOnce(false);
     await service.clearFlag('issc', 'p1', CTX);
     expect(audit.record).not.toHaveBeenCalled();
     expect(notifications.notify).not.toHaveBeenCalled();
+    expect(leaderboard.forEventDates).not.toHaveBeenCalled();
   });
 
   it('404s without totals', async () => {

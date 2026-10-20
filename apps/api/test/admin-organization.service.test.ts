@@ -1,6 +1,6 @@
 import sharp from 'sharp';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { memoryCache } from '#src/lib/cache';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cacheKeys, memoryCache } from '#src/lib/cache';
 import { createPublicUrl } from '#src/lib/public-url';
 import { createAdminOrganizationRepository } from '#src/repositories/admin-organization.repository';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
@@ -14,6 +14,7 @@ const ACTOR = () => ({ userId: world.users.governor.id, ip: '10.0.0.9' });
 function setup() {
   const cache = memoryCache();
   const stored = new Map<string, { contentType: string; cacheControl?: string }>();
+  const leaderboard = { forOpenSemesters: vi.fn(() => Promise.resolve()) };
   const service = createAdminOrganizationService({
     admin: createAdminOrganizationRepository(db),
     audit: createAuditLogRepository(db),
@@ -25,9 +26,10 @@ function setup() {
       },
     },
     publicUrl: createPublicUrl('https://cdn.test'),
+    leaderboard,
     now: () => new Date('2026-10-18T02:00:00Z'),
   });
-  return { service, cache, stored };
+  return { service, cache, stored, leaderboard };
 }
 
 const auditsOf = (action: 'organization_change' | 'college_change') =>
@@ -150,7 +152,7 @@ describe('organizations', () => {
   });
 
   it('deactivates and reactivates, auditing each change once', async () => {
-    const { service } = setup();
+    const { service, leaderboard } = setup();
     expect((await service.setActive(ACTOR(), 'jpice', false)).active).toBe(false);
     expect((await service.setActive(ACTOR(), 'jpice', false)).active).toBe(false);
     expect((await service.setActive(ACTOR(), 'jpice', true)).active).toBe(true);
@@ -158,6 +160,15 @@ describe('organizations', () => {
       (a) => (a.metadata as { change: string }).change,
     );
     expect(changes).toEqual(['deactivate', 'activate']);
+    // It leaves the boards and comes back (spec 5A): each real change recomputes them.
+    expect(leaderboard.forOpenSemesters).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears the cached leaderboard organizations on an edit', async () => {
+    const { service, cache } = setup();
+    cache.store.set(cacheKeys.leaderboardOrganizations(), '[]');
+    await service.updateOrganization(ACTOR(), 'jpice', { name: 'Renamed JPICE' });
+    expect(cache.store.has(cacheKeys.leaderboardOrganizations())).toBe(false);
   });
 
   it('never deactivates the ISSC', async () => {

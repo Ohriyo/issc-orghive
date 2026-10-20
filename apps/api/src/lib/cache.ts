@@ -27,6 +27,8 @@ export const cacheKeys = {
   /** Bumped on every document write; part of every cached search key. */
   searchGeneration: () => 'search:gen',
   search: (generation: string, queryHash: string) => `search:${generation}:${queryHash}`,
+  /** Public fields of the ranked organizations. Delete it when one is renamed or changes logo. */
+  leaderboardOrganizations: () => 'leaderboard:orgs',
 };
 
 /**

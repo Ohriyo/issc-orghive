@@ -48,6 +48,12 @@ Order: shared Zod schema → Prisma/repository → service → route → present
 
 ## Phase 2: Real-time updates
 
+Decisions (2026-10-20):
+
+- **A late-value change recomputes the current and the previous semester** (the previous one is still settling, spec 5B). Older semesters keep their standings. Deactivating or reactivating an organization recomputes the same two.
+- **SSE limits per API instance: 50 streams per client IP, 2,000 in total.** A campus often shares one IP. Past either limit the API answers 429 and the client polls every 60 s.
+- **The college filter keeps each organization's rank on the whole board** (it only hides rows), so "#4" means the same everywhere.
+
 1. **Recompute triggers.** Recompute on every event that changes standings: an ACR or Financial Report submitted (scan passed), figures entered or corrected, a flag added or cleared, a project completed, edited (its target date) or deleted, an appeal approved, the late value changed, and the semester rollover at Manila midnight. Recompute the project's own semester, which can be a past one (spec 5B). Run it as a BullMQ job deduplicated per semester and debounced to at most once every 5 s.
 2. **Server-Sent Events.** `GET /api/v1/leaderboard/stream?academicYear=&semester=` sends both the SBO and CSC boards. Redis pub/sub lets every API instance broadcast. Heartbeat every 25 s, a per-IP connection cap, and automatic reconnect on the client, falling back to polling every 60 s if SSE fails. Configure Nginx for SSE (no buffering, long timeouts).
 3. **Snapshot read.** `GET /api/v1/leaderboard?academicYear=&semester=&type=SBO|CSC&college=`. `type` is required: there is no combined board. It is public (add it to the PUBLIC list in `route-auth.test.ts` with a reason), cached in Redis, and sends `Cache-Control: public, max-age=15` plus an ETag. It also returns the current late value, so the UI can explain the scoring.

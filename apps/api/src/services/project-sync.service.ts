@@ -1,6 +1,7 @@
 import type { ProjectTaskType } from '@orghive/shared';
 import type { ProjectRecord, ProjectRepository } from '#src/repositories/project.repository';
 import type { Compliance } from './compliance.service';
+import type { LeaderboardRecompute } from './leaderboard-recompute';
 import { planProject, type ProjectFacts } from './project-rules';
 
 /** A task's file counts once it passed the virus scan (available) and was not deleted. */
@@ -29,6 +30,8 @@ export interface ProjectSyncDeps {
   projects: Pick<ProjectRepository, 'findById' | 'applyPlan' | 'projectOfDocument' | 'listOpenIds'>;
   /** What crossing a deadline sets off (section 3). Omitted where only the plan matters. */
   compliance?: Pick<Compliance, 'statusChanged' | 'planApplied'>;
+  /** A task's file passing the scan may move the standings (spec 5B). */
+  leaderboard?: Pick<LeaderboardRecompute, 'forEventDates'>;
   now?: () => Date;
 }
 
@@ -41,6 +44,7 @@ export interface ProjectSyncDeps {
 export function createProjectSync({
   projects,
   compliance,
+  leaderboard,
   now = () => new Date(),
 }: ProjectSyncDeps) {
   async function sync(projectId: string): Promise<ProjectRecord | null> {
@@ -67,7 +71,9 @@ export function createProjectSync({
     /** The worker processed a document: if it is a task's file, its project may move on. */
     async documentScanned(documentId: string): Promise<void> {
       const projectId = await projects.projectOfDocument(documentId);
-      if (projectId) await sync(projectId);
+      if (!projectId) return;
+      const record = await sync(projectId);
+      if (record) await leaderboard?.forEventDates(record.targetDate);
     },
 
     /** One organization's projects that are not completed (before creating or listing). */

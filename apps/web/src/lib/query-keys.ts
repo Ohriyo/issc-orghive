@@ -67,6 +67,15 @@ export const queryKeys = {
     supportDocuments: (slug: string) => ['system', 'support', slug] as const,
     testData: ['system', 'test-data'] as const,
   },
+  /**
+   * The public leaderboard (docs/PROJECT_WORKFLOW_SPEC.md, section 5). `semester` is
+   * `2026-2027:first`, or `current`; the live stream updates every board of its semester.
+   */
+  leaderboard: {
+    semester: (semester: string) => ['leaderboard', semester] as const,
+    board: (semester: string, type: string, college: string | null) =>
+      ['leaderboard', semester, type, college] as const,
+  },
   /** /admin screens. Never shared with the public reads they manage. */
   admin: {
     all: ['admin'] as const,

@@ -208,6 +208,8 @@ export const SIGNED_IN_ROUTES = [
   '/dashboard/projects?org=jpice',
   '/dashboard/projects/new?org=jpice',
   '/projects/0195f3c0-0000-7000-8000-0000000000c1',
+  // After the event: the Financial Report's totals, a loss, under the ISSC's review.
+  '/projects/0195f3c0-0000-7000-8000-0000000000c3',
   '/dashboard/appeals',
   '/dashboard/appeals/new?org=jpice&project=0195f3c0-0000-7000-8000-0000000000c1',
   '/admin',
@@ -723,9 +725,35 @@ const PROJECT: ProjectDetail = {
       document: null,
     },
   ],
+  financialFigures: null,
 };
 
-const { tasks: _tasks, ...projectSummary } = PROJECT;
+/** After the event: the reports are open; the Financial Report's totals are under review. */
+const PAST_PROJECT: ProjectDetail = {
+  ...PROJECT,
+  id: '0195f3c0-0000-7000-8000-0000000000c3',
+  name: 'Coastal Cleanup Drive 2026',
+  targetDate: isoDay(-3),
+  postEventDueAt: endOfDay(isoDay(11)),
+  tasks: PROJECT.tasks.map((task) =>
+    task.type === 'ACR' || task.type === 'FINANCIAL_REPORT'
+      ? { ...task, status: 'open', dueAt: endOfDay(isoDay(11)) }
+      : task,
+  ),
+  financialFigures: {
+    incomeCentavos: 1_250_000,
+    expensesCentavos: 1_384_550,
+    netCentavos: -134_550,
+    underReview: {
+      remark: 'The receipts total more than the expenses reported. Check the transport costs.',
+      flaggedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    },
+    correctableUntil: endOfDay(isoDay(60)),
+    updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+};
+
+const { tasks: _tasks, financialFigures: _figures, ...projectSummary } = PROJECT;
 const PROJECTS: ProjectListResponse = {
   items: [
     projectSummary,
@@ -1010,6 +1038,10 @@ export async function stubApi(
     if (signedIn && path === '/me/dashboard') return json(route, DASHBOARD);
     if (signedIn && path === '/organizations/jpice/projects') return json(route, PROJECTS);
     if (signedIn && path === `/projects/${PROJECT.id}`) return json(route, PROJECT);
+    if (signedIn && path === `/projects/${PAST_PROJECT.id}`) return json(route, PAST_PROJECT);
+    if (signedIn && path === `/projects/${PAST_PROJECT.id}/appeals`) {
+      return json(route, { items: [] } satisfies AppealListResponse);
+    }
     if (signedIn && path === '/organizations/jpice/compliance') return json(route, COMPLIANCE);
     if (signedIn && path === `/projects/${PROJECT.id}/appeals`) {
       return json(route, { items: [APPEAL] } satisfies AppealListResponse);
@@ -1030,6 +1062,7 @@ export async function stubApi(
           term_ending: true,
           password_reveal: true,
           account_request_declined: true,
+          figures_review: true,
           announcement_posted: false,
         },
       } satisfies NotificationPreferences);

@@ -6,6 +6,7 @@ import type { Storage } from '#src/lib/storage';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
+import { createFinancialFiguresRepository } from '#src/repositories/financial-figures.repository';
 import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrgFreezeRepository } from '#src/repositories/org-freeze.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
@@ -14,8 +15,10 @@ import { createUploadIntentRepository } from '#src/repositories/upload-intent.re
 import { createAccessService } from '#src/services/access.service';
 import { createDocumentService } from '#src/services/document.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
+import { createFinancialFiguresService } from '#src/services/financial-figures.service';
 import { createProjectService } from '#src/services/project.service';
 import { createProjectSync } from '#src/services/project-sync.service';
+import { createRecipients } from '#src/services/recipients.service';
 import { createTokenService } from '#src/services/token.service';
 import { createUploadService } from '#src/services/upload.service';
 import { testKeys } from './auth-fixtures';
@@ -92,10 +95,18 @@ beforeAll(async () => {
     audit,
     cache: memoryCache(),
   });
+  const financialFigures = createFinancialFiguresService({
+    figures: createFinancialFiguresRepository(db),
+    projects: projectRepo,
+    recipients: createRecipients({ accounts, organizations }),
+    notifications: { notify: () => Promise.resolve() },
+    audit,
+  });
   app = buildTestApp({
     tokens,
     uploads,
     documents,
+    financialFigures,
     access: createAccessService({
       accounts,
       organizations,
@@ -111,6 +122,7 @@ beforeAll(async () => {
       documentTypes,
       uploads,
       viewers,
+      figures: financialFigures,
       audit,
     }),
   });
@@ -143,6 +155,8 @@ async function newProject(overrides: object = {}): Promise<ProjectDetail> {
 }
 
 const PDF = { filename: 'file.pdf', contentType: 'application/pdf', sizeBytes: 1000 };
+/** ₱12,345.50 in, ₱2,000.00 out. */
+const FIGURES = { incomeCentavos: 1_234_550, expensesCentavos: 200_000 };
 
 /** Uploads a PDF for the task as `who` (the browser PUT is assumed done), then files it. */
 async function fileTask(
@@ -158,6 +172,7 @@ async function fileTask(
     uploadKey,
     visibility,
     actingAs: 'Juan Dela Cruz',
+    ...(type === 'FINANCIAL_REPORT' && { figures: FIGURES }),
   });
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return res.body as ProjectDetail;
@@ -414,6 +429,71 @@ describe('submitting tasks through the document pipeline', () => {
     const second = await fileTask(project.id, 'PROPOSAL');
     expect(second.tasks[0]).toMatchObject({ status: 'submitted', document: { id: docId } });
     expect(await db.documentVersion.count({ where: { documentId: docId } })).toBe(2);
+  });
+});
+
+describe('Financial Report figures', () => {
+  it('requires the totals with a Financial Report file, and audits the first entry', async () => {
+    const project = await newProject({ targetDate: today });
+    const url = await call(
+      'post',
+      `/projects/${project.id}/tasks/FINANCIAL_REPORT/upload-url`,
+      'officer',
+      PDF,
+    ).expect(201);
+    const { uploadKey } = url.body as { uploadKey: string };
+    const path = `/projects/${project.id}/tasks/FINANCIAL_REPORT/documents`;
+    const file = { uploadKey, visibility: 'private', actingAs: 'Juan Dela Cruz' };
+    await call('post', path, 'officer', file).expect(400);
+    await call('post', path, 'officer', {
+      ...file,
+      figures: { incomeCentavos: -1, expensesCentavos: 0 },
+    }).expect(400);
+
+    const res = await call('post', path, 'officer', { ...file, figures: FIGURES }).expect(201);
+    expect((res.body as ProjectDetail).financialFigures).toMatchObject({
+      ...FIGURES,
+      netCentavos: 1_034_550,
+      underReview: null,
+    });
+    const audit = await db.auditLog.findFirstOrThrow({
+      where: { action: 'financial_figures_change', entityId: project.id },
+    });
+    expect(audit).toMatchObject({
+      actorId: userIds.officer,
+      actingAs: 'Juan Dela Cruz',
+      metadata: { before: null, after: FIGURES },
+    });
+    // Its governing body reads the figures with the project.
+    const read = await call('get', `/projects/${project.id}`, 'governor').expect(200);
+    expect((read.body as ProjectDetail).financialFigures?.netCentavos).toBe(1_034_550);
+  });
+
+  it('lets only the organization’s own account correct them, audited with before and after', async () => {
+    const project = await newProject({ targetDate: today });
+    const path = `/projects/${project.id}/financial-figures`;
+    const body = { incomeCentavos: 100, expensesCentavos: 300, actingAs: 'Maria Santos' };
+
+    await call('patch', path, undefined, body).expect(401);
+    await call('patch', path, 'governor', body).expect(403);
+    await call('patch', path, 'psmeOfficer', body).expect(403);
+    await call('patch', path, 'admin', body).expect(403);
+    // Nothing to correct before the report is uploaded with its totals.
+    await call('patch', path, 'officer', body).expect(409);
+
+    await fileTask(project.id, 'FINANCIAL_REPORT', 'officer', 'private');
+    await call('patch', path, 'officer', { incomeCentavos: 100, expensesCentavos: 300 }).expect(
+      400,
+    );
+    const res = await call('patch', path, 'officer', body).expect(200);
+    expect(res.body).toMatchObject({ incomeCentavos: 100, expensesCentavos: 300, netCentavos: -200 });
+    const audit = await db.auditLog.findFirstOrThrow({
+      where: { action: 'financial_figures_change', entityId: project.id, actingAs: 'Maria Santos' },
+    });
+    expect(audit.metadata).toEqual({
+      before: FIGURES,
+      after: { incomeCentavos: 100, expensesCentavos: 300 },
+    });
   });
 });
 

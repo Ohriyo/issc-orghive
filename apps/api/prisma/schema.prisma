@@ -148,6 +148,14 @@ enum AuditAction {
   account_request_decline
   /// The end of term: one entry per account (metadata: runId, change) and one for the run.
   end_of_term
+  /// An officer entered or corrected a Financial Report's totals (spec 5D); metadata has
+  /// `before` (null on the first entry) and `after`, in centavos.
+  financial_figures_change
+  /// The ISSC account put a Financial Report's figures under review, or cleared it (spec 5D).
+  financial_figures_flag
+  financial_figures_unflag
+  /// A super admin changed a system setting; metadata has `key`, `before` and `after`.
+  system_setting_change
 }
 
 /// System-level role: SUPER_ADMIN is the developer's personal console account, the only
@@ -205,6 +213,8 @@ enum NotificationKind {
   announcement_posted
   password_reveal
   account_request_declined
+  /// The ISSC put the organization's Financial Report figures under review, or cleared them.
+  figures_review
 }
 
 /// requested -> created (the super admin made the account) | declined (with a reason).
@@ -349,6 +359,8 @@ model User {
   accountRequestsDecided  AccountRequest[]         @relation("AccountRequestDecider")
   accountRequestsCreated  AccountRequest[]         @relation("AccountRequestAccount")
   reportsRequested        SemestralReport[]
+  figuresFlagged          FinancialFigures[]       @relation("FiguresFlaggedBy")
+  settingsUpdated         SystemSetting[]          @relation("SystemSettingUpdatedBy")
 
   @@index([systemRole])
   @@index([organizationId])
@@ -615,11 +627,12 @@ model Project {
   createdAt            DateTime      @default(now()) @map("created_at")
   updatedAt            DateTime      @updatedAt @map("updated_at")
 
-  organization Organization  @relation(fields: [organizationId], references: [id])
-  createdBy    User          @relation(fields: [createdById], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  createdBy    User              @relation(fields: [createdById], references: [id])
   tasks        ProjectTask[]
   freezes      OrgFreeze[]
   appeals      Appeal[]
+  figures      FinancialFigures?
 
   @@index([organizationId, status])
   @@index([organizationId, targetDate])
@@ -846,4 +859,56 @@ model SemestralReport {
 
   @@index([organizationId, createdAt])
   @@map("semestral_reports")
+}
+
+/// A Financial Report's totals (docs/PROJECT_WORKFLOW_SPEC.md, section 5D), one per project,
+/// in integer centavos (CHECK constraints keep them in range). They count toward the
+/// leaderboard once the Financial Report task is submitted, unless the ISSC flagged them.
+/// The flag concerns the reported figures only, never who can see the file.
+model FinancialFigures {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  projectId        String    @unique @map("project_id") @db.Uuid
+  incomeCentavos   Int       @map("income_centavos")
+  expensesCentavos Int       @map("expenses_centavos")
+  /// Set while the ISSC has the figures under review; all three are set or none (CHECK).
+  flaggedAt        DateTime? @map("flagged_at")
+  flaggedById      String?   @map("flagged_by_id") @db.Uuid
+  flagRemark       String?   @map("flag_remark")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  project   Project @relation(fields: [projectId], references: [id])
+  flaggedBy User?   @relation("FiguresFlaggedBy", fields: [flaggedById], references: [id])
+
+  @@map("financial_figures")
+}
+
+/// Settings the super admin changes in /system, one row per key. A missing row means the
+/// default in packages/shared (e.g. DEFAULT_LATE_POINTS).
+model SystemSetting {
+  /// e.g. "leaderboard.latePoints"
+  key         String   @id
+  value       Json
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("SystemSettingUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("system_settings")
+}
+
+/// The standings of one board (SBO or CSC) in one semester, as computed (spec section 5):
+/// written on every change and at least daily, for history and rank-change arrows.
+model LeaderboardSnapshot {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  /// "2026-2027"
+  academicYear String           @map("academic_year")
+  semester     Semester
+  type         OrganizationType
+  /// The ranked rows (apps/api/src/services/leaderboard-rules.ts, Standing[]).
+  rows         Json
+  computedAt   DateTime         @default(now()) @map("computed_at")
+
+  @@index([academicYear, semester, type, computedAt])
+  @@map("leaderboard_snapshots")
 }

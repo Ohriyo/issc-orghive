@@ -71,6 +71,12 @@ const unwiredServices: AppServices = {
   superAdmins: new Proxy({} as AppServices['superAdmins'], {
     get: (_t, key) => () => unwired(`superAdmins.${String(key)}`),
   }),
+  financialFigures: new Proxy({} as AppServices['financialFigures'], {
+    get: (_t, key) => () => unwired(`financialFigures.${String(key)}`),
+  }),
+  systemSettings: new Proxy({} as AppServices['systemSettings'], {
+    get: (_t, key) => () => unwired(`systemSettings.${String(key)}`),
+  }),
 };
 
 export function buildTestApp(

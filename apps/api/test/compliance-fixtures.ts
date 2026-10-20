@@ -5,6 +5,7 @@ import { createAppealRepository } from '#src/repositories/appeal.repository';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
+import { createFinancialFiguresRepository } from '#src/repositories/financial-figures.repository';
 import { createAccountRepository } from '#src/repositories/account.repository';
 import { createNotificationRepository } from '#src/repositories/notification.repository';
 import { createOrgFreezeRepository } from '#src/repositories/org-freeze.repository';
@@ -16,6 +17,7 @@ import { createAppealService } from '#src/services/appeal.service';
 import { createCompliance } from '#src/services/compliance.service';
 import { createDocumentService } from '#src/services/document.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
+import { createFinancialFiguresService } from '#src/services/financial-figures.service';
 import { createNotificationService } from '#src/services/notification.service';
 import { createAttachmentProcessing } from '#src/services/processing.service';
 import { createProjectService } from '#src/services/project.service';
@@ -147,6 +149,13 @@ export function buildComplianceServices(db: Db) {
     audit,
     cache: memoryCache(),
   });
+  const figures = createFinancialFiguresService({
+    figures: createFinancialFiguresRepository(db),
+    projects,
+    recipients,
+    notifications,
+    audit,
+  });
   const projectService = createProjectService({
     projects,
     sync,
@@ -156,6 +165,7 @@ export function buildComplianceServices(db: Db) {
     documentTypes,
     uploads,
     viewers,
+    figures,
     audit,
   });
   const appeals = createAppealService({

@@ -26,6 +26,7 @@ import {
   type DeadlineLabel,
 } from './project-format';
 import { uploadTaskFile, type TaskUploadStep } from './upload-task-file';
+import { useFiguresDraft, type FiguresModel } from './use-figures-draft';
 
 export type TaskUploadState =
   { status: 'idle' } | TaskUploadStep | { status: 'done' } | { status: 'error'; message: string };
@@ -52,7 +53,11 @@ export interface TaskItem {
   visibility: DocumentVisibility;
   setVisibility: (visibility: DocumentVisibility) => void;
   upload: TaskUploadState;
+  /** Before the file picker opens: false (with errors shown) when the form is not ready. */
+  prepareUpload: () => boolean;
   uploadFile: (file: File) => void;
+  /** The Financial Report's totals; null on other tasks. */
+  figures: FiguresModel | null;
 }
 
 export interface Phase {
@@ -112,7 +117,10 @@ interface TaskControls {
   visibilityOf: (type: ProjectTaskType) => DocumentVisibility;
   setVisibility: (type: ProjectTaskType, visibility: DocumentVisibility) => void;
   uploadOf: (type: ProjectTaskType) => TaskUploadState;
+  prepareUpload: (type: ProjectTaskType) => boolean;
   uploadFile: (type: ProjectTaskType, file: File) => void;
+  /** The Financial Report's totals, for its card. */
+  figures: FiguresModel;
 }
 
 /** Shapes the API's project for the stepper. Pure apart from the callbacks it is given. */
@@ -134,7 +142,9 @@ export function toProjectPage(
     visibility: controls.visibilityOf(task.type),
     setVisibility: (visibility) => controls.setVisibility(task.type, visibility),
     upload: controls.uploadOf(task.type),
+    prepareUpload: () => controls.prepareUpload(task.type),
     uploadFile: (file) => controls.uploadFile(task.type, file),
+    figures: task.type === 'FINANCIAL_REPORT' ? controls.figures : null,
   });
   const pre = project.tasks.filter((t) => PROJECT_TASK_PHASE[t.type] === 'pre_event').map(item);
   const post = project.tasks.filter((t) => PROJECT_TASK_PHASE[t.type] === 'post_event').map(item);
@@ -173,6 +183,7 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
   >({});
   const [uploads, setUploads] = useState<Partial<Record<ProjectTaskType, TaskUploadState>>>({});
   const actingAs = useActingAs();
+  const figuresDraft = useFiguresDraft();
   const query = useQuery({
     queryKey: queryKeys.projects.detail(id),
     queryFn: () => api.get(`/projects/${id}`, { schema: projectDetailSchema }),
@@ -198,12 +209,22 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
     return visibility[type] ?? task?.document?.visibility ?? TASK_DEFAULT_VISIBILITY[type];
   };
 
+  const takeFigures = () => figuresDraft.take(project.financialFigures);
+
   async function uploadFile(type: ProjectTaskType, file: File) {
     const name = actingAs.take();
     if (!name) return;
+    const figures = type === 'FINANCIAL_REPORT' ? takeFigures() : undefined;
+    if (figures === null) return;
     try {
-      const updated = await uploadTaskFile(id, type, file, visibilityOf(type), name, (step) =>
-        setUpload(type, step),
+      const updated = await uploadTaskFile(
+        id,
+        type,
+        file,
+        visibilityOf(type),
+        name,
+        (step) => setUpload(type, step),
+        figures,
       );
       queryClient.setQueryData(queryKeys.projects.detail(id), updated);
       setUpload(type, { status: 'done' });
@@ -227,7 +248,10 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
           visibilityOf,
           setVisibility: (type, next) => setVisibility((all) => ({ ...all, [type]: next })),
           uploadOf: (type) => uploads[type] ?? { status: 'idle' },
+          // The Financial Report's totals are checked before a file is picked.
+          prepareUpload: (type) => type !== 'FINANCIAL_REPORT' || takeFigures() !== null,
           uploadFile: (type, file) => void uploadFile(type, file),
+          figures: figuresDraft.model(project.financialFigures, canManage),
         },
         now(),
       ),

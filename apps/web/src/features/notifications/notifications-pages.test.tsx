@@ -307,7 +307,7 @@ describe('/dashboard/notifications/settings', () => {
     ).toBeInTheDocument();
     expect(await screen.findByText('andrea@nwssu.test')).toBeInTheDocument();
     const updates = await screen.findByRole('switch', { name: 'Updates from your council' });
-    expect(screen.getAllByRole('switch')).toHaveLength(8);
+    expect(screen.getAllByRole('switch')).toHaveLength(9);
     expect(updates).toBeChecked();
     fireEvent.click(updates);
     await waitFor(() =>

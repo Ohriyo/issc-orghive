@@ -1,14 +1,16 @@
 import type { Request, RequestHandler, Response } from 'express';
 import {
+  correctFinancialFiguresRequestSchema,
   createProjectRequestSchema,
-  createTaskDocumentRequestSchema,
   projectIdParamsSchema,
   projectTaskParamsSchema,
+  taskDocumentRequestSchemaFor,
   taskUploadUrlRequestSchema,
   updateProjectRequestSchema,
 } from '@orghive/shared';
 import { authOf, orgOf } from '#src/middleware/require-auth';
 import type { Actor } from '#src/services/document.service';
+import type { FinancialFiguresService } from '#src/services/financial-figures.service';
 import type { ProjectService } from '#src/services/project.service';
 
 function actorOf(req: Request, res: Response): Actor {
@@ -20,7 +22,10 @@ function noStore(res: Response) {
   res.set('Cache-Control', 'private, no-store');
 }
 
-export function createProjectController(projects: ProjectService) {
+export function createProjectController(
+  projects: ProjectService,
+  figures: Pick<FinancialFiguresService, 'correct'>,
+) {
   const list: RequestHandler = async (_req, res) => {
     noStore(res);
     res.json(await projects.list(orgOf(res)));
@@ -56,12 +61,20 @@ export function createProjectController(projects: ProjectService) {
 
   const submitTaskFile: RequestHandler = async (req, res) => {
     const { projectId, type } = projectTaskParamsSchema.parse(req.params);
-    const body = createTaskDocumentRequestSchema.parse(req.body);
+    // A Financial Report file carries its totals (spec 5D).
+    const body = taskDocumentRequestSchemaFor(type).parse(req.body);
     noStore(res);
     res
       .status(201)
       .json(await projects.submitTaskFile(actorOf(req, res), orgOf(res), projectId, type, body));
   };
 
-  return { list, create, get, update, taskUploadUrl, submitTaskFile };
+  const correctFigures: RequestHandler = async (req, res) => {
+    const { projectId } = projectIdParamsSchema.parse(req.params);
+    const body = correctFinancialFiguresRequestSchema.parse(req.body);
+    noStore(res);
+    res.json(await figures.correct(actorOf(req, res), orgOf(res), projectId, body));
+  };
+
+  return { list, create, get, update, taskUploadUrl, submitTaskFile, correctFigures };
 }

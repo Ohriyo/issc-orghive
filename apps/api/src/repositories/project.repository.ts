@@ -4,6 +4,7 @@ import type {
   ProjectTaskStatus,
   ProjectTaskType,
 } from '#src/generated/prisma/client';
+import { figuresSelect } from './financial-figures.repository';
 import type { Db } from './prisma';
 
 export const projectSelect = {
@@ -38,6 +39,8 @@ export const projectSelect = {
       document: { select: { status: true, deletedAt: true, createdById: true } },
     },
   },
+  /** The Financial Report's totals (spec 5D). */
+  figures: { select: figuresSelect },
 } satisfies Prisma.ProjectSelect;
 
 export type ProjectRecord = Prisma.ProjectGetPayload<{ select: typeof projectSelect }>;

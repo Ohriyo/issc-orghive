@@ -5,6 +5,7 @@ import {
   TASK_UPLOAD_CONTENT_TYPES,
   uploadUrlResponseSchema,
   type DocumentVisibility,
+  type FinancialFiguresInput,
   type ProjectDetail,
   type ProjectTaskType,
 } from '@orghive/shared';
@@ -19,7 +20,7 @@ export const TASK_FILE_TYPES_LABEL = 'PDF, JPG or PNG, up to 25 MB';
 /**
  * Files a task: an upload URL for that task, the bytes straight to storage (never through
  * Node), then the task's document with the visibility the officer chose. The task is
- * submitted once the virus scan passes.
+ * submitted once the virus scan passes. A Financial Report also sends its totals.
  */
 export async function uploadTaskFile(
   projectId: string,
@@ -28,6 +29,7 @@ export async function uploadTaskFile(
   visibility: DocumentVisibility,
   actingAs: string,
   onStep: (step: TaskUploadStep) => void,
+  figures?: FinancialFiguresInput,
 ): Promise<ProjectDetail> {
   const contentType = contentTypeForFilename(file.name);
   const allowed = (TASK_UPLOAD_CONTENT_TYPES as readonly string[]).includes(contentType ?? '');
@@ -46,7 +48,7 @@ export async function uploadTaskFile(
   onStep({ status: 'saving' });
   return api.post(
     `/projects/${projectId}/tasks/${type}/documents`,
-    { uploadKey: target.uploadKey, visibility, actingAs },
+    { uploadKey: target.uploadKey, visibility, actingAs, ...(figures && { figures }) },
     { schema: projectDetailSchema },
   );
 }

@@ -52,6 +52,7 @@ function record(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
     updatedAt: CREATED,
     organization: { id: 'jpice', slug: 'jpice', acronym: 'JPICE', name: 'JPICE', type: 'SBO' },
     tasks: [task('PROPOSAL', { status: 'open' }), task('ACR'), task('FINANCIAL_REPORT')],
+    figures: null,
     ...overrides,
   };
 }
@@ -103,6 +104,7 @@ function setup(found: ProjectRecord | null = record()) {
   };
   const uploads = { issueUrl: vi.fn(() => Promise.resolve({ uploadKey: 'k' } as never)) };
   const audit = { record: vi.fn(() => Promise.resolve()) };
+  const figures = { saveWithFile: vi.fn(() => Promise.resolve({} as never)) };
   const service = createProjectService({
     projects,
     sync,
@@ -112,11 +114,13 @@ function setup(found: ProjectRecord | null = record()) {
     documentTypes,
     uploads,
     viewers: { forUser: () => Promise.resolve(VIEWER) },
+    figures,
     audit,
     now: () => NOW,
   });
   return {
     service,
+    figures,
     projects,
     sync,
     freezes,
@@ -363,6 +367,64 @@ describe('projectService.submitTaskFile', () => {
       }),
     ).rejects.toMatchObject({ status: 409 });
     expect(documents.addVersion).not.toHaveBeenCalled();
+  });
+
+  it('saves a Financial Report’s totals before filing its file', async () => {
+    const open = record({
+      targetDate: new Date('2026-10-01T00:00:00Z'),
+      tasks: [filed('PROPOSAL'), task('ACR'), task('FINANCIAL_REPORT')],
+    });
+    const { service, figures, documents } = setup(open);
+    await service.submitTaskFile(ACTOR, JPICE, 'p1', 'FINANCIAL_REPORT', {
+      uploadKey: 'k',
+      visibility: 'private',
+      actingAs: 'Juan',
+      figures: { incomeCentavos: 500, expensesCentavos: 200 },
+    });
+    expect(figures.saveWithFile).toHaveBeenCalledWith(
+      ACTOR,
+      open,
+      { incomeCentavos: 500, expensesCentavos: 200 },
+      'Juan',
+    );
+    expect(documents.create).toHaveBeenCalled();
+  });
+
+  it('400s a Financial Report without its totals, filing nothing', async () => {
+    const { service, figures, documents } = setup(
+      record({
+        targetDate: new Date('2026-10-01T00:00:00Z'),
+        tasks: [filed('PROPOSAL'), task('ACR'), task('FINANCIAL_REPORT')],
+      }),
+    );
+    await expect(
+      service.submitTaskFile(ACTOR, JPICE, 'p1', 'FINANCIAL_REPORT', {
+        uploadKey: 'k',
+        visibility: 'private',
+        actingAs: 'Juan',
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(figures.saveWithFile).not.toHaveBeenCalled();
+    expect(documents.create).not.toHaveBeenCalled();
+  });
+
+  it('files nothing when the totals are refused', async () => {
+    const { service, figures, documents } = setup(
+      record({
+        targetDate: new Date('2026-10-01T00:00:00Z'),
+        tasks: [filed('PROPOSAL'), task('ACR'), task('FINANCIAL_REPORT')],
+      }),
+    );
+    figures.saveWithFile.mockRejectedValueOnce(new Error('closed'));
+    await expect(
+      service.submitTaskFile(ACTOR, JPICE, 'p1', 'FINANCIAL_REPORT', {
+        uploadKey: 'k',
+        visibility: 'private',
+        actingAs: 'Juan',
+        figures: { incomeCentavos: 1, expensesCentavos: 1 },
+      }),
+    ).rejects.toThrow('closed');
+    expect(documents.create).not.toHaveBeenCalled();
   });
 
   it('409s a locked task without touching any document', async () => {

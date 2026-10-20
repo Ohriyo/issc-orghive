@@ -111,6 +111,7 @@ function blockedProject(): ProjectDetail {
         document: null,
       },
     ],
+    financialFigures: null,
   };
 }
 

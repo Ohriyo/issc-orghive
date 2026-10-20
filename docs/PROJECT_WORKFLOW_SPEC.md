@@ -67,7 +67,49 @@ A task counts as complete when its file is uploaded and has passed the virus sca
 - Cover and divider pages use one standard Orghive template, so every organization's report looks the same.
 - Generation runs as a background job. The officer is notified when it's ready to download. The result is archived as a document with `private` visibility by default.
 
-## 5. Open questions (confirm before building)
+## 5. Leaderboard rules
+
+Decided 2026-10-20 (Phase 0 of `docs/LEADERBOARD_PHASES.md`). The ranking lives in one pure function, `rankStandings` (`apps/api/src/services/leaderboard-rules.ts`). Never re-implement it elsewhere.
+
+### A. Who is ranked
+- **SBOs** and **CSCs** are ranked separately, each with its own Top 3 (the "SBO" and "CSC" tabs). The **ISSC is never ranked**.
+- An organization appears once it has at least one implemented project in the semester. Deactivated and deleted organizations are left out (provisional: deactivated ones are already hidden from browsing).
+- The homepage shows two podiums, the Top 3 SBOs and the Top 3 CSCs. On mobile, a toggle switches between them.
+
+### B. Implemented project
+- A project belongs to the semester that contains its target date, as in the Semestral End Report (`semesterOf`, `packages/shared/src/report.ts`).
+- It is **implemented** when its target date has passed (Manila time) and its **ACR** and **Financial Report** are both submitted, meaning their files passed the virus scan.
+- It counts in its event's semester even if the reports arrive after that semester ends. An event on Dec 28 with its reports in on Jan 5 counts for the 1st semester. Standings for a past semester therefore keep updating until its last projects are in.
+
+### C. Points
+- An implemented project earns **1.0 point** when every required task was submitted on time.
+- It earns the **late value** (default **0.5**) when any required task was submitted after its **original** due date:
+  - Proposal: 14 days after the project was created (`deadlineAfter(createdAt)`).
+  - ACR and Financial Report: 14 days after the target date (`deadlineAfter(targetDate)`).
+  - A new deadline from an approved appeal (`proposalDueOverride`, `postEventDueOverride`) does not make a task on time. A task submitted after an approved appeal is late. The stored `proposalDueAt` and `postEventDueAt` columns already include overrides, so the original dates are computed, never read from them.
+  - NOM and MOM have no deadline (section 2B), so they are never late.
+- A task's submission time is its `submittedAt`: the moment its file first passed the scan. Later versions do not change it.
+- The late value is a system setting the super admin edits in `/system` (0 to 1). Every change is audit-logged with the old and new values and triggers a recompute. Earlier snapshots are not rewritten.
+- The breakdown is shown wherever points are: **"4.5 pts · 5 projects (1 late)"**.
+
+### D. Net profit
+- Each Financial Report records total income and total expenses in PHP, stored as integer **centavos**. Its net profit is income − expenses, which can be negative.
+- An organization's **total net profit** is the sum of the net profits of **every submitted Financial Report** for its projects in the semester, one per project. This includes projects whose ACR is not in yet, which earn no points. Late projects add their full profit; only their points are reduced.
+- Negative totals are allowed and shown as such.
+- Amounts are **public**: on the homepage podiums and on `/leaderboard`, formatted as `₱12,345.00` (and `−₱1,234.00`). The Financial Report *file* keeps its own visibility (section 0.1). Only the two figures are public.
+- The ISSC account can flag a report's figures **under review**, with a remark. Flagged figures are left out of the total until the flag is cleared, and the total shows "(1 report under review)". The project's points are not affected. This is not document review (section 0): the flag concerns the reported figures, never who can see the file.
+- The organization can correct its figures until the semester closes: the later of the semester's last day and that project's post-event deadline, including an appeal override (provisional). Every correction is audit-logged with the old and new values.
+
+### E. Ranking order
+1. Points, highest first.
+2. Total net profit, highest first.
+3. Earliest last completion date: the day the organization's most recently implemented project became implemented (its later of ACR and Financial Report `submittedAt`). Earlier wins.
+4. Organizations still tied share a rank (1, 1, 3) and are listed by name (provisional).
+
+### F. Public data
+Public leaderboard responses contain only: the organization's name, acronym, logo, college, rank, rank change, points, implemented and late project counts, total net profit and the number of reports under review. They never contain officer names, acting-as names or file links.
+
+## 6. Open questions (confirm before building)
 - Are the 14-day deadlines calendar days, counted in Asia/Manila time and ending at 23:59 on day 14?
 - Within a CSC or the ISSC, who decides appeals: officers with a specific role, the adviser, or either?
 - Must task files be PDF, so the report can merge them? Or should DOCX files be converted to PDF?

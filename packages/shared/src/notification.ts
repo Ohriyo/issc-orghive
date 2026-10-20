@@ -22,6 +22,8 @@ export const NOTIFICATION_KINDS = [
   'password_reveal',
   /** The super admin declined the ISSC account's request for an organization's account. */
   'account_request_declined',
+  /** The ISSC put the organization's Financial Report figures under review, or cleared them. */
+  'figures_review',
 ] as const;
 export const notificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
@@ -67,6 +69,10 @@ export const NOTIFICATION_KIND_INFO: Record<NotificationKind, { label: string; h
     label: 'Declined account requests',
     hint: 'The super admin declined an account you asked for, and said why.',
   },
+  figures_review: {
+    label: 'Financial Report figures under review',
+    hint: 'The ISSC is checking a project’s reported figures, or finished checking them.',
+  },
   password_reveal: {
     label: 'Temporary passwords to hand over',
     hint: 'A new account or password waits behind a one-time Reveal. The email never has the password.',
@@ -75,7 +81,7 @@ export const NOTIFICATION_KIND_INFO: Record<NotificationKind, { label: string; h
 
 /** How the settings page groups the kinds, in order. */
 export const NOTIFICATION_KIND_GROUPS: { title: string; kinds: NotificationKind[] }[] = [
-  { title: 'Projects', kinds: ['deadline_soon', 'deadline_missed'] },
+  { title: 'Projects', kinds: ['deadline_soon', 'deadline_missed', 'figures_review'] },
   { title: 'Appeals', kinds: ['appeal_submitted', 'appeal_decided'] },
   { title: 'Files and reports', kinds: ['upload_quarantined', 'report_ready'] },
   { title: 'Your organization', kinds: ['term_ending', 'announcement_posted'] },

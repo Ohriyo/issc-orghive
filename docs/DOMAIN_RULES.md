@@ -121,7 +121,7 @@ Existing `approve`/`reject` audit entries stay (the log is append-only); F11 reu
 
 ## Provisional (chosen by the project owner on 2026-10-17)
 
-Answers to `docs/PROJECT_WORKFLOW_SPEC.md` section 5 and F11's open points. Revisit them if the school says otherwise. Built: deadlines, file formats, default visibility (see "Projects"), and the compliance and appeal rules (see "Compliance and appeals"): who decides, appeal-only supporting files, required rejection remarks, and one appeal per freeze.
+Answers to `docs/PROJECT_WORKFLOW_SPEC.md` section 6 (open questions) and F11's open points. Revisit them if the school says otherwise. Built: deadlines, file formats, default visibility (see "Projects"), and the compliance and appeal rules (see "Compliance and appeals"): who decides, appeal-only supporting files, required rejection remarks, and one appeal per freeze.
 
 - **Built with F11, chosen by the developer (confirm):** a blocked project does not also freeze its organization (its reports are locked, so it could not file them); unblocking moves a post-event deadline that would come first; a new due date must be after today.
 - **Task file formats (built):** images become PDF pages in the Semestral End Report.

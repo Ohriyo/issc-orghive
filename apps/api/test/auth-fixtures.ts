@@ -19,6 +19,8 @@ import { createAuthService } from '#src/services/auth.service';
 import { createSuperAdminService } from '#src/services/super-admin.service';
 import { createSessionGuard } from '#src/services/session-guard';
 import { createSystemService } from '#src/services/system.service';
+import { createSystemSettingRepository } from '#src/repositories/system-setting.repository';
+import { createSystemSettingsService } from '#src/services/system-settings.service';
 import { memoryCache } from '#src/lib/cache';
 import { createPublicUrl } from '#src/lib/public-url';
 import { createAccountAdminRepository } from '#src/repositories/account-admin.repository';
@@ -308,6 +310,10 @@ export function buildAuthApp(
       },
       superAdmins,
       system,
+      systemSettings: createSystemSettingsService({
+        settings: createSystemSettingRepository(db),
+        audit,
+      }),
     },
     { TRUST_PROXY: trustProxy },
     redisRateLimitStore(redis),

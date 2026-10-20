@@ -2,11 +2,14 @@ import { Router } from 'express';
 import { createProjectController } from '#src/controllers/project.controller';
 import { createOrgGuards, requireAuth } from '#src/middleware/require-auth';
 import type { AccessService } from '#src/services/access.service';
+import type { FinancialFiguresService } from '#src/services/financial-figures.service';
 import type { ProjectService } from '#src/services/project.service';
 import type { TokenService } from '#src/services/token.service';
 
 export interface ProjectsRouterDeps {
   projects: ProjectService;
+  /** Corrections to a Financial Report's totals (spec 5D). */
+  figures: Pick<FinancialFiguresService, 'correct'>;
   access: AccessService;
   tokens: Pick<TokenService, 'verify'>;
 }
@@ -17,9 +20,9 @@ export interface ProjectsRouterDeps {
  * edits and files tasks. A task's file then follows the document visibility rules like any
  * other Paperworks file.
  */
-export function projectsRouter({ projects, access, tokens }: ProjectsRouterDeps): Router {
+export function projectsRouter({ projects, figures, access, tokens }: ProjectsRouterDeps): Router {
   const router = Router();
-  const controller = createProjectController(projects);
+  const controller = createProjectController(projects, figures);
   const { requireOwnOrg, requireOrgOrGoverning, requireActiveOrg } = createOrgGuards(access);
   const auth = requireAuth(tokens);
 
@@ -47,6 +50,13 @@ export function projectsRouter({ projects, access, tokens }: ProjectsRouterDeps)
     requireOwnOrg,
     requireActiveOrg,
     controller.submitTaskFile,
+  );
+  router.patch(
+    '/projects/:projectId/financial-figures',
+    auth,
+    requireOwnOrg,
+    requireActiveOrg,
+    controller.correctFigures,
   );
 
   return router;

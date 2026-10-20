@@ -73,6 +73,10 @@ import { createAccountAdminService } from '#src/services/account-admin.service';
 import { createRevealService } from '#src/services/reveal.service';
 import { createSupportService } from '#src/services/support.service';
 import { createSystemService } from '#src/services/system.service';
+import { createFinancialFiguresRepository } from '#src/repositories/financial-figures.repository';
+import { createSystemSettingRepository } from '#src/repositories/system-setting.repository';
+import { createFinancialFiguresService } from '#src/services/financial-figures.service';
+import { createSystemSettingsService } from '#src/services/system-settings.service';
 
 let config: Config;
 try {
@@ -115,6 +119,17 @@ const recipients = createRecipients({ accounts, organizations });
 const projectSync = createProjectSync({
   projects,
   compliance: createCompliance({ freezes, recipients, notifications, audit }),
+});
+const financialFigures = createFinancialFiguresService({
+  figures: createFinancialFiguresRepository(db),
+  projects,
+  recipients,
+  notifications,
+  audit,
+});
+const systemSettings = createSystemSettingsService({
+  settings: createSystemSettingRepository(db),
+  audit,
 });
 const documentService = createDocumentService({
   documents,
@@ -283,6 +298,7 @@ const app = createApp({
       documentTypes,
       uploads,
       viewers,
+      figures: financialFigures,
       audit,
     }),
     appeals: createAppealService({
@@ -341,6 +357,8 @@ const app = createApp({
       cache,
       audit,
     }),
+    financialFigures,
+    systemSettings,
   },
 });
 

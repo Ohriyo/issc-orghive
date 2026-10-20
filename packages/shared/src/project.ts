@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { actingAsSchema } from './acting-as';
 import { documentStatusSchema } from './document-status';
 import { documentVisibilitySchema, type DocumentVisibility } from './document';
+import { financialFiguresSchema, projectFinancialFiguresSchema } from './leaderboard';
 import { manilaDate } from './manila-time';
 import { organizationTypeSchema, slugSchema } from './organization';
 import { uploadKeySchema, uploadUrlRequestSchema, type UploadContentType } from './upload';
@@ -124,6 +125,24 @@ export const createTaskDocumentRequestSchema = z.strictObject({
 });
 export type CreateTaskDocumentRequest = z.infer<typeof createTaskDocumentRequestSchema>;
 
+/**
+ * POST /projects/:projectId/tasks/FINANCIAL_REPORT/documents: every Financial Report file
+ * comes with its totals (spec 5D), the first upload and every new version alike.
+ */
+export const createFinancialReportDocumentRequestSchema = createTaskDocumentRequestSchema.extend({
+  figures: financialFiguresSchema,
+});
+export type CreateFinancialReportDocumentRequest = z.infer<
+  typeof createFinancialReportDocumentRequestSchema
+>;
+
+/** The body schema for a task's file: the Financial Report also carries its figures. */
+export function taskDocumentRequestSchemaFor(type: ProjectTaskType) {
+  return type === 'FINANCIAL_REPORT'
+    ? createFinancialReportDocumentRequestSchema
+    : createTaskDocumentRequestSchema;
+}
+
 export const projectTaskSchema = z.object({
   type: projectTaskTypeSchema,
   status: projectTaskStatusSchema,
@@ -170,7 +189,11 @@ export const projectSummarySchema = z
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 
 export const projectDetailSchema = projectSummarySchema
-  .extend({ tasks: z.array(projectTaskSchema) })
+  .extend({
+    tasks: z.array(projectTaskSchema),
+    /** The Financial Report's totals, once entered (spec 5D); public on the leaderboard. */
+    financialFigures: projectFinancialFiguresSchema.nullable(),
+  })
   .meta({ id: 'ProjectDetail' });
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 

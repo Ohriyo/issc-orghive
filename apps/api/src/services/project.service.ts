@@ -3,6 +3,7 @@ import {
   ErrorCode,
   PROJECT_TASK_DOCUMENT_TYPES,
   PROJECT_TASK_LABELS,
+  type CreateFinancialReportDocumentRequest,
   type CreateProjectRequest,
   type CreateTaskDocumentRequest,
   type ProjectDetail,
@@ -23,6 +24,10 @@ import type { ProjectRecord, ProjectRepository } from '#src/repositories/project
 import type { OrgRef } from '#src/services/access.service';
 import type { Actor, DocumentService } from '#src/services/document.service';
 import type { DocumentViewerService } from '#src/services/document-viewer.service';
+import {
+  toFiguresView,
+  type FinancialFiguresService,
+} from '#src/services/financial-figures.service';
 import { nextDeadline, planProject, type ProjectPlan } from '#src/services/project-rules';
 import { factsOf, type ProjectSync } from '#src/services/project-sync.service';
 import type { UploadService } from '#src/services/upload.service';
@@ -39,6 +44,8 @@ export interface ProjectServiceDeps {
   documentTypes: Pick<DocumentTypeRepository, 'findBySlug'>;
   uploads: Pick<UploadService, 'issueUrl'>;
   viewers: Pick<DocumentViewerService, 'forUser'>;
+  /** The Financial Report's totals (spec 5D), saved with its file. */
+  figures: Pick<FinancialFiguresService, 'saveWithFile'>;
   audit: Pick<AuditLogRepository, 'record'>;
   now?: () => Date;
 }
@@ -66,6 +73,7 @@ export function createProjectService({
   documentTypes,
   uploads,
   viewers,
+  figures,
   audit,
   now = () => new Date(),
 }: ProjectServiceDeps) {
@@ -115,6 +123,7 @@ export function createProjectService({
           document: brief ?? null,
         };
       }),
+      financialFigures: toFiguresView(record),
     };
   }
 
@@ -269,17 +278,28 @@ export function createProjectService({
     /**
      * Files an uploaded object as the task's document, through the document pipeline: the
      * first upload creates the document (scanning, visible to the uploader only), later ones
-     * add versions. The task becomes submitted when the worker finds the file clean.
+     * add versions. The task becomes submitted when the worker finds the file clean. A
+     * Financial Report's totals are saved first, so a refused change files nothing.
      */
     async submitTaskFile(
       actor: Actor,
       org: OrgRef,
       id: string,
       type: ProjectTaskType,
-      input: CreateTaskDocumentRequest,
+      input: CreateTaskDocumentRequest | CreateFinancialReportDocumentRequest,
     ): Promise<ProjectDetail> {
       const record = await loadInOrg(org, id);
       openTask(record, type);
+      if (type === 'FINANCIAL_REPORT') {
+        if (!('figures' in input)) {
+          throw new AppError(
+            400,
+            ErrorCode.VALIDATION_ERROR,
+            'Enter the Financial Report’s total income and total expenses',
+          );
+        }
+        await figures.saveWithFile(actor, record, input.figures, input.actingAs);
+      }
       const row = record.tasks.find((t) => t.type === type);
       const current = row?.documentId && row.document && !row.document.deletedAt ? row : null;
 

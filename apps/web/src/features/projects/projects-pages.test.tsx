@@ -93,6 +93,7 @@ function project(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
         document: null,
       },
     ],
+    financialFigures: null,
     ...overrides,
   };
 }
@@ -153,7 +154,7 @@ beforeEach(() => {
       return json(created, 201);
     }
     if (url.endsWith(`/projects/${PROJECT_ID}`)) return json(stored[0]);
-    if (url.endsWith('/tasks/PROPOSAL/upload-url')) {
+    if (/\/tasks\/\w+\/upload-url$/.test(url)) {
       return json(
         {
           uploadKey: UPLOAD_KEY,
@@ -182,6 +183,22 @@ beforeEach(() => {
                 }
               : t,
           ),
+        }),
+      ];
+      return json(stored[0], 201);
+    }
+    if (url.endsWith('/tasks/FINANCIAL_REPORT/documents')) {
+      const { figures } = body as { figures: { incomeCentavos: number; expensesCentavos: number } };
+      stored = [
+        project({
+          ...stored[0],
+          financialFigures: {
+            ...figures,
+            netCentavos: figures.incomeCentavos - figures.expensesCentavos,
+            underReview: null,
+            correctableUntil: new Date(Date.now() + 86_400_000).toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
         }),
       ];
       return json(stored[0], 201);
@@ -434,6 +451,138 @@ describe('/projects/:id', () => {
     });
     expect(await within(proposal).findByRole('alert')).toHaveTextContent(/PDF, JPG or PNG/);
     expect(calls.some((c) => c.url.includes('/upload-url'))).toBe(false);
+  });
+
+  /** After the event: the post-event reports are open. */
+  function afterEvent(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
+    const base = project();
+    return project({
+      targetDate: addDays(today, -2),
+      tasks: base.tasks.map((t) =>
+        t.type === 'ACR' || t.type === 'FINANCIAL_REPORT' ? { ...t, status: 'open' } : t,
+      ),
+      ...overrides,
+    });
+  }
+
+  it('asks for the Financial Report’s totals before a file is picked, and sends centavos', async () => {
+    stored = [afterEvent()];
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    renderAt(`/projects/${PROJECT_ID}`);
+    const report = await screen.findByRole(
+      'region',
+      { name: 'Financial Report' },
+      { timeout: 5000 },
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Acting as' }), {
+      target: { value: 'Juan Dela Cruz' },
+    });
+    const pick = within(report).getByRole('button', { name: /Upload file/ });
+
+    fireEvent.click(pick);
+    expect(await within(report).findByText('Enter the total income')).toBeInTheDocument();
+    expect(within(report).getByText('Enter the total expenses')).toBeInTheDocument();
+    expect(click).not.toHaveBeenCalled();
+
+    fireEvent.change(within(report).getByRole('textbox', { name: 'Total income (₱)' }), {
+      target: { value: '12,345.50' },
+    });
+    fireEvent.change(within(report).getByRole('textbox', { name: 'Total expenses (₱)' }), {
+      target: { value: '2000' },
+    });
+    expect(within(report).getByText('₱10,345.50')).toBeInTheDocument();
+    fireEvent.click(pick);
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
+
+    const input = report.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, { target: { files: [new File(['%PDF-1.7'], 'report.pdf')] } });
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.url.endsWith('/tasks/FINANCIAL_REPORT/documents'))?.body,
+      ).toEqual({
+        uploadKey: UPLOAD_KEY,
+        visibility: 'private',
+        actingAs: 'Juan Dela Cruz',
+        figures: { incomeCentavos: 1_234_550, expensesCentavos: 200_000 },
+      }),
+    );
+  });
+
+  it('refuses totals that are not amounts', async () => {
+    stored = [afterEvent()];
+    renderAt(`/projects/${PROJECT_ID}`);
+    const report = await screen.findByRole(
+      'region',
+      { name: 'Financial Report' },
+      { timeout: 5000 },
+    );
+    fireEvent.change(within(report).getByRole('textbox', { name: 'Total income (₱)' }), {
+      target: { value: 'about 5k' },
+    });
+    fireEvent.click(within(report).getByRole('button', { name: /Upload file/ }));
+    expect(
+      await within(report).findByText('Enter the total income in pesos, e.g. 12,345.50'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the saved totals, a loss, and the ISSC’s review', async () => {
+    role = 'governing';
+    stored = [
+      afterEvent({
+        financialFigures: {
+          incomeCentavos: 100_000,
+          expensesCentavos: 350_025,
+          netCentavos: -250_025,
+          underReview: { remark: 'Receipts do not add up', flaggedAt: '2026-10-12T02:00:00Z' },
+          correctableUntil: '2026-12-31T15:59:59.999Z',
+          updatedAt: '2026-10-11T02:00:00Z',
+        },
+      }),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    const report = await screen.findByRole(
+      'region',
+      { name: 'Financial Report' },
+      { timeout: 5000 },
+    );
+    expect(within(report).getByText('₱1,000.00')).toBeInTheDocument();
+    expect(within(report).getByText('₱3,500.25')).toBeInTheDocument();
+    expect(within(report).getByText('−₱2,500.25')).toBeInTheDocument();
+    expect(within(report).getByRole('note')).toHaveTextContent(
+      /Under review by the ISSC since Oct 12, 2026: “Receipts do not add up”/,
+    );
+    // A governing body reads the figures but never edits them.
+    expect(
+      within(report).queryByRole('textbox', { name: 'Total income (₱)' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('starts the fields from the saved totals when replacing the report', async () => {
+    stored = [
+      afterEvent({
+        financialFigures: {
+          incomeCentavos: 1_234_505,
+          expensesCentavos: 0,
+          netCentavos: 1_234_505,
+          underReview: null,
+          correctableUntil: '2026-12-31T15:59:59.999Z',
+          updatedAt: '2026-10-11T02:00:00Z',
+        },
+      }),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    const report = await screen.findByRole(
+      'region',
+      { name: 'Financial Report' },
+      { timeout: 5000 },
+    );
+    expect(within(report).getByRole('textbox', { name: 'Total income (₱)' })).toHaveValue(
+      '12345.05',
+    );
+    expect(within(report).getByRole('textbox', { name: 'Total expenses (₱)' })).toHaveValue(
+      '0.00',
+    );
   });
 
   it('shows a governing body (its CSC) the checklist without upload controls', async () => {

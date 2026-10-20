@@ -6,6 +6,7 @@ import {
   Circle,
   FileUp,
   Lock,
+  SearchCheck,
   MapPin,
   Users,
 } from 'lucide-react';
@@ -16,6 +17,7 @@ import { Container } from '@/components/container';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
+import { TextField } from '@/components/text-field';
 import { VisibilitySelect } from '@/components/visibility-select';
 import { cn } from '@/lib/utils';
 import type {
@@ -25,6 +27,7 @@ import type {
   TaskItem,
 } from '../presenters/use-project';
 import { TASK_FILE_TYPES_LABEL } from '../presenters/upload-task-file';
+import type { FiguresModel } from '../presenters/use-figures-draft';
 import { DeadlineBadge, LockedNote, ProjectStatusChip } from './project-badges';
 
 export type ProjectViewProps = Exclude<ProjectPageState, { status: 'not-found' }> & {
@@ -261,6 +264,7 @@ function TaskCard({ task }: { task: TaskItem }) {
           </span>
         ) : null}
         {task.file ? <TaskFile file={task.file} /> : null}
+        {task.figures?.saved ? <SavedFigures figures={task.figures} /> : null}
       </div>
 
       {task.canUpload ? <TaskUpload task={task} /> : null}
@@ -289,13 +293,124 @@ function TaskFile({ file }: { file: NonNullable<TaskItem['file']> }) {
   );
 }
 
+/** The stored totals, and the ISSC's review when there is one (spec 5D). */
+function SavedFigures({ figures }: { figures: FiguresModel }) {
+  const saved = figures.saved!;
+  return (
+    <div className="flex flex-col gap-3">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-small text-ink sm:grid-cols-3">
+        <div className="flex gap-2 sm:flex-col sm:gap-0">
+          <dt className="text-ink-muted">Total income</dt>
+          <dd className="font-medium tabular-nums">{saved.income}</dd>
+        </div>
+        <div className="flex gap-2 sm:flex-col sm:gap-0">
+          <dt className="text-ink-muted">Total expenses</dt>
+          <dd className="font-medium tabular-nums">{saved.expenses}</dd>
+        </div>
+        <div className="flex gap-2 sm:flex-col sm:gap-0">
+          <dt className="text-ink-muted">Net profit</dt>
+          <dd
+            className={cn(
+              'font-semibold tabular-nums',
+              saved.negative ? 'text-destructive' : 'text-forest-700',
+            )}
+          >
+            {saved.net}
+          </dd>
+        </div>
+      </dl>
+      {figures.underReview ? (
+        <div
+          role="note"
+          className="flex items-start gap-2.5 rounded-xl bg-surface-deep p-3 text-small text-ink"
+        >
+          <SearchCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-forest-700" />
+          <p className="min-w-0 break-words">
+            <span className="font-semibold">Under review by the ISSC</span> since{' '}
+            {figures.underReview.since}: “{figures.underReview.remark}” These figures are left out
+            of your leaderboard total until the ISSC clears them.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Total income and expenses, entered with every Financial Report file. */
+function FiguresFields({ figures, disabled }: { figures: FiguresModel; disabled: boolean }) {
+  return (
+    <fieldset className="flex min-w-0 flex-col gap-3">
+      <legend className="mb-3 text-body font-semibold text-ink">Totals in this report</legend>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <TextField
+          label="Total income (₱)"
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder="0.00"
+          value={figures.income}
+          disabled={disabled}
+          error={figures.errors.income}
+          onChange={(event) => figures.onIncomeChange(event.target.value)}
+        />
+        <TextField
+          label="Total expenses (₱)"
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder="0.00"
+          value={figures.expenses}
+          disabled={disabled}
+          error={figures.errors.expenses}
+          onChange={(event) => figures.onExpensesChange(event.target.value)}
+        />
+      </div>
+      <p aria-live="polite" className="text-small text-ink-muted">
+        {figures.netPreview ? (
+          <>
+            Net profit:{' '}
+            <span
+              className={cn(
+                'font-semibold tabular-nums',
+                figures.netPreview.negative ? 'text-destructive' : 'text-ink',
+              )}
+            >
+              {figures.netPreview.text}
+            </span>
+            . It appears on the public leaderboard; the file keeps the visibility you choose.
+          </>
+        ) : (
+          'In pesos, e.g. 12,345.50. The net profit appears on the public leaderboard.'
+        )}
+      </p>
+    </fieldset>
+  );
+}
+
 function TaskUpload({ task }: { task: TaskItem }) {
   const input = useRef<HTMLInputElement>(null);
   const state = task.upload;
   const busy = state.status === 'uploading' || state.status === 'saving';
   const replacing = task.status === 'submitted' || task.file !== null;
   return (
-    <div className="flex flex-col gap-3 border-t border-border pt-4 md:flex-row md:items-start md:gap-5">
+    <div className="flex flex-col gap-4 border-t border-border pt-4">
+      {task.figures?.editable ? <FiguresFields figures={task.figures} disabled={busy} /> : null}
+      <TaskUploadRow task={task} input={input} replacing={replacing} />
+    </div>
+  );
+}
+
+function TaskUploadRow({
+  task,
+  input,
+  replacing,
+}: {
+  task: TaskItem;
+  input: React.RefObject<HTMLInputElement | null>;
+  replacing: boolean;
+}) {
+  const state = task.upload;
+  const busy = state.status === 'uploading' || state.status === 'saving';
+  return (
+    <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-5">
       <VisibilitySelect
         className="md:w-60"
         value={task.visibility}
@@ -322,7 +437,9 @@ function TaskUpload({ task }: { task: TaskItem }) {
           size="md"
           variant={replacing ? 'light' : 'forest'}
           disabled={busy}
-          onClick={() => input.current?.click()}
+          onClick={() => {
+            if (task.prepareUpload()) input.current?.click();
+          }}
           className="self-start max-sm:w-full"
         >
           <FileUp aria-hidden="true" />

@@ -35,6 +35,7 @@ import type { AuthService } from '#src/services/auth.service';
 import type { CollegeService } from '#src/services/college.service';
 import type { DashboardService } from '#src/services/dashboard.service';
 import type { DocumentService } from '#src/services/document.service';
+import type { FinancialFiguresService } from '#src/services/financial-figures.service';
 import type { NotificationService } from '#src/services/notification.service';
 import type { OrganizationService } from '#src/services/organization.service';
 import type { ProjectService } from '#src/services/project.service';
@@ -44,6 +45,7 @@ import type { SearchService } from '#src/services/search.service';
 import type { SuperAdminService } from '#src/services/super-admin.service';
 import type { SupportService } from '#src/services/support.service';
 import type { SystemService } from '#src/services/system.service';
+import type { SystemSettingsService } from '#src/services/system-settings.service';
 import type { UploadService } from '#src/services/upload.service';
 
 export interface AppServices {
@@ -76,6 +78,10 @@ export interface AppServices {
   accountRequests: AccountRequestService;
   /** /system CSV imports: bulk creation and the end of term. */
   accountImports: AccountImportService;
+  /** Financial Report figures: corrections (/projects) and the ISSC's review (/admin). */
+  financialFigures: FinancialFiguresService;
+  /** /system/settings, such as the leaderboard's late value. */
+  systemSettings: SystemSettingsService;
 }
 
 export interface AppDeps {
@@ -150,6 +156,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     adminRouter({
       organizations: services.adminOrganizations,
       accountRequests: services.accountRequests,
+      figures: services.financialFigures,
       access: services.access,
       tokens: services.tokens,
     }),
@@ -164,6 +171,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       support: services.support,
       requests: services.accountRequests,
       imports: services.accountImports,
+      settings: services.systemSettings,
       tokens: services.tokens,
     }),
   );
@@ -178,6 +186,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   v1.use(
     projectsRouter({
       projects: services.projects,
+      figures: services.financialFigures,
       access: services.access,
       tokens: services.tokens,
     }),

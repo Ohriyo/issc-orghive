@@ -98,6 +98,7 @@ const READS = [
   '/api/v1/system/users',
   '/api/v1/system/audit-logs',
   '/api/v1/system/me/security',
+  '/api/v1/system/settings',
 ];
 
 describe('/system role matrix', () => {
@@ -122,6 +123,8 @@ describe('/system role matrix', () => {
         request(app)
           .patch(`/api/v1/system/users/${target.id}/system-role`)
           .send({ systemRole: 'NONE' }),
+      // Not destructive: no step-up needed (checked below).
+      () => request(app).patch('/api/v1/system/settings').send({ leaderboardLatePoints: 0.5 }),
     ];
     const reads = READS.map((path) => () => request(app).get(path));
 
@@ -142,7 +145,7 @@ describe('/system role matrix', () => {
       expect(res.headers['cache-control']).toBe('private, no-store');
     }
     // Destructive actions wait for a step-up.
-    for (const write of writes.slice(1)) {
+    for (const write of writes.slice(1, -1)) {
       const res = await write().set(bearer(superAdmin));
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe(ErrorCode.STEP_UP_REQUIRED);
@@ -455,6 +458,43 @@ describe('the last super admin', () => {
 
     expect([byA.status, byB.status].filter((status) => status === 200)).toHaveLength(1);
     expect(await db.user.count({ where: { systemRole: 'SUPER_ADMIN', disabledAt: null } })).toBe(1);
+  });
+});
+
+describe('/system/settings', () => {
+  it('changes the leaderboard late value, audited with before and after', async () => {
+    const { app } = build();
+    const { user, secret } = await createSuperAdmin(db, 'dev@nwssu.test');
+    const { accessToken } = await superAdminSession(app, 'dev@nwssu.test', secret);
+
+    const before = await request(app)
+      .get('/api/v1/system/settings')
+      .set(bearer(accessToken))
+      .expect(200);
+    expect(before.body).toEqual({ leaderboardLatePoints: 0.5, updatedAt: null });
+
+    for (const bad of [{}, { leaderboardLatePoints: 2 }, { leaderboardLatePoints: 0.333 }]) {
+      await request(app)
+        .patch('/api/v1/system/settings')
+        .set(bearer(accessToken))
+        .send(bad)
+        .expect(400);
+    }
+    const res = await request(app)
+      .patch('/api/v1/system/settings')
+      .set(bearer(accessToken))
+      .set('User-Agent', 'console-test')
+      .send({ leaderboardLatePoints: 0.25 })
+      .expect(200);
+    expect(res.body).toMatchObject({ leaderboardLatePoints: 0.25 });
+    const entry = await db.auditLog.findFirstOrThrow({
+      where: { action: 'system_setting_change' },
+    });
+    expect(entry).toMatchObject({
+      actorId: user.id,
+      userAgent: 'console-test',
+      metadata: { key: 'leaderboard.latePoints', before: 0.5, after: 0.25 },
+    });
   });
 });
 

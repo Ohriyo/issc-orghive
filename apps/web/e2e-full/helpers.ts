@@ -12,11 +12,19 @@ export const ACCOUNTS = {
   officer: 'jpice@orghive.local',
   governor: 'csc-cea@orghive.local',
   admin: 'issc@orghive.local',
+  /** Another SBO of CEA, for the leaderboard flow's second change. */
+  rival: 'jiiee@orghive.local',
 } as const;
 export type Account = keyof typeof ACCOUNTS;
 
 /** The e2e seed's project (apps/api/prisma/seed/e2e.ts). */
 export const E2E_PROJECT_NAME = 'Inter-Year Bridge Design Competition (e2e)';
+
+/** The e2e seed's leaderboard projects: event today, proposal in. */
+export const LEADERBOARD_PROJECTS = {
+  jpice: 'Leaderboard Fun Run (e2e)',
+  jiiee: 'Leaderboard Relay (e2e)',
+} as const;
 
 /** A real PDF from the seed's sample Paperworks, uploaded under another title. */
 export const SAMPLE_PDF = resolve(

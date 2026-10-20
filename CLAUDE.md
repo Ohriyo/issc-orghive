@@ -40,6 +40,8 @@ Document lifecycle: `uploading → scanning → available | quarantined → arch
 
 **Semestral End Report** (spec 4): the page order lives in one pure function, `planReport` (`apps/api/src/services/report-rules.ts`); semesters are fixed date ranges (`semesterRange` in `packages/shared/src/report.ts`). The worker renders the template with headless Chromium (`playwright-core`) and merges with `pdf-lib`; the result is an `available`, `private` document.
 
+**Leaderboard rules** (spec 5, `docs/LEADERBOARD_PHASES.md`): SBOs and CSCs are ranked on separate boards, the ISSC never. The ranking lives in one pure function, `rankStandings` (with `scoreProject` and `standingHints`) in `apps/api/src/services/leaderboard-rules.ts`; never re-implement it. Public responses and SSE events carry only spec 5F's fields. A change that can move the standings calls `leaderboard-recompute.ts` (it queues; never rank inside a request); the worker publishes the semester on Redis and `GET /leaderboard/stream` pushes the boards.
+
 ## System roles
 
 `users.system_role` is `NONE` or `SUPER_ADMIN` (the developer's console account). It is separate from the organization accounts, including the ISSC's, and grants nothing inside organizations: a super admin has no organization (a check constraint) and passes no org guard and no `requireAdmin`.

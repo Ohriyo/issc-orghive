@@ -119,6 +119,21 @@ describe('leaderboard stream', () => {
     expect(other.text().match(/event: standings/g)).toHaveLength(1);
   });
 
+  it('reads the boards once for streams that open together', async () => {
+    const { connect, boards } = setup();
+    // A read that takes a moment, as the database does: the three arrive while it runs.
+    boards.mockImplementation(
+      (semester) => new Promise((resolve) => setTimeout(() => resolve(eventOf(semester)), 100)),
+    );
+    const streams = await Promise.all([connect(), connect(), connect()]);
+    await Promise.all(streams.map((s) => s.waitFor(/event: standings/)));
+    expect(boards).toHaveBeenCalledOnce();
+    // Later, a fresh read: the shared one is not cached.
+    const late = await connect();
+    await late.waitFor(/event: standings/);
+    expect(boards).toHaveBeenCalledTimes(2);
+  });
+
   it('does nothing for a semester nobody watches', async () => {
     const { hub, boards } = setup();
     await hub.changed(SECOND);

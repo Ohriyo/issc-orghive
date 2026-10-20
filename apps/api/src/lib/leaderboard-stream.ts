@@ -85,6 +85,21 @@ export function createLeaderboardStream({
     heartbeat.unref();
   }
 
+  // Streams that open together (a link shared in a group chat, the homepage after a class)
+  // share one read of the boards: the load test showed 500 separate reads took 3 s.
+  const opening = new Map<string, Promise<string>>();
+  function openingFrame(semester: SemesterKey): Promise<string> {
+    const id = semesterId(semester);
+    let pending = opening.get(id);
+    if (!pending) {
+      pending = boards(semester)
+        .then(frame)
+        .finally(() => opening.delete(id));
+      opening.set(id, pending);
+    }
+    return pending;
+  }
+
   function remove(client: Client): void {
     const clients = bySemester.get(client.semester);
     if (!clients?.delete(client)) return;
@@ -136,8 +151,8 @@ export function createLeaderboardStream({
       // The response closes when the browser goes away and when the server ends it.
       res.on('close', () => remove(client));
 
-      boards(semester).then(
-        (event) => send(client, frame(event)),
+      openingFrame(semester).then(
+        (chunk) => send(client, chunk),
         (err: unknown) => {
           logger.warn({ err }, 'Leaderboard stream could not send the first boards');
           res.end();

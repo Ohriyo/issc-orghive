@@ -1,6 +1,7 @@
 import express, { Router } from 'express';
 import { LOGO_MAX_BYTES, LOGO_MIME_TYPES } from '@orghive/shared';
 import { createAccountAdminController } from '#src/controllers/account-admin.controller';
+import { createDemoDataController } from '#src/controllers/demo-data.controller';
 import { createSystemController } from '#src/controllers/system.controller';
 import { requireAuth, type AccessVerifier } from '#src/middleware/require-auth';
 import {
@@ -12,6 +13,7 @@ import type { AccountAdminService } from '#src/services/account-admin.service';
 import type { AccountImportService } from '#src/services/account-import.service';
 import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
+import type { DemoDataService } from '#src/services/demo-data.service';
 import type { SuperAdminService } from '#src/services/super-admin.service';
 import type { SupportService } from '#src/services/support.service';
 import type { SystemService } from '#src/services/system.service';
@@ -27,6 +29,8 @@ export interface SystemRouterDeps {
   imports: AccountImportService;
   /** System settings, such as the leaderboard's late value (spec 5C). */
   settings: Pick<SystemSettingsService, 'get' | 'update'>;
+  /** Demo data: counted, then removed before deployment. */
+  demoData: Pick<DemoDataService, 'preview' | 'remove' | 'status'>;
   tokens: AccessVerifier;
 }
 
@@ -44,6 +48,7 @@ export function systemRouter({
   requests,
   imports,
   settings,
+  demoData,
   tokens,
 }: SystemRouterDeps): Router {
   const router = Router();
@@ -55,6 +60,7 @@ export function systemRouter({
     requests,
     imports,
   );
+  const demoController = createDemoDataController(demoData);
   const stepUp = requireStepUp(superAdmins);
 
   router.use(requireAuth(tokens), requireSuperAdmin(system), auditSystemReads(system));
@@ -94,6 +100,8 @@ export function systemRouter({
   router.post('/documents/:documentId/restore', consoleController.restore);
   router.get('/test-data', consoleController.testData);
   router.post('/test-data/delete', stepUp, consoleController.deleteTestData);
+  router.get('/demo-data', demoController.preview);
+  router.post('/demo-data/delete', stepUp, demoController.remove);
   router.get('/settings', controller.getSettings);
   router.patch('/settings', controller.updateSettings);
   router.get('/audit-logs', controller.listAuditLogs);

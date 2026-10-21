@@ -48,6 +48,7 @@ const storage: Storage = {
   copy: () => Promise.resolve(),
   move: () => Promise.resolve(),
   delete: () => Promise.resolve(),
+  list: () => Promise.resolve([]),
 };
 const reads: string[] = [];
 /** The page tokens' clock, moved forward to expire them. */

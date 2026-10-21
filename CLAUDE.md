@@ -48,6 +48,8 @@ Document lifecycle: `uploading → scanning → available | quarantined → arch
 
 **Leaderboard rules** (spec 5, `docs/LEADERBOARD_PHASES.md`): SBOs and CSCs are ranked on separate boards, the ISSC never. The ranking lives in one pure function, `rankStandings` (with `scoreProject` and `standingHints`) in `apps/api/src/services/leaderboard-rules.ts`; never re-implement it. Public responses and SSE events carry only spec 5F's fields. A change that can move the standings calls `leaderboard-recompute.ts` (it queues; never rank inside a request); the worker publishes the semester on Redis and `GET /leaderboard/stream` pushes the boards.
 
+**Demo data** (`docs/DEPLOYMENT.md`, "Demo data"): Demo data exists (is_demo = true). Never mix it into real seed data; it must be removed before deployment.
+
 ## System roles
 
 `users.system_role` is `NONE` or `SUPER_ADMIN` (the developer's console account). It is separate from the organization accounts, including the ISSC's, and grants nothing inside organizations: a super admin has no organization (a check constraint) and passes no org guard and no `requireAdmin`.
@@ -91,6 +93,7 @@ pnpm --filter api prisma migrate dev
 pnpm --filter api db:seed            # 7 colleges, ISSC, CSCs, sample SBOs
 pnpm --filter api create-super-admin --email <email>   # the developer's /system account (prompts)
 pnpm --filter api pages:backfill     # once: queue view-only page images for files from before previews
+pnpm --filter api db:seed:demo       # optional: sample data for demos (db:unseed:demo removes it)
 pnpm dev                             # web :5173, api :4000, worker
 pnpm test                            # all unit + API tests
 pnpm --filter api test:coverage      # API tests with coverage; services must stay ≥ 80% (each file)

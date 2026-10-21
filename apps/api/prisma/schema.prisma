@@ -165,6 +165,8 @@ enum AuditAction {
   financial_figures_unflag
   /// A super admin changed a system setting; metadata has `key`, `before` and `after`.
   system_setting_change
+  /// A super admin removed the demo data (db:unseed:demo's logic); metadata has the counts.
+  demo_data_remove
 }
 
 /// System-level role: SUPER_ADMIN is the developer's personal console account, the only
@@ -273,6 +275,8 @@ model College {
 /// SBO: parent CSC. The database enforces this with a CHECK constraint (see migrations).
 model Organization {
   id                     String           @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo                 Boolean          @default(false) @map("is_demo")
   type                   OrganizationType
   slug                   String           @unique
   acronym                String
@@ -366,6 +370,8 @@ model OrganizationLink {
 
 model User {
   id                 String     @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo             Boolean    @default(false) @map("is_demo")
   email              String     @unique
   name               String
   /// Argon2id
@@ -480,6 +486,8 @@ model DocumentType {
 /// Deletes are soft (deleted_at). Every upload is a new DocumentVersion.
 model Document {
   id               String                   @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo           Boolean                  @default(false) @map("is_demo")
   organizationId   String                   @map("organization_id") @db.Uuid
   typeId           String                   @map("type_id") @db.Uuid
   title            String
@@ -528,6 +536,8 @@ model Document {
 
 model DocumentVersion {
   id               String        @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo           Boolean       @default(false) @map("is_demo")
   documentId       String        @map("document_id") @db.Uuid
   version          Int
   /// Object-storage key. Never reused: files are never overwritten.
@@ -616,6 +626,8 @@ model PasswordResetToken {
 
 model AuditLog {
   id             String      @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo         Boolean     @default(false) @map("is_demo")
   actorId        String?     @map("actor_id") @db.Uuid
   action         AuditAction
   entityType     String      @map("entity_type")
@@ -639,6 +651,8 @@ model AuditLog {
 
 model Announcement {
   id             String    @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo         Boolean   @default(false) @map("is_demo")
   organizationId String    @map("organization_id") @db.Uuid
   authorId       String    @map("author_id") @db.Uuid
   title          String
@@ -684,6 +698,8 @@ model UploadIntent {
 /// checklist (ProjectTask) is created with it.
 model Project {
   id                          String        @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo                      Boolean       @default(false) @map("is_demo")
   organizationId              String        @map("organization_id") @db.Uuid
   name                        String
   /// The event date, a calendar date in Asia/Manila.
@@ -727,6 +743,8 @@ model Project {
 /// apps/api/src/services/project-rules.ts; its file is an ordinary Paperworks document.
 model ProjectTask {
   id          String            @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo      Boolean           @default(false) @map("is_demo")
   projectId   String            @map("project_id") @db.Uuid
   type        ProjectTaskType
   status      ProjectTaskStatus @default(locked)
@@ -753,6 +771,8 @@ model ProjectTask {
 /// it. Each file is its own Paperworks document; re-uploads are new versions of it.
 model ProjectTaskFile {
   id         String   @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo     Boolean  @default(false) @map("is_demo")
   taskId     String   @map("task_id") @db.Uuid
   documentId String   @unique @map("document_id") @db.Uuid
   /// e.g. "Letter to the Dean".
@@ -772,6 +792,8 @@ model ProjectTaskFile {
 /// approved appeal lifts it; a late upload does not.
 model OrgFreeze {
   id             String            @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo         Boolean           @default(false) @map("is_demo")
   organizationId String            @map("organization_id") @db.Uuid
   projectId      String            @map("project_id") @db.Uuid
   /// The reports that were missing when it froze.
@@ -792,6 +814,8 @@ model OrgFreeze {
 /// appeal per blocked project or per freeze (partial unique indexes, see the migration).
 model Appeal {
   id             String       @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo         Boolean      @default(false) @map("is_demo")
   type           AppealType
   organizationId String       @map("organization_id") @db.Uuid
   projectId      String       @map("project_id") @db.Uuid
@@ -849,6 +873,8 @@ model AppealAttachment {
 /// dedupeKey makes repeated checks (the hourly job, reads) notify only once.
 model Notification {
   id        String           @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo    Boolean          @default(false) @map("is_demo")
   userId    String           @map("user_id") @db.Uuid
   kind      NotificationKind
   title     String
@@ -971,6 +997,8 @@ model SemestralReport {
 /// The flag concerns the reported figures only, never who can see the file.
 model FinancialFigures {
   id               String    @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo           Boolean   @default(false) @map("is_demo")
   projectId        String    @unique @map("project_id") @db.Uuid
   incomeCentavos   Int       @map("income_centavos")
   expensesCentavos Int       @map("expenses_centavos")
@@ -1005,6 +1033,8 @@ model SystemSetting {
 /// written on every change and at least daily, for history and rank-change arrows.
 model LeaderboardSnapshot {
   id           String           @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo       Boolean          @default(false) @map("is_demo")
   /// "2026-2027"
   academicYear String           @map("academic_year")
   semester     Semester

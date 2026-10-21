@@ -14,6 +14,7 @@ import { useSystemOverview } from './presenters/use-system-overview';
 import { useSystemSecurity } from './presenters/use-system-security';
 import { useSystemUsers } from './presenters/use-system-users';
 import { useTestData } from './presenters/use-test-data';
+import { useDemoData } from './presenters/use-demo-data';
 import { AccountView } from './views/account-view';
 import { AuditView } from './views/audit-view';
 import { CreateAccountView } from './views/create-account-view';
@@ -28,6 +29,7 @@ import {
 import { AccountRequestsView } from './views/account-requests-view';
 import { ImportView } from './views/import-view';
 import { TestDataView } from './views/test-data-view';
+import { DemoDataBanner } from './views/demo-data-banner';
 import { SettingsView } from './views/settings-view';
 import { useSystemSettings } from './presenters/use-system-settings';
 import { BulkCreateButton, CreateAccountButton, UsersView } from './views/users-view';
@@ -48,10 +50,16 @@ function Gated({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** The console's layout, with the open account requests' badge. */
-function Console(props: Omit<SystemLayoutProps, 'requestCount'>) {
+/** The console's layout, with the open account requests' badge and the demo data banner. */
+function Console({ children, ...props }: Omit<SystemLayoutProps, 'requestCount'>) {
   const requestCount = useOpenRequestCount();
-  return <SystemLayout {...props} requestCount={requestCount} />;
+  const demo = useDemoData();
+  return (
+    <SystemLayout {...props} requestCount={requestCount}>
+      <DemoDataBanner model={demo} />
+      {children}
+    </SystemLayout>
+  );
 }
 
 function BulkAccounts() {

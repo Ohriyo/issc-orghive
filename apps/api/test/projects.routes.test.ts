@@ -62,6 +62,7 @@ const storage: Storage = {
   copy: () => Promise.resolve(),
   move: () => Promise.resolve(),
   delete: () => Promise.resolve(),
+  list: () => Promise.resolve([]),
 };
 const queued: string[] = [];
 const queue = {

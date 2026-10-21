@@ -18,6 +18,7 @@ import { collegesRouter } from '#src/routes/colleges.routes';
 import { documentsRouter } from '#src/routes/documents.routes';
 import { healthRouter } from '#src/routes/health.routes';
 import { leaderboardRouter } from '#src/routes/leaderboard.routes';
+import { demoRouter } from '#src/routes/demo.routes';
 import { meRouter } from '#src/routes/me.routes';
 import { organizationsRouter } from '#src/routes/organizations.routes';
 import { profileRouter } from '#src/routes/profile.routes';
@@ -39,6 +40,7 @@ import type { AppealService } from '#src/services/appeal.service';
 import type { AuthService } from '#src/services/auth.service';
 import type { CollegeService } from '#src/services/college.service';
 import type { DashboardService } from '#src/services/dashboard.service';
+import type { DemoDataService } from '#src/services/demo-data.service';
 import type { DocumentPreviewService } from '#src/services/document-preview.service';
 import type { DocumentService } from '#src/services/document.service';
 import type { FinancialFiguresService } from '#src/services/financial-figures.service';
@@ -106,6 +108,8 @@ export interface AppServices {
   leaderboardStream: Pick<LeaderboardStream, 'open'>;
   /** GET /me/leaderboard: the signed-in organization's own standing. */
   myStanding: Pick<MyStandingService, 'forUser'>;
+  /** Demo data: the public "Sample data" chip and its removal in /system. */
+  demoData: Pick<DemoDataService, 'preview' | 'remove' | 'status'>;
 }
 
 export interface AppDeps {
@@ -164,6 +168,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   );
   v1.use('/organizations', organizationsRouter(services.organizations));
   v1.use('/handbook', handbookRouter(services.handbook));
+  v1.use('/demo-status', demoRouter(services.demoData));
   v1.use(
     '/leaderboard',
     leaderboardRouter({ leaderboard: services.leaderboard, stream: services.leaderboardStream }),
@@ -211,6 +216,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       requests: services.accountRequests,
       imports: services.accountImports,
       settings: services.systemSettings,
+      demoData: services.demoData,
       tokens: services.tokens,
     }),
   );

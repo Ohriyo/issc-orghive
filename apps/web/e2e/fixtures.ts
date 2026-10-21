@@ -143,7 +143,8 @@ const organizations: Record<string, OrganizationDetail> = {
     college: CEA_REF,
     mission:
       'To develop competent and socially responsible civil engineering students through academic enrichment, technical training and community engagement.',
-    vision: 'A community of future civil engineers who build safely, honestly and for the public good.',
+    vision:
+      'A community of future civil engineers who build safely, honestly and for the public good.',
     contactEmail: 'jpice@nwssu.edu.ph',
     links: [
       { url: 'https://www.facebook.com/jpice.nwssu', kind: 'facebook', label: 'Facebook' },
@@ -1475,6 +1476,8 @@ export async function stubApi(
         leaderboardOf(url.searchParams.get('type'), url.searchParams.get('college')),
       );
     }
+    // No demo data in the stubbed API: no "Sample data" chips.
+    if (path === '/demo-status') return json(route, { organizations: [] });
     if (path === '/leaderboard/stream') {
       return json(route, { error: { code: 'RATE_LIMITED', message: 'Polling instead' } }, 503);
     }
@@ -1534,7 +1537,13 @@ export async function stubApi(
               { text: ' on campus', match: false },
             ],
           },
-          { page: 3, snippet: [{ text: 'uniform', match: true }, { text: ' allowance', match: false }] },
+          {
+            page: 3,
+            snippet: [
+              { text: 'uniform', match: true },
+              { text: ' allowance', match: false },
+            ],
+          },
         ],
       } satisfies HandbookSearchResponse);
     }

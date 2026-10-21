@@ -94,6 +94,9 @@ const unwiredServices: AppServices = {
   }),
   leaderboardStream: { open: () => unwired('leaderboardStream') },
   myStanding: { forUser: () => unwired('myStanding') },
+  demoData: new Proxy({} as AppServices['demoData'], {
+    get: (_t, key) => () => unwired(`demoData.${String(key)}`),
+  }),
 };
 
 export function buildTestApp(

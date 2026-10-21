@@ -166,6 +166,13 @@ jobs:
           docker compose ps
           exit 1
 
+      # Demo data must never come from the normal seed (docs/DEPLOYMENT.md, "Demo data").
+      - name: The production seed creates no demo data
+        run: |
+          pnpm --filter api exec prisma migrate deploy
+          pnpm --filter api db:seed
+          pnpm --filter api check:no-demo
+
       - run: pnpm --filter web test:e2e:full
 
       - uses: actions/upload-artifact@v4

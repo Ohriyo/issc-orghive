@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -76,6 +76,26 @@ describe('/orgs/:slug', () => {
     ).toHaveAttribute('href', '/colleges/cea');
   });
 
+  it('says "Sample data" on an organization showing demo data, and only there', async () => {
+    const demo = (organizations: string[]) =>
+      fetchMock.mockImplementation((input) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        return url.endsWith('/demo-status') ? json({ organizations }) : json(JPICE);
+      });
+    demo(['jpice']);
+    renderAt('/orgs/jpice');
+    expect(await screen.findByText('Sample data')).toBeInTheDocument();
+    cleanup();
+    demo(['asit']);
+    renderAt('/orgs/jpice');
+    await screen.findByRole('heading', { level: 1, name: /^JPICE/ });
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/v1/demo-status', expect.anything()),
+    );
+    expect(screen.queryByText('Sample data')).not.toBeInTheDocument();
+  });
+
   it('uses the organization logo as its Open Graph image', async () => {
     fetchMock.mockImplementation(() => json(JPICE));
     renderAt('/orgs/jpice');
@@ -151,7 +171,9 @@ describe('/orgs/:slug profile sections', () => {
     routeFetch({ constitution: null });
     renderAt('/orgs/jpice');
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'About JPICE' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'About JPICE' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('Shape competent civil engineers.')).toBeInTheDocument();
     expect(screen.getByText('Maria Clara Santos')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Email jpice@nwssu\.edu\.ph/ })).toHaveAttribute(
@@ -205,9 +227,10 @@ describe('/orgs/:slug profile sections', () => {
     });
     renderAt('/orgs/jpice');
 
-    expect(
-      await screen.findByRole('link', { name: 'Read the constitution' }),
-    ).toHaveAttribute('href', `/documents/${DOCUMENT_ID}`);
+    expect(await screen.findByRole('link', { name: 'Read the constitution' })).toHaveAttribute(
+      'href',
+      `/documents/${DOCUMENT_ID}`,
+    );
     expect(screen.getByText('Last amended September 15, 2026')).toBeInTheDocument();
     expect(screen.getByText('Amendment history (2 versions)')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View this version', hidden: true })).toHaveAttribute(

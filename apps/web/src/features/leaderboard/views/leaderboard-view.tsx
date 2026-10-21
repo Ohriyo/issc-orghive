@@ -3,6 +3,7 @@ import { Tabs } from 'radix-ui';
 import type { LeaderboardType } from '@orghive/shared';
 import { Container } from '@/components/container';
 import { FilterSelect } from '@/components/filter-bar';
+import { SampleDataChip } from '@/components/sample-data-chip';
 import { SectionError } from '@/components/section-error';
 import { BOARD_LABELS } from '../presenters/leaderboard-model';
 import type { BoardState, LeaderboardPageModel } from '../presenters/use-leaderboard-views';
@@ -103,6 +104,11 @@ function BoardBody({
         )
       ) : (
         <>
+          {board.sample ? (
+            <div className="mb-4 flex justify-center">
+              <SampleDataChip />
+            </div>
+          ) : null}
           {board.podium.length > 0 ? (
             <Podium
               entries={board.podium}

@@ -51,6 +51,7 @@ const storage: Storage = {
   copy: () => Promise.resolve(),
   move: () => Promise.resolve(),
   delete: () => Promise.resolve(),
+  list: () => Promise.resolve([]),
 };
 const queued: string[] = [];
 const queue = {
@@ -248,7 +249,9 @@ describe('PUT /organizations/:slug/profile', () => {
 
     const page = await call('get', '/organizations/jpice');
     expect(page.status).toBe(200);
-    expect((page.body as OrganizationDetail).officers).toEqual([{ position: 'President', name: 'Ana Reyes' }]);
+    expect((page.body as OrganizationDetail).officers).toEqual([
+      { position: 'President', name: 'Ana Reyes' },
+    ]);
     const detail = page.body as OrganizationDetail;
     expect(detail.links.map((l) => l.kind)).toEqual(['facebook', 'instagram']);
     expect(JSON.stringify(page.body)).not.toContain('Ben Cruz');
@@ -260,9 +263,9 @@ describe('PUT /organizations/:slug/profile', () => {
       name: 'Renamed',
     });
     expect(res.status).toBe(400);
-    expect((await db.organization.findUnique({ where: { id: world.orgs.jpice.id } }))?.name).not.toBe(
-      'Renamed',
-    );
+    expect(
+      (await db.organization.findUnique({ where: { id: world.orgs.jpice.id } }))?.name,
+    ).not.toBe('Renamed');
   });
 
   it('400s without Acting as, a non-Facebook page link, or an http link', async () => {
@@ -320,7 +323,9 @@ describe('PUT /organizations/:slug/profile/logo and cover', () => {
       .set('Content-Type', 'image/png')
       .send(await png(800, 300));
     expect(narrow.status).toBe(400);
-    expect((narrow.body as { error: { message: string } }).error.message).toMatch(/cover: .*1200 pixels wide/);
+    expect((narrow.body as { error: { message: string } }).error.message).toMatch(
+      /cover: .*1200 pixels wide/,
+    );
   });
 
   it('stores a cover under logos/covers/ and removes it again', async () => {
@@ -421,8 +426,11 @@ describe('the Constitution & By-laws', () => {
 
     // Never private, archived, deleted or downloaded by others.
     expect(
-      (await call('patch', `/documents/${documentId}/visibility`, 'owner', { visibility: 'private' }))
-        .status,
+      (
+        await call('patch', `/documents/${documentId}/visibility`, 'owner', {
+          visibility: 'private',
+        })
+      ).status,
     ).toBe(409);
     expect(
       (await call('delete', `/documents/${documentId}`, 'owner', { actingAs: 'Ana Reyes' })).status,
@@ -432,7 +440,8 @@ describe('the Constitution & By-laws', () => {
         .status,
     ).toBe(403);
     expect(
-      (await call('get', `/documents/${documentId}/versions/${v2.id}/download-url`, 'owner')).status,
+      (await call('get', `/documents/${documentId}/versions/${v2.id}/download-url`, 'owner'))
+        .status,
     ).toBe(200);
     expect(queued).toContain(v2.id);
   });

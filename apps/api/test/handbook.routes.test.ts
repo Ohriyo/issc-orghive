@@ -55,6 +55,7 @@ const storage: Storage = {
     deleted.push(key);
     return Promise.resolve();
   },
+  list: () => Promise.resolve([]),
 };
 const queued: string[] = [];
 const queue = {
@@ -261,7 +262,9 @@ describe('the Student Handbook, end to end', () => {
     // Search inside, by prefix, jumping to the page.
     const found = (await call('get', '/handbook/search?q=dres')).body as HandbookSearchResponse;
     expect(found.matches.map((m) => m.page)).toEqual([2]);
-    expect(found.matches[0]!.snippet.some((part) => part.match && /dress/i.test(part.text))).toBe(true);
+    expect(found.matches[0]!.snippet.some((part) => part.match && /dress/i.test(part.text))).toBe(
+      true,
+    );
     expect((await call('get', '/handbook/2026-2027/search?q=grading')).body).toMatchObject({
       matches: [{ page: 3 }],
     });
@@ -308,9 +311,9 @@ describe('the Student Handbook, end to end', () => {
       ['2027-2028', true],
       ['2026-2027', false],
     ]);
-    expect(((await call('get', '/handbook/2026-2027')).body as HandbookResponse).edition).toMatchObject(
-      { academicYear: '2026-2027', isCurrent: false },
-    );
+    expect(
+      ((await call('get', '/handbook/2026-2027')).body as HandbookResponse).edition,
+    ).toMatchObject({ academicYear: '2026-2027', isCurrent: false });
 
     // A corrected version of a past year: the edition's next version.
     const corrected = await call('post', '/admin/handbook', 'issc', {

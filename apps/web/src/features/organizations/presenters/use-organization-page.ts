@@ -7,6 +7,7 @@ import {
   type PublicOfficer,
   type SocialKind,
 } from '@orghive/shared';
+import { useDemoOrganizations } from '@/features/demo/presenters/use-demo-organizations';
 import { api, ApiError } from '@/lib/api';
 import { emphasize, type TextSegment } from '@/lib/emphasis';
 import { queryKeys } from '@/lib/query-keys';
@@ -31,6 +32,8 @@ export interface OrganizationPageModel {
   officers: PublicOfficer[];
   /** Null when it lists no email and no links. */
   contact: { email: string | null; links: ContactLink[] } | null;
+  /** Its projects on show are demo data (db:seed:demo): the page says "Sample data". */
+  sample: boolean;
 }
 
 export interface ContactLink {
@@ -44,7 +47,10 @@ export interface ContactLink {
 
 /** A link as people read it: no scheme, no "www.", no trailing slash. */
 export function displayUrl(url: string): string {
-  return url.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
+  return url
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/$/, '');
 }
 
 /** Shapes GET /organizations/:slug into the organization page. */
@@ -78,6 +84,7 @@ export function toOrganizationPage(org: OrganizationDetail): OrganizationPageMod
             links: org.links.map((link) => ({ ...link, display: displayUrl(link.url) })),
           }
         : null,
+    sample: false,
   };
 }
 
@@ -96,7 +103,9 @@ export function useOrganizationPage(slug: string): OrganizationPageState {
     staleTime: FIVE_MINUTES,
   });
 
-  if (query.data) return { status: 'ready', page: query.data };
+  const demo = useDemoOrganizations();
+
+  if (query.data) return { status: 'ready', page: { ...query.data, sample: demo.has(slug) } };
   if (query.error instanceof ApiError && [400, 404].includes(query.error.status)) {
     return { status: 'not-found' };
   }

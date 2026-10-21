@@ -209,6 +209,7 @@ describe('GET /api/docs', () => {
       '/search',
       '/leaderboard',
       '/leaderboard/stream',
+      '/demo-status',
     ]);
     expect(spec.body.components.schemas).toHaveProperty('CollegeDetail');
     expect(spec.body.components.schemas).toHaveProperty('LeaderboardResponse');

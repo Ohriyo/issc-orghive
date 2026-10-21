@@ -72,6 +72,9 @@ function doc(
       sizeBytes: 10,
       scanStatus: 'clean',
       thumbnailKey,
+      previewStatus: 'ready',
+      previewPages: [[1240, 1754]],
+      pageCount: 1,
       createdAt: AT,
     },
   };

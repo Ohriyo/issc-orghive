@@ -155,6 +155,14 @@ function OrganizationDashboard({
               </span>
             ))}
             {term ? <span className="text-small text-ink-muted">{term.label}</span> : null}
+            {org.profileHref ? (
+              <OriginLink
+                to={org.profileHref}
+                className="tap-area ml-1 text-small font-medium text-ink underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf"
+              >
+                Edit profile
+              </OriginLink>
+            ) : null}
           </div>
         </div>
         <div className="hidden shrink-0 flex-col gap-3 md:flex lg:flex-row">

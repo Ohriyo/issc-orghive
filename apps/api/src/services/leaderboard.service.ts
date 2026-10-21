@@ -49,9 +49,10 @@ export function projectFactsOf(
   project: StandingOrgRecord['projects'][number],
 ): ProjectStandingFacts {
   const submitted: Partial<Record<ProjectTaskType, Date>> = {};
+  const filed = (doc: { status: string; deletedAt: Date | null } | null) =>
+    !!doc && !doc.deletedAt && FILED_STATUSES.has(doc.status);
   for (const task of project.tasks) {
-    const doc = task.document;
-    if (task.submittedAt && doc && !doc.deletedAt && FILED_STATUSES.has(doc.status)) {
+    if (task.submittedAt && (filed(task.document) || task.files.some((f) => filed(f.document)))) {
       submitted[task.type] = task.submittedAt;
     }
   }
@@ -60,6 +61,8 @@ export function projectFactsOf(
     targetDate: project.targetDate.toISOString().slice(0, 10),
     nomRequired: project.nomRequired,
     momRequired: project.momRequired,
+    communicationLetterRequired: project.communicationLetterRequired,
+    attendanceSheetRequired: project.attendanceSheetRequired,
     submitted,
     figures: project.figures && {
       incomeCentavos: project.figures.incomeCentavos,

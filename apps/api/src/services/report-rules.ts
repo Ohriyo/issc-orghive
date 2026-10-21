@@ -1,10 +1,17 @@
 import { PROJECT_TASK_LABELS, type ProjectTaskType } from '@orghive/shared';
 
-/** The order every project's files appear in (docs/PROJECT_WORKFLOW_SPEC.md, section 4). */
+/**
+ * The order every project's files appear in (docs/PROJECT_WORKFLOW_SPEC.md, section 4):
+ * Proposal → NOM → MOM → Communication Letter(s) → Attendance Sheet → other pre-event
+ * documents → ACR → Financial Report.
+ */
 export const REPORT_TASK_ORDER: readonly ProjectTaskType[] = [
   'PROPOSAL',
   'NOM',
   'MOM',
+  'COMMUNICATION_LETTER',
+  'ATTENDANCE_SHEET',
+  'OTHER_PRE_EVENT',
   'ACR',
   'FINANCIAL_REPORT',
 ];
@@ -16,6 +23,8 @@ export const TOC_ROWS_PER_PAGE = 24;
 export interface ReportFile {
   storageKey: string;
   mimeType: string;
+  /** A multi-file task's label, e.g. "Letter to the Dean". */
+  label?: string;
 }
 
 export interface ReportProject {
@@ -27,8 +36,13 @@ export interface ReportProject {
   beneficiaries: string;
   nomRequired: boolean;
   momRequired: boolean;
-  /** Clean, undeleted task files by type. */
-  files: Partial<Record<ProjectTaskType, ReportFile>>;
+  communicationLetterRequired: boolean;
+  attendanceSheetRequired: boolean;
+  /**
+   * Clean, undeleted task files by type: one for most tasks, several (oldest first) for
+   * Communication Letters and other pre-event documents.
+   */
+  files: Partial<Record<ProjectTaskType, ReportFile[]>>;
 }
 
 /** One part of the report, in order. Generated parts come from the HTML template. */
@@ -39,19 +53,33 @@ export type ReportPart =
   | { kind: 'file'; project: ReportProject; task: ProjectTaskType; file: ReportFile }
   | { kind: 'missing'; project: ReportProject; task: ProjectTaskType };
 
-/** The tasks a project's section lists: NOM and MOM only when needed (or filed anyway). */
+/**
+ * The tasks a project's section lists: the ticked pre-event documents (or filed anyway),
+ * and other pre-event documents only when there are some (they are optional, so a missing
+ * one is no gap).
+ */
 export function reportTasks(project: ReportProject): ProjectTaskType[] {
+  const ticked: Partial<Record<ProjectTaskType, boolean>> = {
+    NOM: project.nomRequired,
+    MOM: project.momRequired,
+    COMMUNICATION_LETTER: project.communicationLetterRequired,
+    ATTENDANCE_SHEET: project.attendanceSheetRequired,
+    OTHER_PRE_EVENT: false,
+  };
   return REPORT_TASK_ORDER.filter(
-    (task) =>
-      (task !== 'NOM' || project.nomRequired || !!project.files.NOM) &&
-      (task !== 'MOM' || project.momRequired || !!project.files.MOM),
+    (task) => ticked[task] !== false || (project.files[task]?.length ?? 0) > 0,
   );
+}
+
+/** How a part is named in the contents and on its placeholder page. */
+export function partLabel(task: ProjectTaskType, file?: ReportFile): string {
+  return file?.label ? `${PROJECT_TASK_LABELS[task]}: ${file.label}` : PROJECT_TASK_LABELS[task];
 }
 
 /**
  * The fixed order of section 4: a cover, the table of contents, then for each project by
- * target date (then name) a divider and its files Proposal -> NOM -> MOM -> ACR -> Financial
- * Report, with a "Not submitted" placeholder for each missing one.
+ * target date (then name) a divider and its files in REPORT_TASK_ORDER (each letter on its
+ * own), with a "Not submitted" placeholder for each missing required one.
  */
 export function planReport(projects: readonly ReportProject[]): {
   projects: ReportProject[];
@@ -67,8 +95,9 @@ export function planReport(projects: readonly ReportProject[]): {
   for (const project of sorted) {
     parts.push({ kind: 'divider', project });
     for (const task of reportTasks(project)) {
-      const file = project.files[task];
-      parts.push(file ? { kind: 'file', project, task, file } : { kind: 'missing', project, task });
+      const files = project.files[task] ?? [];
+      if (files.length === 0) parts.push({ kind: 'missing', project, task });
+      for (const file of files) parts.push({ kind: 'file', project, task, file });
     }
   }
   return { projects: sorted, parts };
@@ -112,7 +141,7 @@ export function paginate(
     } else if (part.kind === 'file' || part.kind === 'missing') {
       toc.push({
         level: 'task',
-        label: PROJECT_TASK_LABELS[part.task],
+        label: partLabel(part.task, part.kind === 'file' ? part.file : undefined),
         missing: part.kind === 'missing',
         page: starts[i]!,
       });

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  HANDBOOK_DOCUMENT_TYPE,
   parseSnippet,
   SEARCH_DEFAULT_LIMIT,
   SEARCH_MAX_RESULTS,
@@ -18,6 +19,10 @@ import {
   type StoredSummary,
 } from '#src/services/document.service';
 import type { DocumentViewerService } from '#src/services/document-viewer.service';
+import type { HandbookService } from '#src/services/handbook.service';
+
+/** How many handbook pages the site search shows above the documents. */
+export const SEARCH_HANDBOOK_PAGES = 3;
 
 /** Signed-out searches are cached this long (any repeated query is a popular one). */
 export const SEARCH_CACHE_TTL_SECONDS = 5 * 60;
@@ -27,6 +32,8 @@ export interface SearchServiceDeps {
   viewers: Pick<DocumentViewerService, 'forUser'>;
   storage: Pick<Storage, 'presignGet'>;
   cache: Pick<Cache, 'getOrSet' | 'generation'>;
+  /** The current Student Handbook's matching pages (shown above the documents). */
+  handbook?: Pick<HandbookService, 'siteMatches'>;
 }
 
 /** A response as cached: previews as storage keys, signed only when served. */
@@ -35,6 +42,7 @@ interface StoredResponse {
   page: number;
   nextPage: number | null;
   items: { document: StoredSummary; snippet: SearchSnippet | null }[];
+  handbook: SearchResponse['handbook'];
 }
 
 /**
@@ -67,12 +75,18 @@ function hashOf(query: SearchQuery): string {
  * Full-text search across every organization's Paperworks. Who sees which result is the
  * repository's visibility filter alone; this service only pages, shapes and caches.
  */
-export function createSearchService({ documents, viewers, storage, cache }: SearchServiceDeps) {
+export function createSearchService({
+  documents,
+  viewers,
+  storage,
+  cache,
+  handbook,
+}: SearchServiceDeps) {
   async function load(userId: string | undefined, query: SearchQuery): Promise<StoredResponse> {
     const limit = query.limit ?? SEARCH_DEFAULT_LIMIT;
     const page = query.page ?? 1;
     const offset = (page - 1) * limit;
-    const empty = { query: query.q, page, nextPage: null, items: [] };
+    const empty = { query: query.q, page, nextPage: null, items: [], handbook: null };
     if (offset >= SEARCH_MAX_RESULTS) return empty;
 
     const viewer = userId ? await viewers.forUser(userId) : PUBLIC_VIEWER;
@@ -82,9 +96,13 @@ export function createSearchService({ documents, viewers, storage, cache }: Sear
       organizationSlug: query.org,
       typeSlug: query.type,
       academicYear: query.year,
+      // The handbook is searched page by page below; never listed twice.
+      excludeTypeSlug: HANDBOOK_DOCUMENT_TYPE.slug,
       offset,
       limit: Math.min(limit, SEARCH_MAX_RESULTS - offset),
     });
+    // The handbook belongs to no college or type filter: shown on an unfiltered first page.
+    const unfiltered = !query.college && !query.org && !query.type;
     return {
       query: query.q,
       page,
@@ -93,6 +111,10 @@ export function createSearchService({ documents, viewers, storage, cache }: Sear
         document: toStoredSummary(doc),
         snippet: snippetOf(headline, doc.description),
       })),
+      handbook:
+        handbook && page === 1 && unfiltered
+          ? await handbook.siteMatches(query.q, SEARCH_HANDBOOK_PAGES)
+          : null,
     };
   }
 

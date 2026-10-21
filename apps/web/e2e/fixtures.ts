@@ -11,6 +11,11 @@ import type {
   CollegeListResponse,
   CollegeSummary,
   ComplianceOverview,
+  ConstitutionResponse,
+  AdminHandbookResponse,
+  HandbookEditionList,
+  HandbookResponse,
+  HandbookSearchResponse,
   DashboardResponse,
   DocumentListResponse,
   DocumentSummary,
@@ -22,6 +27,7 @@ import type {
   NotificationPreferences,
   OrganizationCompliance,
   OrganizationDetail,
+  OrganizationProfile,
   OrganizationSummary,
   ProjectDetail,
   ProjectListResponse,
@@ -119,6 +125,14 @@ const organizations: Record<string, OrganizationDetail> = {
       'The ISSC is the highest student governing body in the university. It represents all students and coordinates with the collegiate student councils.',
     parent: null,
     college: null,
+    // No profile yet: the page shows only the constitution's empty state.
+    mission: null,
+    vision: null,
+    contactEmail: null,
+    links: [],
+    officers: [],
+    coverUrl: null,
+    coverSrcSet: null,
   },
   jpice: {
     id: '0195f3c0-0000-7000-8000-0000000000c2',
@@ -127,7 +141,47 @@ const organizations: Record<string, OrganizationDetail> = {
       'The JPICE is a dynamic organization committed to shaping competent and socially responsible civil engineering students.',
     parent: csc('CEA', CEA_REF.name),
     college: CEA_REF,
+    mission:
+      'To develop competent and socially responsible civil engineering students through academic enrichment, technical training and community engagement.',
+    vision: 'A community of future civil engineers who build safely, honestly and for the public good.',
+    contactEmail: 'jpice@nwssu.edu.ph',
+    links: [
+      { url: 'https://www.facebook.com/jpice.nwssu', kind: 'facebook', label: 'Facebook' },
+      { url: 'https://www.instagram.com/jpice.nwssu', kind: 'instagram', label: 'Instagram' },
+    ],
+    officers: [
+      { position: 'President', name: 'Maria Clara Santos' },
+      { position: 'Vice President for Internal Affairs', name: 'Jose Rizal Mercado' },
+      { position: 'Secretary', name: 'Andrea Bonifacio' },
+      { position: 'Treasurer', name: 'Gabriel Dela Peña' },
+    ],
+    coverUrl: null,
+    coverSrcSet: null,
   },
+};
+
+/** JPICE's own profile editor: the public fields plus a hidden officer. */
+const JPICE_PROFILE: OrganizationProfile = {
+  slug: 'jpice',
+  official: {
+    name: organizations.jpice!.name,
+    acronym: 'JPICE',
+    type: 'SBO',
+    college: CEA_REF,
+  },
+  description: organizations.jpice!.description,
+  mission: organizations.jpice!.mission,
+  vision: organizations.jpice!.vision,
+  contactEmail: organizations.jpice!.contactEmail,
+  facebookUrl: 'https://www.facebook.com/jpice.nwssu',
+  links: [organizations.jpice!.links[1]!],
+  officers: [
+    ...organizations.jpice!.officers.map((o) => ({ ...o, isPublic: true })),
+    { position: 'Auditor', name: 'Lea Salonga Cruz', isPublic: false },
+  ],
+  logoUrl: null,
+  coverUrl: null,
+  updatedAt: '2026-10-20T08:00:00.000Z',
 };
 
 const TYPES: DocumentTypeListResponse = {
@@ -147,6 +201,122 @@ const TYPES: DocumentTypeListResponse = {
 };
 
 export const DOCUMENT_ID = '0195f3c0-0000-7000-8000-0000000000d1';
+
+/** The Student Handbook: the current edition with bookmarks, a past one without. */
+const HANDBOOK_OUTLINE = [
+  { title: 'Message from the President', page: 1, items: [] },
+  {
+    title: 'Student conduct',
+    page: 2,
+    items: [
+      { title: 'Uniform and dress code', page: 3, items: [] },
+      { title: 'Use of facilities', page: 3, items: [] },
+    ],
+  },
+  { title: 'Student organizations', page: 3, items: [] },
+];
+const HANDBOOK: HandbookResponse = {
+  edition: {
+    academicYear: '2026-2027',
+    isCurrent: true,
+    pageCount: 3,
+    coverUrl: null,
+    documentId: DOCUMENT_ID,
+    versionId: '0195f3c0-0000-7000-8000-0000000000f1',
+    previewStatus: 'ready',
+    outline: HANDBOOK_OUTLINE,
+    thumbnails: true,
+    publishedAt: '2026-08-01T00:00:00.000Z',
+  },
+};
+const PAST_HANDBOOK: HandbookResponse = {
+  edition: { ...HANDBOOK.edition!, academicYear: '2025-2026', isCurrent: false, outline: null },
+};
+const HANDBOOK_EDITIONS: HandbookEditionList = {
+  editions: [
+    { academicYear: '2026-2027', isCurrent: true, pageCount: 3, coverUrl: null },
+    { academicYear: '2025-2026', isCurrent: false, pageCount: 3, coverUrl: null },
+  ],
+};
+const ADMIN_HANDBOOK: AdminHandbookResponse = {
+  editions: [
+    {
+      academicYear: '2026-2027',
+      isCurrent: true,
+      documentId: DOCUMENT_ID,
+      readable: true,
+      versions: [
+        {
+          id: '0195f3c0-0000-7000-8000-0000000000f1',
+          version: 2,
+          uploadedAt: '2026-08-02T02:00:00.000Z',
+          scanStatus: 'clean',
+          previewStatus: 'ready',
+          isCurrent: true,
+          actingAs: 'Miguel Santos',
+        },
+        {
+          id: '0195f3c0-0000-7000-8000-0000000000f0',
+          version: 1,
+          uploadedAt: '2026-08-01T02:00:00.000Z',
+          scanStatus: 'clean',
+          previewStatus: 'ready',
+          isCurrent: false,
+          actingAs: 'Miguel Santos',
+        },
+      ],
+    },
+    {
+      academicYear: '2025-2026',
+      isCurrent: false,
+      documentId: '0195f3c0-0000-7000-8000-0000000000d9',
+      readable: true,
+      versions: [
+        {
+          id: '0195f3c0-0000-7000-8000-0000000000f9',
+          version: 1,
+          uploadedAt: '2025-08-01T02:00:00.000Z',
+          scanStatus: 'clean',
+          previewStatus: 'ready',
+          isCurrent: true,
+          actingAs: null,
+        },
+      ],
+    },
+  ],
+};
+
+/** JPICE's Constitution & By-laws: adopted, then amended once. */
+const CONSTITUTION: ConstitutionResponse = {
+  constitution: {
+    documentId: DOCUMENT_ID,
+    lastAmendedOn: '2026-09-15',
+    versions: [
+      {
+        id: '0195f3c0-0000-7000-8000-0000000000f1',
+        version: 2,
+        amendedOn: '2026-09-15',
+        note: 'Article III: adds the Vice President for External Affairs.',
+        isCurrent: true,
+        uploadedAt: '2026-09-16T02:00:00.000Z',
+        scanStatus: 'clean',
+        previewStatus: 'ready',
+        actingAs: null,
+      },
+      {
+        id: '0195f3c0-0000-7000-8000-0000000000f0',
+        version: 1,
+        amendedOn: '2025-08-04',
+        note: null,
+        isCurrent: false,
+        uploadedAt: '2025-08-05T02:00:00.000Z',
+        scanStatus: 'clean',
+        previewStatus: 'ready',
+        actingAs: null,
+      },
+    ],
+  },
+};
 export const UPDATE_ID = '0195f3c0-0000-7000-8000-0000000000e1';
 
 const TITLES = [
@@ -298,6 +468,12 @@ const SYSTEM_SETTINGS: SystemSettings = {
 };
 
 /** Public routes the responsive and accessibility checks visit. */
+/** A 1x1 white PNG: the stand-in for every watermarked page image. */
+const PAGE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
+  'base64',
+);
+
 export const PUBLIC_ROUTES = [
   '/',
   '/colleges',
@@ -315,6 +491,10 @@ export const PUBLIC_ROUTES = [
   `/documents/${DOCUMENT_ID}`,
   '/updates',
   `/updates/${UPDATE_ID}`,
+  '/handbook',
+  '/handbook?page=12&q=uniform',
+  '/handbook/editions',
+  '/handbook/2025-2026',
   '/login',
   '/forgot-password',
   '/reset-password?token=e2e-placeholder',
@@ -336,6 +516,7 @@ export const SIGNED_IN_ROUTES = [
   '/dashboard/compliance',
   '/dashboard/notifications',
   '/dashboard/notifications/settings',
+  '/dashboard/profile',
 ] as const;
 
 /** JPICE's shared organization account. */
@@ -379,7 +560,11 @@ const ADMIN: AuthResponse = {
 };
 
 /** Admin-only screens, checked with the admin session. */
-export const ADMIN_ROUTES = ['/admin/organizations', '/admin/financial-figures'] as const;
+export const ADMIN_ROUTES = [
+  '/admin/organizations',
+  '/admin/financial-figures',
+  '/admin/handbook',
+] as const;
 
 /** The developer's console account: SUPER_ADMIN with MFA, no organization. */
 const SUPER_ADMIN: AuthResponse = {
@@ -798,7 +983,11 @@ function isoDay(days: number): string {
 }
 const endOfDay = (day: string) => new Date(`${day}T23:59:59.999+08:00`).toISOString();
 
-/** A project mid-way: proposal submitted, NOM open, the post-event reports still locked. */
+/**
+ * A project mid-way: proposal submitted, NOM and MOM open, two labelled Communication Letters
+ * (one being checked), the Attendance Sheet open, an optional other document, the post-event
+ * reports still locked.
+ */
 const PROJECT: ProjectDetail = {
   id: '0195f3c0-0000-7000-8000-0000000000c1',
   name: 'Inter-Year Bridge Design Competition 2026',
@@ -812,6 +1001,8 @@ const PROJECT: ProjectDetail = {
   postEventDueAt: endOfDay(isoDay(34)),
   nomRequired: true,
   momRequired: true,
+  communicationLetterRequired: true,
+  attendanceSheetRequired: true,
   nextDeadline: null,
   organization: { type: 'SBO', slug: 'jpice', acronym: 'JPICE', name: organizations.jpice!.name },
   createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
@@ -820,6 +1011,7 @@ const PROJECT: ProjectDetail = {
     {
       type: 'PROPOSAL',
       status: 'submitted',
+      required: true,
       dueAt: endOfDay(isoDay(9)),
       submittedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
       document: {
@@ -828,22 +1020,90 @@ const PROJECT: ProjectDetail = {
         status: 'available',
         visibility: 'private',
       },
+      files: [],
     },
-    { type: 'NOM', status: 'open', dueAt: null, submittedAt: null, document: null },
-    { type: 'MOM', status: 'open', dueAt: null, submittedAt: null, document: null },
     {
-      type: 'ACR',
-      status: 'locked',
+      type: 'NOM',
+      status: 'open',
+      required: true,
+      dueAt: null,
+      submittedAt: null,
+      document: null,
+      files: [],
+    },
+    {
+      type: 'MOM',
+      status: 'open',
+      required: true,
+      dueAt: null,
+      submittedAt: null,
+      document: null,
+      files: [],
+    },
+    {
+      type: 'COMMUNICATION_LETTER',
+      status: 'submitted',
+      required: true,
+      dueAt: endOfDay(isoDay(20)),
+      submittedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      document: null,
+      files: [
+        {
+          label: 'Letter to the Dean, College of Engineering and Architecture',
+          document: {
+            id: '0195f3c0-0000-7000-8000-0000000000c7',
+            title:
+              'Communication Letter: Letter to the Dean (Inter-Year Bridge Design Competition 2026)',
+            status: 'available',
+            visibility: 'private',
+          },
+        },
+        {
+          label: 'Letter to the Guidance Office',
+          document: {
+            id: '0195f3c0-0000-7000-8000-0000000000c8',
+            title: 'Communication Letter: Letter to the Guidance Office',
+            status: 'scanning',
+            visibility: 'private',
+          },
+        },
+      ],
+    },
+    {
+      type: 'ATTENDANCE_SHEET',
+      status: 'open',
+      required: true,
       dueAt: endOfDay(isoDay(34)),
       submittedAt: null,
       document: null,
+      files: [],
+    },
+    {
+      type: 'OTHER_PRE_EVENT',
+      status: 'open',
+      required: false,
+      dueAt: null,
+      submittedAt: null,
+      document: null,
+      files: [],
+    },
+    {
+      type: 'ACR',
+      status: 'locked',
+      required: true,
+      dueAt: endOfDay(isoDay(34)),
+      submittedAt: null,
+      document: null,
+      files: [],
     },
     {
       type: 'FINANCIAL_REPORT',
       status: 'locked',
+      required: true,
       dueAt: endOfDay(isoDay(34)),
       submittedAt: null,
       document: null,
+      files: [],
     },
   ],
   financialFigures: null,
@@ -1242,10 +1502,67 @@ export async function stubApi(
         })),
         page: 1,
         nextPage: null,
+        handbook: {
+          academicYear: '2026-2027',
+          matches: [
+            {
+              page: 12,
+              snippet: [
+                { text: 'Students wear the prescribed ', match: false },
+                { text: 'uniform', match: true },
+                { text: ' on campus from Monday to Thursday.', match: false },
+              ],
+            },
+          ],
+        },
       } satisfies SearchResponse);
     }
     const org = /^\/organizations\/([a-z0-9-]+)$/.exec(path);
     if (org && organizations[org[1]!]) return json(route, organizations[org[1]!]);
+    if (path === '/handbook' || path === '/handbook/2026-2027') return json(route, HANDBOOK);
+    if (path === '/handbook/2025-2026') return json(route, PAST_HANDBOOK);
+    if (path === '/handbook/editions') return json(route, HANDBOOK_EDITIONS);
+    if (/^\/handbook(\/\d{4}-\d{4})?\/search$/.test(path)) {
+      return json(route, {
+        query: url.searchParams.get('q') ?? '',
+        matches: [
+          {
+            page: 12,
+            snippet: [
+              { text: 'the prescribed ', match: false },
+              { text: 'uniform', match: true },
+              { text: ' on campus', match: false },
+            ],
+          },
+          { page: 3, snippet: [{ text: 'uniform', match: true }, { text: ' allowance', match: false }] },
+        ],
+      } satisfies HandbookSearchResponse);
+    }
+    if (admin && path === '/admin/handbook') return json(route, ADMIN_HANDBOOK);
+    if (path === '/organizations/jpice/constitution') return json(route, CONSTITUTION);
+    if (/^\/organizations\/[a-z0-9-]+\/constitution$/.test(path)) {
+      return json(route, { constitution: null } satisfies ConstitutionResponse);
+    }
+    if (signedIn && path === '/organizations/jpice/profile') return json(route, JPICE_PROFILE);
+    // The view-only viewer: three watermarked pages (a plain image stands in for each).
+    const viewer = /^\/documents\/([0-9a-f-]+)\/viewer$/.exec(path);
+    if (viewer && documents.some((d) => d.id === viewer[1])) {
+      return json(route, {
+        versionId: '0195f3c0-0000-7000-8000-0000000000f1',
+        status: 'ready',
+        pages: [
+          { width: 1240, height: 1754 },
+          { width: 1240, height: 1754 },
+          { width: 1754, height: 1240 },
+        ],
+        totalPages: 3,
+        token: 'e2e.page.token',
+        expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      });
+    }
+    if (/^\/documents\/[0-9a-f-]+\/pages\/\d+$/.test(path)) {
+      return route.fulfill({ status: 200, contentType: 'image/png', body: PAGE_PNG });
+    }
     const versions = /^\/documents\/([0-9a-f-]+)\/versions$/.exec(path);
     if (versions) {
       const found = documents.find((d) => d.id === versions[1]);

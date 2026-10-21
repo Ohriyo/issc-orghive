@@ -25,8 +25,11 @@ import type {
   Phase,
   ProjectPageModel,
   ProjectPageState,
+  TaskFileItem,
   TaskItem,
+  TaskUploadState,
 } from '../presenters/use-project';
+import type { PreEventChoicesModel } from '../presenters/use-pre-event-choices';
 import { TASK_FILE_TYPES_LABEL } from '../presenters/upload-task-file';
 import type { FiguresModel } from '../presenters/use-figures-draft';
 import type { CorrectFiguresModel } from '../presenters/use-correct-figures';
@@ -108,6 +111,7 @@ function ProjectDetails({
           ? 'A file is being checked for viruses. This page updates when it is done.'
           : 'A task is complete once its file is uploaded and passes the virus scan.'}
       </p>
+      {project.choices ? <PreEventChoices model={project.choices} /> : null}
       {project.actingAs ? (
         <ActingAsField
           className="mt-6 max-w-md"
@@ -129,6 +133,57 @@ function ProjectDetails({
       </ol>
       {appeals}
     </article>
+  );
+}
+
+/**
+ * Which optional pre-event documents the project needs (spec 2B). Each tick saves at once;
+ * one whose document already has a file stays ticked.
+ */
+function PreEventChoices({ model }: { model: PreEventChoicesModel }) {
+  return (
+    <fieldset
+      className="mt-6 rounded-2xl bg-white p-4 ring-1 ring-ink/10 md:p-5"
+      aria-busy={!!model.saving}
+    >
+      <legend className="sr-only">Pre-event documents this project needs</legend>
+      <p aria-hidden="true" className="text-body font-semibold text-ink">
+        Pre-event documents this project needs
+      </p>
+      <p className="mt-1 text-small text-ink-muted">
+        Only ticked documents are required. You can change a tick until its document has a file.
+      </p>
+      <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+        {model.choices.map((choice) => (
+          <label
+            key={choice.field}
+            className={cn(
+              'flex min-h-11 items-center gap-3 text-body text-ink',
+              choice.locked ? 'cursor-default' : 'cursor-pointer',
+            )}
+          >
+            <input
+              type="checkbox"
+              className="size-5 shrink-0 accent-forest-700"
+              checked={choice.checked}
+              disabled={choice.locked || model.saving !== null}
+              onChange={(event) => model.toggle(choice.field, event.target.checked)}
+            />
+            <span className="min-w-0">
+              {choice.label}
+              {choice.locked ? (
+                <span className="block text-small text-ink-muted">Has a file, so it stays</span>
+              ) : null}
+            </span>
+          </label>
+        ))}
+      </div>
+      {model.error ? (
+        <p role="alert" className="mt-2 text-small font-medium text-destructive">
+          {model.error}
+        </p>
+      ) : null}
+    </fieldset>
   );
 }
 
@@ -243,7 +298,14 @@ function TaskCard({ task }: { task: TaskItem }) {
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <h4 className="min-w-0 text-body-lg leading-snug font-semibold text-ink">{task.label}</h4>
+        <h4 className="min-w-0 text-body-lg leading-snug font-semibold text-ink">
+          {task.label}
+          {task.required ? null : (
+            <span className="ml-2 align-middle text-small font-medium text-ink-muted">
+              Optional
+            </span>
+          )}
+        </h4>
         <span
           className={cn(
             'inline-flex shrink-0 items-center gap-1.5 rounded-full border bg-white px-2.5 py-0.5 text-caption font-semibold',
@@ -256,6 +318,7 @@ function TaskCard({ task }: { task: TaskItem }) {
       </div>
 
       <div className="flex flex-col gap-2">
+        {task.note ? <p className="text-small text-ink-muted">{task.note}</p> : null}
         {task.deadline ? <DeadlineBadge deadline={task.deadline} /> : null}
         {task.status === 'open' && !task.deadline ? (
           <span className="text-small text-ink-muted">No deadline.</span>
@@ -268,6 +331,15 @@ function TaskCard({ task }: { task: TaskItem }) {
           </span>
         ) : null}
         {task.file ? <TaskFile file={task.file} /> : null}
+        {task.files.length > 0 ? (
+          <ul className="flex flex-col gap-3">
+            {task.files.map((file) => (
+              <li key={file.href}>
+                <LabelledFile file={file} taskLabel={task.label} />
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {task.figures?.saved ? (
           <SavedFigures figures={task.figures} correction={task.correction} />
         ) : null}
@@ -275,6 +347,51 @@ function TaskCard({ task }: { task: TaskItem }) {
 
       {task.canUpload ? <TaskUpload task={task} /> : null}
     </section>
+  );
+}
+
+/** One labelled file of a multi-file task ("Letter to the Dean"), with its own new version. */
+function LabelledFile({ file, taskLabel }: { file: TaskFileItem; taskLabel: string }) {
+  const input = useRef<HTMLInputElement>(null);
+  const busy = file.upload.status === 'uploading' || file.upload.status === 'saving';
+  return (
+    <div className="flex flex-col gap-2 rounded-xl bg-surface p-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-small font-semibold break-words text-ink">{file.label}</p>
+        <TaskFile file={file} />
+      </div>
+      {file.uploadVersion ? (
+        <div className="flex flex-col gap-1 sm:items-end">
+          <input
+            ref={input}
+            type="file"
+            accept={TASK_UPLOAD_ACCEPT}
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={(event) => {
+              const picked = event.target.files?.[0];
+              event.target.value = '';
+              if (picked) file.uploadVersion?.(picked);
+            }}
+          />
+          <PillButton
+            size="md"
+            variant="light"
+            disabled={busy}
+            onClick={() => input.current?.click()}
+            className="max-sm:w-full"
+          >
+            <FileUp aria-hidden="true" />
+            New version
+            <span className="sr-only">
+              : {taskLabel}, {file.label}
+            </span>
+          </PillButton>
+          <UploadProgress state={file.upload} label={`${taskLabel}, ${file.label}`} quiet />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -452,11 +569,73 @@ function TaskUpload({ task }: { task: TaskItem }) {
   const input = useRef<HTMLInputElement>(null);
   const state = task.upload;
   const busy = state.status === 'uploading' || state.status === 'saving';
-  const replacing = task.status === 'submitted' || task.file !== null;
+  // A multi-file task always adds another file; the others replace their one file.
+  const replacing = !task.multiFile && (task.status === 'submitted' || task.file !== null);
   return (
     <div className="flex flex-col gap-4 border-t border-border pt-4">
       {task.figures?.editable ? <FiguresFields figures={task.figures} disabled={busy} /> : null}
+      {task.newLabel ? (
+        <TextField
+          label={task.files.length > 0 ? 'Name the next file' : 'Name this file'}
+          hint={
+            task.type === 'COMMUNICATION_LETTER'
+              ? 'Who it is for, e.g. "Letter to the Dean"'
+              : 'What it is, e.g. "Venue reservation"'
+          }
+          autoComplete="off"
+          maxLength={80}
+          value={task.newLabel.value}
+          error={task.newLabel.error}
+          disabled={busy}
+          onChange={(event) => task.newLabel?.onChange(event.target.value)}
+        />
+      ) : null}
       <TaskUploadRow task={task} input={input} replacing={replacing} />
+    </div>
+  );
+}
+
+/** An upload's progress, outcome or error. `quiet`: nothing while idle. */
+function UploadProgress({
+  state,
+  label,
+  quiet = false,
+}: {
+  state: TaskUploadState;
+  label: string;
+  quiet?: boolean;
+}) {
+  const busy = state.status === 'uploading' || state.status === 'saving';
+  return (
+    <div aria-live="polite" className="text-small">
+      {busy ? (
+        <div className="flex flex-col gap-1">
+          <div
+            role="progressbar"
+            aria-label={`Upload of the ${label}`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={state.status === 'saving' ? 100 : state.progress}
+            className="h-1.5 w-full overflow-hidden rounded-full bg-surface-deep"
+          >
+            <div
+              className="bg-forest-band h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none"
+              style={{ width: `${state.status === 'saving' ? 100 : state.progress}%` }}
+            />
+          </div>
+          <span className="text-ink-muted">
+            {state.status === 'saving' ? 'Saving…' : `Uploading ${state.progress}%`}
+          </span>
+        </div>
+      ) : state.status === 'done' ? (
+        <span className="text-ink">Uploaded. It counts once the virus scan passes.</span>
+      ) : state.status === 'error' ? (
+        <span role="alert" className="font-medium text-destructive">
+          {state.message}
+        </span>
+      ) : quiet ? null : (
+        <span className="text-ink-muted">{TASK_FILE_TYPES_LABEL}</span>
+      )}
     </div>
   );
 }
@@ -506,39 +685,16 @@ function TaskUploadRow({
           className="self-start max-sm:w-full"
         >
           <FileUp aria-hidden="true" />
-          {replacing ? 'Upload a new version' : 'Upload file'}
+          {task.multiFile
+            ? task.files.length > 0
+              ? 'Add another file'
+              : 'Upload file'
+            : replacing
+              ? 'Upload a new version'
+              : 'Upload file'}
           <span className="sr-only">: {task.label}</span>
         </PillButton>
-        <div aria-live="polite" className="text-small">
-          {busy ? (
-            <div className="flex flex-col gap-1">
-              <div
-                role="progressbar"
-                aria-label={`Upload of the ${task.label}`}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={state.status === 'saving' ? 100 : state.progress}
-                className="h-1.5 w-full overflow-hidden rounded-full bg-surface-deep"
-              >
-                <div
-                  className="bg-forest-band h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none"
-                  style={{ width: `${state.status === 'saving' ? 100 : state.progress}%` }}
-                />
-              </div>
-              <span className="text-ink-muted">
-                {state.status === 'saving' ? 'Saving…' : `Uploading ${state.progress}%`}
-              </span>
-            </div>
-          ) : state.status === 'done' ? (
-            <span className="text-ink">Uploaded. It counts once the virus scan passes.</span>
-          ) : state.status === 'error' ? (
-            <span role="alert" className="font-medium text-destructive">
-              {state.message}
-            </span>
-          ) : (
-            <span className="text-ink-muted">{TASK_FILE_TYPES_LABEL}</span>
-          )}
-        </div>
+        <UploadProgress state={state} label={task.label} />
       </div>
     </div>
   );

@@ -20,7 +20,8 @@ export const TASK_FILE_TYPES_LABEL = 'PDF, JPG or PNG, up to 25 MB';
 /**
  * Files a task: an upload URL for that task, the bytes straight to storage (never through
  * Node), then the task's document with the visibility the officer chose. The task is
- * submitted once the virus scan passes. A Financial Report also sends its totals.
+ * submitted once the virus scan passes. A Financial Report also sends its totals; a
+ * Communication Letter or other pre-event document its label (or the file it replaces).
  */
 export async function uploadTaskFile(
   projectId: string,
@@ -30,6 +31,8 @@ export async function uploadTaskFile(
   actingAs: string,
   onStep: (step: TaskUploadStep) => void,
   figures?: FinancialFiguresInput,
+  /** Multi-file tasks: a new file's label, or the file a new version is for. */
+  target?: { label?: string; documentId?: string },
 ): Promise<ProjectDetail> {
   const contentType = contentTypeForFilename(file.name);
   const allowed = (TASK_UPLOAD_CONTENT_TYPES as readonly string[]).includes(contentType ?? '');
@@ -37,18 +40,25 @@ export async function uploadTaskFile(
     throw new RefusedFileError(`Use a ${TASK_FILE_TYPES_LABEL}.`);
   }
   onStep({ status: 'uploading', progress: 0 });
-  const target = await api.post(
+  const url = await api.post(
     `/projects/${projectId}/tasks/${type}/upload-url`,
     { filename: file.name, contentType, sizeBytes: file.size },
     { schema: uploadUrlResponseSchema },
   );
-  await putWithProgress(target.url, file, target.headers, (fraction) =>
+  await putWithProgress(url.url, file, url.headers, (fraction) =>
     onStep({ status: 'uploading', progress: Math.round(fraction * 100) }),
   );
   onStep({ status: 'saving' });
   return api.post(
     `/projects/${projectId}/tasks/${type}/documents`,
-    { uploadKey: target.uploadKey, visibility, actingAs, ...(figures && { figures }) },
+    {
+      uploadKey: url.uploadKey,
+      visibility,
+      actingAs,
+      ...(figures && { figures }),
+      ...(target?.label !== undefined && { label: target.label }),
+      ...(target?.documentId !== undefined && { documentId: target.documentId }),
+    },
     { schema: projectDetailSchema },
   );
 }

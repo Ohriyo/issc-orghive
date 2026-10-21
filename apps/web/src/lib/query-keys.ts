@@ -8,6 +8,8 @@ export const queryKeys = {
   },
   organizations: {
     detail: (slug: string) => ['organizations', 'detail', slug] as const,
+    /** GET /organizations/:slug/profile: the owning account's editor (hidden officers too). */
+    profile: (slug: string) => ['organizations', 'profile', slug] as const,
   },
   documents: {
     /** GET /search. Under 'documents', so every document mutation also refreshes searches. */
@@ -18,9 +20,21 @@ export const queryKeys = {
       ['documents', 'list', slug, filters] as const,
     detail: (id: string) => ['documents', 'detail', id] as const,
     types: ['documents', 'types'] as const,
+    /** GET /organizations/:slug/constitution. Under 'documents': uploads refresh it. */
+    constitution: (slug: string) => ['documents', 'constitution', slug] as const,
     /** My documents: what the user may see of an organization, by state, visibility, search. */
     mine: (slug: string, filters: { status?: string; visibility?: string; q?: string }) =>
       ['documents', 'mine', slug, filters] as const,
+  },
+  /** The Student Handbook: the current edition, past editions, search, and the ISSC's list. */
+  handbook: {
+    all: ['handbook'] as const,
+    /** `null`: the current edition. */
+    edition: (year: string | null) => ['handbook', 'edition', year ?? 'current'] as const,
+    editions: ['handbook', 'editions'] as const,
+    search: (year: string | null, q: string) =>
+      ['handbook', 'search', year ?? 'current', q] as const,
+    admin: ['handbook', 'admin'] as const,
   },
   /** Projects and their checklists (docs/PROJECT_WORKFLOW_SPEC.md, 2A and 2B). */
   projects: {

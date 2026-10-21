@@ -17,6 +17,13 @@ const JPICE: OrganizationDetail = {
   logoSrcSet: null,
   parent: null,
   college: null,
+  mission: null,
+  vision: null,
+  contactEmail: null,
+  links: [],
+  officers: [],
+  coverUrl: null,
+  coverSrcSet: null,
 };
 
 const PROPOSAL = {

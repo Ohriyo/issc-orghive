@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
+  CONSTITUTION_DOCUMENT_TYPE,
   documentSummarySchema,
   type DocumentSummary,
   type DocumentVisibility,
@@ -24,6 +25,8 @@ export interface DocumentPageModel {
   /** ISO date the document was uploaded. */
   date: string;
   hasFile: boolean;
+  /** Always public and amended only from the profile (docs/DOMAIN_RULES.md). */
+  isConstitution: boolean;
 }
 
 export function toDocumentPage(doc: DocumentSummary): DocumentPageModel {
@@ -44,6 +47,7 @@ export function toDocumentPage(doc: DocumentSummary): DocumentPageModel {
     visibility: doc.visibility,
     date: doc.createdAt,
     hasFile: doc.currentVersion !== null,
+    isConstitution: doc.type.slug === CONSTITUTION_DOCUMENT_TYPE.slug,
   };
 }
 
@@ -79,7 +83,8 @@ export function useDocument(id: string): DocumentPageState {
 
   if (query.data) {
     const page = query.data;
-    const canChange = isOwnOrganization(user, { slug: page.org.slug });
+    // A constitution is always public: nobody chooses who sees it.
+    const canChange = !page.isConstitution && isOwnOrganization(user, { slug: page.org.slug });
     return {
       status: 'ready',
       page,

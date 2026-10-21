@@ -29,6 +29,8 @@ function project(overrides: Partial<ProjectStandingFacts> = {}): ProjectStanding
     targetDate: '2026-10-20',
     nomRequired: false,
     momRequired: false,
+    communicationLetterRequired: false,
+    attendanceSheetRequired: false,
     submitted: {
       PROPOSAL: PROPOSAL_ON_TIME,
       ACR: REPORT_ON_TIME,
@@ -186,6 +188,62 @@ describe('scoreProject: late', () => {
       OPTIONS,
     );
     expect(score).toMatchObject({ implemented: false, late: false, points: 0 });
+  });
+});
+
+describe('scoreProject: pre-event documents (spec 5C, 2026-10-21)', () => {
+  /** Oct 20, 23:59:59.999 Manila: the last instant a Communication Letter is on time. */
+  const EVENT_DAY_END = new Date('2026-10-20T15:59:59.999Z');
+  const LETTER_LATE = new Date('2026-10-20T16:00:00Z');
+  const ticked = { communicationLetterRequired: true, attendanceSheetRequired: true };
+  const base = project().submitted;
+
+  it('is on time with a letter by the end of the event day and attendance with the reports', () => {
+    const score = scoreProject(
+      project({
+        ...ticked,
+        submitted: { ...base, COMMUNICATION_LETTER: EVENT_DAY_END, ATTENDANCE_SHEET: REPORTS_DUE },
+      }),
+      OPTIONS,
+    );
+    expect(score).toMatchObject({ implemented: true, late: false, points: 100 });
+  });
+
+  it('is late (0.5) when a ticked letter came after the event day', () => {
+    const score = scoreProject(
+      project({
+        ...ticked,
+        submitted: { ...base, COMMUNICATION_LETTER: LETTER_LATE, ATTENDANCE_SHEET: REPORTS_DUE },
+      }),
+      OPTIONS,
+    );
+    expect(score).toMatchObject({ implemented: true, late: true, points: 50 });
+  });
+
+  it('is late when a ticked attendance sheet came after the ACR deadline, or never', () => {
+    const lateSheet = project({
+      ...ticked,
+      submitted: { ...base, COMMUNICATION_LETTER: EVENT_DAY_END, ATTENDANCE_SHEET: REPORT_LATE },
+    });
+    expect(scoreProject(lateSheet, OPTIONS)).toMatchObject({ late: true, points: 50 });
+    const noSheet = project({
+      attendanceSheetRequired: true,
+      submitted: { ...base },
+    });
+    expect(scoreProject(noSheet, OPTIONS)).toMatchObject({ implemented: true, late: true });
+  });
+
+  it('ignores them when not ticked, and never counts NOM, MOM or other documents', () => {
+    const score = scoreProject(
+      project({ submitted: { ...base, COMMUNICATION_LETTER: LETTER_LATE, OTHER_PRE_EVENT: NOW } }),
+      OPTIONS,
+    );
+    expect(score).toMatchObject({ late: false, points: 100 });
+  });
+
+  it('does not count them toward implementation: ACR and Financial Report still decide', () => {
+    const score = scoreProject(project({ ...ticked, submitted: { ...base } }), OPTIONS);
+    expect(score.implemented).toBe(true);
   });
 });
 
@@ -436,13 +494,24 @@ describe('standingHints', () => {
     );
     // By event date, each with only what is still missing.
     expect(hints).toEqual([
-      expect.objectContaining({ kind: 'submit_reports', projectName: 'Project 1', missing: ['FINANCIAL_REPORT'] }),
-      expect.objectContaining({ kind: 'submit_reports', projectName: 'Project 2', missing: ['ACR', 'FINANCIAL_REPORT'] }),
+      expect.objectContaining({
+        kind: 'submit_reports',
+        projectName: 'Project 1',
+        missing: ['FINANCIAL_REPORT'],
+      }),
+      expect.objectContaining({
+        kind: 'submit_reports',
+        projectName: 'Project 2',
+        missing: ['ACR', 'FINANCIAL_REPORT'],
+      }),
     ]);
   });
 
   it('waits for the event day before asking for its reports (Manila time)', () => {
-    const upcoming = own('1', { targetDate: '2026-12-01', submitted: { PROPOSAL: PROPOSAL_ON_TIME } });
+    const upcoming = own('1', {
+      targetDate: '2026-12-01',
+      submitted: { PROPOSAL: PROPOSAL_ON_TIME },
+    });
     // 23:00 UTC on Nov 30 is already Dec 1 in Manila.
     expect(standingHints([upcoming], new Date('2026-11-30T15:00:00Z'))).toEqual([]);
     expect(standingHints([upcoming], new Date('2026-11-30T16:00:00Z'))).toHaveLength(1);

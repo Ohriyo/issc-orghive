@@ -41,6 +41,7 @@ function navItems(signedIn: boolean): NavItem[] {
   const items: NavItem[] = [
     { to: '/colleges', label: 'Colleges', section: 'colleges' },
     { to: '/leaderboard', label: 'Leaderboard', section: 'leaderboard' },
+    { to: '/handbook', label: 'Handbook', section: 'handbook' },
     { to: '/orgs/issc', label: 'ISSC', section: 'issc' },
   ];
   if (signedIn) items.push({ to: '/dashboard', label: 'Dashboard', section: 'dashboard' });
@@ -55,8 +56,8 @@ const ICON_BUTTON =
   'bg-forest-band grid size-11 shrink-0 cursor-pointer place-items-center rounded-full text-white shadow-pool';
 
 /**
- * The one header on every page (rendered by AppShell): logo home, Colleges, ISSC,
- * Dashboard when signed in, Search, and the user menu or Login. Below the full-width
+ * The one header on every page (rendered by AppShell): logo home, Colleges, Leaderboard,
+ * Handbook, ISSC, Dashboard when signed in, Search, and the user menu or Login. Below the full-width
  * breakpoint the links move into a menu dialog. Sticky, but in the page flow, so it never
  * covers content or carousel arrows.
  */

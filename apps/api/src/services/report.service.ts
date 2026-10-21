@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import {
-  PROJECT_TASK_LABELS,
   REPORT_DOCUMENT_TYPE,
   reportTitle,
   SEMESTER_LABELS,
@@ -12,7 +11,7 @@ import {
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 import { type Cache, invalidateDocuments } from '#src/lib/cache';
-import type { ReportQueue } from '#src/lib/queue';
+import type { PreviewQueue, ReportQueue } from '#src/lib/queue';
 import {
   assembleReport,
   loadSource,
@@ -38,9 +37,11 @@ import type { Actor } from './document.service';
 import type { NotificationService } from './notification.service';
 import {
   paginate,
+  partLabel,
   planReport,
   TOC_ROWS_PER_PAGE,
   tocPageCount,
+  type ReportFile,
   type ReportPart,
   type ReportProject,
 } from './report-rules';
@@ -53,8 +54,11 @@ export interface ReportServiceDeps {
   queue: ReportQueue;
   /** Opens a renderer for one report (Chromium in production). */
   renderer: () => Promise<HtmlToPdf>;
-  /** Page-1 preview, as for uploads; optional, a failure never fails the report. */
-  thumbnail?: (pdf: Uint8Array) => Promise<Buffer>;
+  /**
+   * Queues the report's watermarked page images, as for uploads (the worker passes it), so
+   * the owner can share it later. Optional; the worker's sweep queues any it misses.
+   */
+  previews?: PreviewQueue;
   sha256: (bytes: Uint8Array) => string;
   notifications: Pick<NotificationService, 'notify'>;
   audit: Pick<AuditLogRepository, 'record'>;
@@ -95,13 +99,22 @@ function toReport(rec: ReportRecord): SemestralReport {
   };
 }
 
+type ReportVersion = { storageKey: string; mimeType: string; scanStatus: string } | null;
+
+/** A clean current version as a report file; null for anything not clean. */
+function reportFileOf(version: ReportVersion | undefined, label?: string): ReportFile | null {
+  if (!version || version.scanStatus !== 'clean') return null;
+  return { storageKey: version.storageKey, mimeType: version.mimeType, ...(label && { label }) };
+}
+
 function toReportProject(p: ReportProjectRecord): ReportProject {
   const files: ReportProject['files'] = {};
   for (const task of p.tasks) {
-    const version = task.document?.currentVersion;
-    if (version && version.scanStatus === 'clean') {
-      files[task.type] = { storageKey: version.storageKey, mimeType: version.mimeType };
-    }
+    const found = [
+      reportFileOf(task.document?.currentVersion),
+      ...task.files.map((f) => reportFileOf(f.document.currentVersion, f.label)),
+    ].filter((f): f is ReportFile => f !== null);
+    if (found.length > 0) files[task.type] = found;
   }
   return {
     id: p.id,
@@ -111,6 +124,8 @@ function toReportProject(p: ReportProjectRecord): ReportProject {
     beneficiaries: p.beneficiaries,
     nomRequired: p.nomRequired,
     momRequired: p.momRequired,
+    communicationLetterRequired: p.communicationLetterRequired,
+    attendanceSheetRequired: p.attendanceSheetRequired,
     files,
   };
 }
@@ -131,7 +146,7 @@ export function createReportService({
   storage,
   queue,
   renderer,
-  thumbnail,
+  previews,
   sha256,
   notifications,
   audit,
@@ -161,11 +176,12 @@ export function createReportService({
       project: ReportProject,
       task: ProjectTaskType,
       reason: 'missing' | 'unreadable',
+      file?: ReportFile,
     ) =>
       generated({
         kind: 'placeholder',
         projectName: project.name,
-        taskLabel: PROJECT_TASK_LABELS[task],
+        taskLabel: partLabel(task, file),
         reason,
       });
 
@@ -212,7 +228,7 @@ export function createReportService({
         case 'file': {
           const source = sources.get(i)!;
           if (source.kind === 'unreadable')
-            return placeholder(part.project, part.task, 'unreadable');
+            return placeholder(part.project, part.task, 'unreadable', part.file);
           steps.push({ kind: 'source', source });
           return;
         }
@@ -278,16 +294,6 @@ export function createReportService({
 
     const key = `reports/${org.id}/${randomUUID()}.pdf`;
     await storage.put(key, Buffer.from(assembled.bytes), 'application/pdf');
-    let thumbnailKey: string | null = null;
-    if (thumbnail) {
-      try {
-        thumbnailKey = `thumbnails/reports/${rec.id}.webp`;
-        await storage.put(thumbnailKey, await thumbnail(assembled.bytes), 'image/webp');
-      } catch (err) {
-        thumbnailKey = null;
-        logger.warn({ err, reportId: rec.id }, 'Report: could not render a preview');
-      }
-    }
     const filename = `${org.slug}-semestral-end-report-${rec.academicYear}-${rec.semester}.pdf`;
     const doc = await documents.create({
       organizationId: org.id,
@@ -308,7 +314,6 @@ export function createReportService({
         sha256: sha256(assembled.bytes),
         scanStatus: 'clean',
         uploadedById: rec.requestedById,
-        thumbnailKey,
         processedAt: now(),
       },
     });
@@ -368,6 +373,11 @@ export function createReportService({
         const result = await build(rec, (n) => reports.setProgress(reportId, Math.min(n, 99)));
         await reports.finish(reportId, result.doc.id, now());
         await invalidateDocuments(cache, result.org.slug);
+        try {
+          await previews?.enqueuePreview(result.doc.currentVersion!.id);
+        } catch (err) {
+          logger.warn({ err, reportId }, 'Report: could not queue its preview');
+        }
         await audit.record({
           action: 'upload',
           actorId: rec.requestedById,

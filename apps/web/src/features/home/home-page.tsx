@@ -1,3 +1,4 @@
+import { useHandbookCard } from '@/features/handbook/presenters/use-handbook-editions';
 import { useHomeLeaderboard } from '@/features/leaderboard/presenters/use-leaderboard-views';
 import { usePageChrome } from '@/navigation/page-chrome';
 import { chrome } from '@/navigation/trails';
@@ -8,6 +9,7 @@ import { HomeView } from './views/home-view';
 export function HomePage() {
   const data = useHomeData();
   const leaderboard = useHomeLeaderboard();
+  const handbook = useHandbookCard();
   usePageChrome(chrome.home());
-  return <HomeView {...data} leaderboard={leaderboard} />;
+  return <HomeView {...data} leaderboard={leaderboard} handbook={handbook} />;
 }

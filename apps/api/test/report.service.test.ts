@@ -115,6 +115,39 @@ describe('the Semestral End Report', () => {
     expect(contents).toMatch(/Financial Report\s+8/);
   });
 
+  it('places labelled letters and the attendance sheet between the MOM and the ACR', async () => {
+    await seedReportProject(db, {
+      organizationId: world.orgs.jpice.id,
+      createdById: world.users.officer.id,
+      name: 'Bridge Design Competition',
+      targetDate: '2026-09-10',
+      communicationLetterRequired: true,
+      attendanceSheetRequired: true,
+      files: { PROPOSAL: 'proposal', ATTENDANCE_SHEET: 'nom', ACR: 'acr' },
+      labelled: [
+        { task: 'COMMUNICATION_LETTER', label: 'Letter to the Dean', file: 'mom' },
+        { task: 'COMMUNICATION_LETTER', label: 'Letter to the Guidance Office', file: 'proposal' },
+        { task: 'OTHER_PRE_EVENT', label: 'Venue reservation', file: 'photo' },
+      ],
+    });
+    const { pdf } = await generate();
+    const pages = await pageTexts(pdf!);
+    // cover 1, contents 2, divider 3, proposal 4, Dean letter 5-6, Guidance letter 7,
+    // attendance 8, venue 9, ACR 10-12, financial missing 13.
+    expect(pages).toHaveLength(13);
+    expect(pages[4]).toContain('FIXTURE-MOM page 1 of 2');
+    expect(pages[6]).toContain('FIXTURE-PROPOSAL page 1 of 1');
+    expect(pages[7]).toContain('FIXTURE-NOM page 1 of 1');
+    expect(pages[9]).toContain('FIXTURE-ACR page 1 of 3');
+    expect(pages[12]).toMatch(/Financial Report[\s\S]*Not submitted/);
+    const contents = pages[1]!;
+    expect(contents).toMatch(/Communication Letter: Letter to the Dean\s+5/);
+    expect(contents).toMatch(/Communication Letter: Letter to the Guidance Office\s+7/);
+    expect(contents).toMatch(/Attendance Sheet\s+8/);
+    expect(contents).toMatch(/Other pre-event document: Venue reservation\s+9/);
+    expect(contents).toMatch(/Activity Completion Report\s+10/);
+  });
+
   it('files it as a private, available document of the organization and tells the officer', async () => {
     const { stored } = await generate();
     expect(stored.document).toMatchObject({
@@ -132,6 +165,9 @@ describe('the Semestral End Report', () => {
       originalFilename: 'jpice-semestral-end-report-2026-2027-first.pdf',
     });
     expect(stored.document!.currentVersion!.sha256).toMatch(/^[0-9a-f]{64}$/);
+    // Its watermarked pages are rendered like any upload's, in case the officers share it.
+    expect(s.previewsQueued).toEqual([stored.document!.currentVersionId]);
+    expect(stored.document!.currentVersion!.thumbnailKey).toBeNull();
     expect(s.notified).toEqual([
       {
         userIds: [world.users.officer.id],

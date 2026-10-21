@@ -18,6 +18,8 @@ const projectStandingSelect = {
   targetDate: true,
   nomRequired: true,
   momRequired: true,
+  communicationLetterRequired: true,
+  attendanceSheetRequired: true,
   tasks: {
     where: { submittedAt: { not: null } },
     select: {
@@ -25,6 +27,8 @@ const projectStandingSelect = {
       submittedAt: true,
       // System view of the task's file: a deleted or refused file no longer counts.
       document: { select: { status: true, deletedAt: true } },
+      // A multi-file task (Communication Letters) counts while any of its files does.
+      files: { select: { document: { select: { status: true, deletedAt: true } } } },
     },
   },
   figures: { select: { incomeCentavos: true, expensesCentavos: true, flaggedAt: true } },

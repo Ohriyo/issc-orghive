@@ -259,6 +259,8 @@ export async function seedProject(
     description: 'A truss bridge competition.',
     nomRequired: false,
     momRequired: false,
+    communicationLetterRequired: false,
+    attendanceSheetRequired: false,
     createdById: input.createdById,
     createdAt: input.createdAt,
   };

@@ -73,6 +73,8 @@ async function seedDoneProject(
     description: 'A project for the leaderboard flow.',
     nomRequired: false,
     momRequired: false,
+    communicationLetterRequired: false,
+    attendanceSheetRequired: false,
     createdById: account.id,
     createdAt,
   };
@@ -149,6 +151,8 @@ try {
     description: 'Teams build and load-test balsa truss bridges.',
     nomRequired: false,
     momRequired: false,
+    communicationLetterRequired: false,
+    attendanceSheetRequired: false,
     createdById: account.id,
     createdAt,
   };

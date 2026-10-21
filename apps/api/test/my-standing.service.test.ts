@@ -27,11 +27,14 @@ const missingReports: OwnProjectRecord = {
   targetDate: new Date('2026-10-20T00:00:00Z'),
   nomRequired: false,
   momRequired: false,
+  communicationLetterRequired: false,
+  attendanceSheetRequired: false,
   tasks: [
     {
       type: 'PROPOSAL',
       submittedAt: new Date('2026-10-05T02:00:00Z'),
       document: { status: 'available', deletedAt: null },
+      files: [],
     },
   ],
   figures: null,

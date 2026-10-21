@@ -7,6 +7,7 @@ import {
   FileUp,
   Gavel,
   ListChecks,
+  BookOpen,
   Settings,
   ShieldAlert,
   type LucideIcon,
@@ -416,6 +417,12 @@ const PANEL_TEXT: Record<
     title: 'Administration',
     body: 'Organizations, memberships and accounts across Orghive.',
     action: 'Open admin',
+  },
+  handbook: {
+    icon: BookOpen,
+    title: 'Student Handbook',
+    body: 'Upload each academic year’s edition and choose the current one.',
+    action: 'Manage the handbook',
   },
 };
 

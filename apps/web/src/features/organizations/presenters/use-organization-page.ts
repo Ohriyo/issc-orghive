@@ -4,6 +4,8 @@ import {
   organizationSeo,
   type OrganizationDetail,
   type PageSeo,
+  type PublicOfficer,
+  type SocialKind,
 } from '@orghive/shared';
 import { api, ApiError } from '@/lib/api';
 import { emphasize, type TextSegment } from '@/lib/emphasis';
@@ -21,6 +23,28 @@ export interface OrganizationPageModel {
   paperworksHref: string;
   /** Where the organization sits in the hierarchy, e.g. "A student body organization of" + its college. */
   context: { lead: string; college: { name: string; href: string } } | null;
+  /** The cover photo band under the hero; none until the organization adds one. */
+  cover: { src: string; srcSet?: string } | null;
+  /** Mission and vision; null when it has written neither. */
+  about: { mission: string | null; vision: string | null } | null;
+  /** Public entries only: the API never sends hidden ones. */
+  officers: PublicOfficer[];
+  /** Null when it lists no email and no links. */
+  contact: { email: string | null; links: ContactLink[] } | null;
+}
+
+export interface ContactLink {
+  url: string;
+  kind: SocialKind;
+  /** "Facebook", or the website's host. */
+  label: string;
+  /** The address without https:// and a trailing slash, e.g. "facebook.com/jpice.nwssu". */
+  display: string;
+}
+
+/** A link as people read it: no scheme, no "www.", no trailing slash. */
+export function displayUrl(url: string): string {
+  return url.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
 }
 
 /** Shapes GET /organizations/:slug into the organization page. */
@@ -43,6 +67,16 @@ export function toOrganizationPage(org: OrganizationDetail): OrganizationPageMod
     context:
       lead && org.college
         ? { lead, college: { name: org.college.name, href: `/colleges/${org.college.slug}` } }
+        : null,
+    cover: org.coverUrl ? { src: org.coverUrl, srcSet: org.coverSrcSet ?? undefined } : null,
+    about: org.mission || org.vision ? { mission: org.mission, vision: org.vision } : null,
+    officers: org.officers,
+    contact:
+      org.contactEmail || org.links.length > 0
+        ? {
+            email: org.contactEmail,
+            links: org.links.map((link) => ({ ...link, display: displayUrl(link.url) })),
+          }
         : null,
   };
 }

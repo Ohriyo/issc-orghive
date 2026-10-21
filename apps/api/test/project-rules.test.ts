@@ -27,6 +27,8 @@ function facts(overrides: Partial<ProjectFacts> = {}, filed: ProjectTaskType[] =
     targetDate: '2026-10-20',
     nomRequired: false,
     momRequired: false,
+    communicationLetterRequired: false,
+    attendanceSheetRequired: false,
     exemptFromCompliance: false,
     proposalDueOverride: null,
     postEventDueOverride: null,
@@ -41,7 +43,12 @@ const statuses = (plan: ReturnType<typeof planProject>) =>
 describe('planProject: on creation', () => {
   it('opens the proposal, due at 23:59:59 Manila on day 14, and locks the reports', () => {
     const plan = planProject(facts(), CREATED);
-    expect(statuses(plan)).toEqual({ PROPOSAL: 'open', ACR: 'locked', FINANCIAL_REPORT: 'locked' });
+    expect(statuses(plan)).toEqual({
+      PROPOSAL: 'open',
+      OTHER_PRE_EVENT: 'locked',
+      ACR: 'locked',
+      FINANCIAL_REPORT: 'locked',
+    });
     expect(plan.tasks[0]!.dueAt).toEqual(PROPOSAL_DUE);
     expect(plan.proposalDueAt).toEqual(PROPOSAL_DUE);
     expect(plan.status).toBe('active');
@@ -60,6 +67,7 @@ describe('planProject: on creation', () => {
   it('adds NOM and MOM only when the project needs them, locked and without a deadline', () => {
     expect(planProject(facts(), CREATED).tasks.map((t) => t.type)).toEqual([
       'PROPOSAL',
+      'OTHER_PRE_EVENT',
       'ACR',
       'FINANCIAL_REPORT',
     ]);
@@ -68,6 +76,7 @@ describe('planProject: on creation', () => {
       'PROPOSAL',
       'NOM',
       'MOM',
+      'OTHER_PRE_EVENT',
       'ACR',
       'FINANCIAL_REPORT',
     ]);
@@ -76,9 +85,125 @@ describe('planProject: on creation', () => {
     expect(planProject(facts({ momRequired: true }), CREATED).tasks.map((t) => t.type)).toEqual([
       'PROPOSAL',
       'MOM',
+      'OTHER_PRE_EVENT',
       'ACR',
       'FINANCIAL_REPORT',
     ]);
+  });
+});
+
+/** Every pre-event document ticked (spec 2B, 2026-10-21). */
+const ALL_TICKED: Partial<ProjectFacts> = {
+  nomRequired: true,
+  momRequired: true,
+  communicationLetterRequired: true,
+  attendanceSheetRequired: true,
+};
+/** The end of the event day: Oct 20, 23:59:59.999 Manila. */
+const EVENT_DAY_END = new Date('2026-10-20T15:59:59.999Z');
+const task = (plan: ReturnType<typeof planProject>, type: ProjectTaskType) =>
+  plan.tasks.find((t) => t.type === type)!;
+
+describe('planProject: pre-event documents (spec 2B)', () => {
+  it('lists the ticked ones in checklist order, Attendance Sheet with the pre-event files', () => {
+    expect(planProject(facts(ALL_TICKED), CREATED).tasks.map((t) => t.type)).toEqual([
+      'PROPOSAL',
+      'NOM',
+      'MOM',
+      'COMMUNICATION_LETTER',
+      'ATTENDANCE_SHEET',
+      'OTHER_PRE_EVENT',
+      'ACR',
+      'FINANCIAL_REPORT',
+    ]);
+  });
+
+  it('leaves out the Communication Letter and Attendance Sheet unless ticked', () => {
+    const types = planProject(facts({ attendanceSheetRequired: true }), CREATED).tasks.map(
+      (t) => t.type,
+    );
+    expect(types).toContain('ATTENDANCE_SHEET');
+    expect(types).not.toContain('COMMUNICATION_LETTER');
+    expect(planProject(facts(), CREATED).tasks.map((t) => t.type)).not.toContain(
+      'ATTENDANCE_SHEET',
+    );
+  });
+
+  it('locks every pre-event document until the proposal is submitted, like NOM and MOM', () => {
+    expect(statuses(planProject(facts(ALL_TICKED), BEFORE_EVENT))).toMatchObject({
+      NOM: 'locked',
+      MOM: 'locked',
+      COMMUNICATION_LETTER: 'locked',
+      ATTENDANCE_SHEET: 'locked',
+      OTHER_PRE_EVENT: 'locked',
+    });
+    expect(statuses(planProject(facts(ALL_TICKED, ['PROPOSAL']), BEFORE_EVENT))).toMatchObject({
+      NOM: 'open',
+      MOM: 'open',
+      COMMUNICATION_LETTER: 'open',
+      ATTENDANCE_SHEET: 'open',
+      OTHER_PRE_EVENT: 'open',
+      ACR: 'locked',
+    });
+  });
+
+  it('dates the Communication Letter at the end of the event day', () => {
+    expect(task(planProject(facts(ALL_TICKED), CREATED), 'COMMUNICATION_LETTER').dueAt).toEqual(
+      EVENT_DAY_END,
+    );
+  });
+
+  it('dates the Attendance Sheet with the ACR, 14 days after the event', () => {
+    const plan = planProject(facts(ALL_TICKED), CREATED);
+    expect(task(plan, 'ATTENDANCE_SHEET').dueAt).toEqual(REPORTS_DUE);
+    expect(task(plan, 'ATTENDANCE_SHEET').dueAt).toEqual(task(plan, 'ACR').dueAt);
+  });
+
+  it('moves both with the event date, and the Attendance Sheet with an appeal override', () => {
+    const moved = planProject(facts({ ...ALL_TICKED, targetDate: '2026-10-25' }), CREATED);
+    expect(task(moved, 'COMMUNICATION_LETTER').dueAt).toEqual(new Date('2026-10-25T15:59:59.999Z'));
+    const override = new Date('2026-11-20T15:59:59.999Z');
+    const appealed = planProject(facts({ ...ALL_TICKED, postEventDueOverride: override }), CREATED);
+    expect(task(appealed, 'ATTENDANCE_SHEET').dueAt).toEqual(override);
+    // An appeal never moves the letter: it is due on the event day.
+    expect(task(appealed, 'COMMUNICATION_LETTER').dueAt).toEqual(EVENT_DAY_END);
+  });
+
+  it('keeps other pre-event documents optional and undated', () => {
+    const other = task(planProject(facts(), CREATED), 'OTHER_PRE_EVENT');
+    expect(other).toMatchObject({ required: false, dueAt: null });
+    expect(task(planProject(facts(), CREATED), 'PROPOSAL').required).toBe(true);
+  });
+
+  it('completes without other pre-event documents, but not without a ticked one', () => {
+    const reports: ProjectTaskType[] = ['PROPOSAL', 'NOM', 'MOM', 'ACR', 'FINANCIAL_REPORT'];
+    const withLetter = facts(ALL_TICKED, [...reports, 'ATTENDANCE_SHEET']);
+    expect(planProject(withLetter, EVENT_DAY).status).toBe('active');
+    const all = facts(ALL_TICKED, [...reports, 'ATTENDANCE_SHEET', 'COMMUNICATION_LETTER']);
+    expect(planProject(all, EVENT_DAY).status).toBe('completed');
+  });
+
+  it('shows the letter as the next deadline before the event, and reminds of it', () => {
+    const plan = planProject(facts(ALL_TICKED, ['PROPOSAL']), BEFORE_EVENT);
+    expect(nextDeadline(plan)).toEqual({ type: 'COMMUNICATION_LETTER', dueAt: EVENT_DAY_END });
+    const threeDaysBefore = new Date('2026-10-17T02:00:00Z');
+    expect(
+      deadlinesSoon(planProject(facts(ALL_TICKED, ['PROPOSAL']), threeDaysBefore), threeDaysBefore),
+    ).toContainEqual({ type: 'COMMUNICATION_LETTER', dueAt: EVENT_DAY_END });
+  });
+
+  it('never freezes the organization for a late letter or attendance sheet (points only)', () => {
+    const late = ms(REPORTS_DUE, 1);
+    const plan = planProject(facts(ALL_TICKED, ['PROPOSAL', 'ACR', 'FINANCIAL_REPORT']), late);
+    expect(plan.overdueReports).toEqual([]);
+  });
+
+  it('locks them all while the project is blocked', () => {
+    expect(statuses(planProject(facts(ALL_TICKED), ms(PROPOSAL_DUE, 1)))).toMatchObject({
+      COMMUNICATION_LETTER: 'locked',
+      ATTENDANCE_SHEET: 'locked',
+      OTHER_PRE_EVENT: 'locked',
+    });
   });
 });
 
@@ -164,6 +289,7 @@ describe('planProject: proposal deadline (spec 3A)', () => {
     expect(statuses(plan)).toEqual({
       PROPOSAL: 'locked',
       NOM: 'locked',
+      OTHER_PRE_EVENT: 'locked',
       ACR: 'locked',
       FINANCIAL_REPORT: 'locked',
     });

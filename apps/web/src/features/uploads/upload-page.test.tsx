@@ -19,6 +19,13 @@ const JPICE: OrganizationDetail = {
   logoSrcSet: null,
   parent: null,
   college: null,
+  mission: null,
+  vision: null,
+  contactEmail: null,
+  links: [],
+  officers: [],
+  coverUrl: null,
+  coverSrcSet: null,
 };
 const TYPE = {
   id: '0195f3c0-0000-7000-8000-0000000000e1',

@@ -48,6 +48,7 @@ function sbo(slug: string): OrganizationRecord {
     logoWidths: [],
     parentId: CSC_CEA.id,
     deactivatedAt: null,
+    constitutionDocumentId: null,
     parent: null,
     college: null,
   };

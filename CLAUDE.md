@@ -29,12 +29,18 @@ The current officer in charge (name, position, contact email, term) lives in `of
 
 Document lifecycle: `uploading → scanning → available | quarantined → archived` (`uploading` is browser-side only). Deletes are soft (`deleted_at`). Re-uploads create a new row in `document_versions`. Never overwrite a file.
 
+**View only for everyone else.** Non-owners view documents only through the page-image viewer; originals are served only to the owning organization. Visibility decides who may *view*; only the owning account may *download* (`GET …/download-url` is `requireAuth + requireOwnOrg`, and `document.service` checks again), never visitors, other organizations, governing bodies or the super admin. After a clean scan the worker's `render-preview` job (`preview.service.ts`, queue `previews`) renders each page (up to `MAX_PREVIEW_PAGES`) as a WebP stamped "NwSSU Orghive · View only" (`lib/preview-render.ts`; DOCX/XLSX/PPTX go to PDF through Gotenberg's LibreOffice first, `lib/office-converter.ts`), stored privately under `pages/{documentId}/{versionId}/{n}.webp`, and the card thumbnail from page 1. `GET /documents/:id/viewer` returns the page list and a 5-minute page token (`page-token.service.ts`, its own JWT audience); `GET /documents/:id/pages/:n?token=` serves one image (`private`, rate-limited per IP). Until a version's `previewStatus` is `ready` the viewer says "Preparing preview…" and no thumbnail is shown. `pnpm --filter api pages:backfill` queues files from before previews; the worker's sweep catches lost jobs. Never serve an original, or an unwatermarked thumbnail, to a non-owner.
+
 **Documents are never reviewed or approved** (`docs/PROJECT_WORKFLOW_SPEC.md` section 0). Do not add review statuses, approve/reject endpoints, a review queue or reviewer dashboards for documents. Who sees a document is its `visibility` alone, set by the owning organization's account on upload (default `private`) and changeable any time (`PATCH /documents/:id/visibility`, `requireOwnOrg`, audited):
 - `public`: anyone, signed in or not. `governing`: the organization and its governing bodies. `private`: the organization's account only, with no exception for its CSC, the ISSC or the super admin.
 - The owning account sees its documents in every state (scanning, quarantined, archived); everyone else sees available ones only.
 - The only approvals in Orghive are **appeals** to unblock a project or an organization (F11).
 
-**Projects** (spec 2A/2B) each have a milestone checklist (`ProjectTask`). Every unlock and deadline rule lives in one pure function, `apps/api/src/services/project-rules.ts`; never re-implement it elsewhere. Deadlines are 14 Manila calendar days (`packages/shared/src/manila-time.ts`). A task's file goes through the normal document pipeline, and the task is submitted once that file passes the scan.
+**Organization profile and Constitution & By-laws** (`docs/DOMAIN_RULES.md`): the own account edits its profile at `/dashboard/profile` (`profile.service.ts`; logos and covers go to the public `logos/` prefix, covers under `logos/covers/`; raw image uploads carry "Acting as" in `X-Orghive-Acting-As`, percent-encoded). Hidden officers are filtered in the repository. The constitution (`constitution.service.ts`, `organizations.constitution_document_id`) is always public and view-only, amended only from the profile with a note and a date, never archived or deleted; `document.service` refuses everything else for its type (`isConstitutionType`). Anyone may view any of its versions; never re-implement those rules.
+
+**Student Handbook** (`docs/DOMAIN_RULES.md`): the ISSC account uploads one PDF edition per academic year at `/admin/handbook`; one edition is current (`/handbook`). Editions are `student-handbook` documents of the ISSC (`handbook_editions`, one current by a partial unique index), never removed, always public and view-only, downloaded by the ISSC account only. Its rules live in `handbook-rules.ts`; which document types are managed (constitution, handbook) and what the general document routes refuse lives in `managed-document-rules.ts`. Never re-implement them. The preview worker also stores the PDF's outline, each page's text (`document_page_texts`, searched by prefix) and page thumbnails (`?size=thumb` on the page route) for handbook versions. Handbook caches sit under `org:{isscSlug}:docs:handbook:*`, so the usual document invalidation covers them.
+
+**Projects** (spec 2A/2B) each have a milestone checklist (`ProjectTask`). Every unlock and deadline rule lives in one pure function, `apps/api/src/services/project-rules.ts`; never re-implement it elsewhere. Deadlines are 14 Manila calendar days (`packages/shared/src/manila-time.ts`). A task's file goes through the normal document pipeline, and the task is submitted once that file passes the scan. Optional pre-event documents (NOM, MOM, Communication Letter, Attendance Sheet) are ticked per project (`PRE_EVENT_CHOICES`); Communication Letters and other pre-event documents hold several labelled files (`MULTI_FILE_TASK_TYPES`, `project_task_files`), every other task one file.
 
 **Compliance and appeals** (spec 3, `docs/DOMAIN_RULES.md`): `planProject` also decides when a project is blocked (proposal late) and which reports are overdue (the organization freezes, `OrgFreeze`). Who decides an appeal (the parent organization's account; the ISSC when a deciding CSC account is vacant, audited `admin_override`) lives in one pure function, `apps/api/src/services/appeal-rules.ts`; never re-implement it. The ISSC is exempt: its projects never block or freeze. Checks run hourly (`check-compliance` job) and on read, and must stay idempotent: act on a block only when `applyPlan` reports the status change, and give every notification a dedupe key.
 
@@ -71,18 +77,20 @@ Layer rules. These are the ones most often broken, so check every change against
 
 - Web: React Router, TanStack Query, Tailwind CSS, shadcn/ui, Framer Motion (`motion`), Embla Carousel, React Hook Form + Zod, react-pdf
 - API: Prisma + PostgreSQL, Redis (ioredis), BullMQ, `jose` for JWT, Argon2id, helmet, express-rate-limit, pino, Multer only for small images
-- Files: S3-compatible object storage (MinIO locally). Bytes go browser ↔ storage via pre-signed URLs and never through Node.
+- Files: S3-compatible object storage (MinIO locally). Bytes go browser ↔ storage via pre-signed URLs and never through Node. The one exception is the viewer's small watermarked page images, which the API streams so every request checks its page token.
+- Previews: Gotenberg (headless LibreOffice, `GOTENBERG_URL`) converts Office files; `unpdf` + `@napi-rs/canvas` render pages; `sharp` resizes.
 - Tests: Vitest, React Testing Library, Supertest, Playwright
 
 ## Commands
 
 ```bash
 pnpm install
-docker compose up -d                 # postgres, redis, minio, mailpit, clamav (first start: a few minutes)
+docker compose up -d                 # postgres, redis, minio, mailpit, clamav, gotenberg (first start: a few minutes)
 pnpm --filter api keys:generate >> apps/api/.env   # once: JWT signing keys + MFA_ENCRYPTION_KEY
 pnpm --filter api prisma migrate dev
 pnpm --filter api db:seed            # 7 colleges, ISSC, CSCs, sample SBOs
 pnpm --filter api create-super-admin --email <email>   # the developer's /system account (prompts)
+pnpm --filter api pages:backfill     # once: queue view-only page images for files from before previews
 pnpm dev                             # web :5173, api :4000, worker
 pnpm test                            # all unit + API tests
 pnpm --filter api test:coverage      # API tests with coverage; services must stay ≥ 80% (each file)
@@ -100,7 +108,8 @@ pnpm lint && pnpm typecheck          # run before every commit
 - Validate every body, query and param with Zod. Never trust `req.body` unvalidated.
 - Uploads: allow-list PDF, DOCX, XLSX, PPTX, JPG and PNG. Check magic bytes. Max 25 MB. Each upload stays `scanning` (visible to its own organization only) until the ClamAV scan passes.
 - The worker scans a server-side copy of each upload (`uploads/…` → `files/…`) and only that copy is ever served; the `uploads/` object is deleted. A pre-signed PUT stays valid for minutes, so scanning or serving the `uploads/` key would let a clean file be swapped for an unscanned one.
-- Downloads use signed URLs that expire in 5 minutes. The bucket is private.
+- Downloads use signed URLs that expire in 5 minutes, for the owning organization's account only. The bucket is private.
+- Non-owners view documents only through the page-image viewer; originals are served only to the owning organization. Page images are watermarked, served with a 5-minute signed page token, `Cache-Control: private`, `Content-Disposition: inline` and `nosniff`, rate-limited per IP. The viewer blocks right-click, drag and printing; that only removes the easy ways to save a page, never screenshots, so never claim more.
 - Whatever serves the web app (`apps/web/dist`) sends `securityHeaders()` from `apps/web/security-headers.mjs` (CSP with `frame-ancestors 'none'`, HSTS, nosniff…), with `storageOrigin` set to the public storage endpoint. `vite preview` already does; the visual suite fails on any CSP violation.
 - Never log tokens, passwords or full request bodies. Secrets come from env only; keep `.env.example` current.
 - Write an audit log entry for login, upload, visibility change, archive/restore, delete, account changes, appeal decisions (approve/reject, including the ISSC's `admin_override` for a vacant seat), and every super admin action.

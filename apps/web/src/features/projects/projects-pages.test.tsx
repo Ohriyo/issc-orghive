@@ -77,20 +77,48 @@ function project(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
     postEventDueAt,
     nomRequired: true,
     momRequired: false,
+    communicationLetterRequired: false,
+    attendanceSheetRequired: false,
     nextDeadline: { type: 'PROPOSAL', dueAt: proposalDueAt },
     organization: { type: 'SBO', slug: 'jpice', acronym: 'JPICE', name: 'JPICE full name' },
     createdAt: createdAt.toISOString(),
     updatedAt: createdAt.toISOString(),
     tasks: [
-      { type: 'PROPOSAL', status: 'open', dueAt: proposalDueAt, submittedAt: null, document: null },
-      { type: 'NOM', status: 'locked', dueAt: null, submittedAt: null, document: null },
-      { type: 'ACR', status: 'locked', dueAt: postEventDueAt, submittedAt: null, document: null },
       {
-        type: 'FINANCIAL_REPORT',
+        type: 'PROPOSAL',
+        status: 'open',
+        required: true,
+        dueAt: proposalDueAt,
+        submittedAt: null,
+        document: null,
+        files: [],
+      },
+      {
+        type: 'NOM',
         status: 'locked',
+        required: true,
+        dueAt: null,
+        submittedAt: null,
+        document: null,
+        files: [],
+      },
+      {
+        type: 'ACR',
+        status: 'locked',
+        required: true,
         dueAt: postEventDueAt,
         submittedAt: null,
         document: null,
+        files: [],
+      },
+      {
+        type: 'FINANCIAL_REPORT',
+        status: 'locked',
+        required: true,
+        dueAt: postEventDueAt,
+        submittedAt: null,
+        document: null,
+        files: [],
       },
     ],
     financialFigures: null,
@@ -153,7 +181,12 @@ beforeEach(() => {
       stored = [created];
       return json(created, 201);
     }
+    if (url.endsWith(`/projects/${PROJECT_ID}`) && method === 'PATCH') {
+      stored = [{ ...stored[0]!, ...(body as object) }];
+      return json(stored[0]);
+    }
     if (url.endsWith(`/projects/${PROJECT_ID}`)) return json(stored[0]);
+    if (url.endsWith('/tasks/COMMUNICATION_LETTER/documents')) return json(stored[0], 201);
     if (/\/tasks\/\w+\/upload-url$/.test(url)) {
       return json(
         {
@@ -366,7 +399,32 @@ describe('/dashboard/projects/new', () => {
       description: 'A truss bridge competition.',
       nomRequired: true,
       momRequired: false,
+      communicationLetterRequired: false,
+      attendanceSheetRequired: false,
     });
+  });
+
+  it('sends the Communication Letter and Attendance Sheet ticks', async () => {
+    renderAt('/dashboard/projects/new?org=jpice');
+    const fill = (label: RegExp, value: string) =>
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    await screen.findByRole('button', { name: 'Create project' }, { timeout: 5000 });
+    fill(/Project name/, 'Inter-Year Bridge Design Competition');
+    fill(/Target date/, addDays(today, 20));
+    fill(/^Location/, 'CEA Building');
+    fill(/Target beneficiaries/, 'Civil engineering students');
+    fill(/Brief description/, 'A truss bridge competition.');
+    fireEvent.click(screen.getByRole('checkbox', { name: /Communication Letter/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Attendance Sheet/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'POST')?.body).toMatchObject({
+        nomRequired: false,
+        momRequired: false,
+        communicationLetterRequired: true,
+        attendanceSheetRequired: true,
+      }),
+    );
   });
 
   it('opens the form for the account’s own organization, whatever ?org= names', async () => {
@@ -512,9 +570,7 @@ describe('/projects/:id', () => {
     const input = report.querySelector<HTMLInputElement>('input[type="file"]')!;
     fireEvent.change(input, { target: { files: [new File(['%PDF-1.7'], 'report.pdf')] } });
     await waitFor(() =>
-      expect(
-        calls.find((c) => c.url.endsWith('/tasks/FINANCIAL_REPORT/documents'))?.body,
-      ).toEqual({
+      expect(calls.find((c) => c.url.endsWith('/tasks/FINANCIAL_REPORT/documents'))?.body).toEqual({
         uploadKey: UPLOAD_KEY,
         visibility: 'private',
         actingAs: 'Juan Dela Cruz',
@@ -658,9 +714,7 @@ describe('/projects/:id', () => {
     expect(within(report).getByRole('textbox', { name: 'Total income (₱)' })).toHaveValue(
       '12345.05',
     );
-    expect(within(report).getByRole('textbox', { name: 'Total expenses (₱)' })).toHaveValue(
-      '0.00',
-    );
+    expect(within(report).getByRole('textbox', { name: 'Total expenses (₱)' })).toHaveValue('0.00');
   });
 
   it('shows a governing body (its CSC) the checklist without upload controls', async () => {
@@ -680,5 +734,197 @@ describe('/projects/:id', () => {
     expect(
       await screen.findByRole('heading', { name: 'Project not found' }, { timeout: 5000 }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('/projects/:id pre-event documents', () => {
+  const LETTER_ID = '0195f3c0-0000-7000-8000-0000000000b1';
+  const LETTER_2_ID = '0195f3c0-0000-7000-8000-0000000000b2';
+  const letterFile = (id: string, label: string) => ({
+    label,
+    document: {
+      id,
+      title: `Communication Letter: ${label}`,
+      status: 'available' as const,
+      visibility: 'private' as const,
+    },
+  });
+
+  /** Proposal in; a letter to the Dean filed; attendance ticked and open. */
+  function withPreEvent(): ProjectDetail {
+    const base = project();
+    const eventEnd = new Date(`${base.targetDate}T23:59:59.999+08:00`).toISOString();
+    return project({
+      nomRequired: false,
+      communicationLetterRequired: true,
+      attendanceSheetRequired: true,
+      tasks: [
+        { ...base.tasks[0]!, status: 'submitted', submittedAt: new Date().toISOString() },
+        {
+          type: 'COMMUNICATION_LETTER',
+          status: 'submitted',
+          required: true,
+          dueAt: eventEnd,
+          submittedAt: new Date().toISOString(),
+          document: null,
+          files: [letterFile(LETTER_ID, 'Letter to the Dean')],
+        },
+        {
+          type: 'ATTENDANCE_SHEET',
+          status: 'open',
+          required: true,
+          dueAt: base.postEventDueAt,
+          submittedAt: null,
+          document: null,
+          files: [],
+        },
+        {
+          type: 'OTHER_PRE_EVENT',
+          status: 'open',
+          required: false,
+          dueAt: null,
+          submittedAt: null,
+          document: null,
+          files: [],
+        },
+        ...base.tasks.slice(2),
+      ],
+    });
+  }
+
+  beforeEach(() => {
+    stored = [withPreEvent()];
+  });
+
+  it('lists the new steps with their deadlines, labelled letters and the optional one', async () => {
+    renderAt(`/projects/${PROJECT_ID}`);
+    const letters = await screen.findByRole(
+      'region',
+      { name: 'Communication Letter' },
+      { timeout: 5000 },
+    );
+    expect(within(letters).getByText('Letter to the Dean')).toBeInTheDocument();
+    expect(
+      within(letters).getByText('Due by the end of the event day. Add one file for each office.'),
+    ).toBeInTheDocument();
+    expect(within(letters).getByRole('button', { name: /Add another file/ })).toBeInTheDocument();
+    const sheet = screen.getByRole('region', { name: 'Attendance Sheet' });
+    expect(within(sheet).getByText(/due with the Activity Completion Report/)).toBeInTheDocument();
+    expect(within(sheet).getByText(/Due in \d+ days/)).toBeInTheDocument();
+    const other = screen.getByRole('region', { name: /Other pre-event document/ });
+    expect(within(other).getByText('Optional')).toBeInTheDocument();
+    // All three are listed under Pre-event, before the event step.
+    const order = screen
+      .getAllByRole('region')
+      .map((r) => r.getAttribute('aria-label'))
+      .filter(Boolean);
+    expect(order.indexOf('Attendance Sheet')).toBeLessThan(
+      order.indexOf('Activity Completion Report'),
+    );
+  });
+
+  it('asks for a label before sending another letter, then sends it', async () => {
+    renderAt(`/projects/${PROJECT_ID}`);
+    const letters = await screen.findByRole(
+      'region',
+      { name: 'Communication Letter' },
+      { timeout: 5000 },
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Acting as' }), {
+      target: { value: 'Juan Dela Cruz' },
+    });
+    fireEvent.click(within(letters).getByRole('button', { name: /Add another file/ }));
+    expect(await within(letters).findByText(/Name this file/)).toBeInTheDocument();
+    expect(calls.some((c) => c.url.includes('/upload-url'))).toBe(false);
+
+    fireEvent.change(within(letters).getByRole('textbox', { name: /Name the next file/ }), {
+      target: { value: 'Letter to the Guidance Office' },
+    });
+    const inputs = letters.querySelectorAll<HTMLInputElement>('input[type="file"]');
+    const addInput = inputs[inputs.length - 1]!;
+    fireEvent.change(addInput, {
+      target: { files: [new File(['%PDF-1.7'], 'letter.pdf', { type: 'application/pdf' })] },
+    });
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.url.endsWith('/tasks/COMMUNICATION_LETTER/documents'))?.body,
+      ).toEqual({
+        uploadKey: UPLOAD_KEY,
+        visibility: 'private',
+        actingAs: 'Juan Dela Cruz',
+        label: 'Letter to the Guidance Office',
+      }),
+    );
+  });
+
+  it('uploads a new version of one letter by its document', async () => {
+    stored = [
+      (() => {
+        const p = withPreEvent();
+        p.tasks[1]!.files.push(letterFile(LETTER_2_ID, 'Letter to the Guidance Office'));
+        return p;
+      })(),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    const letters = await screen.findByRole(
+      'region',
+      { name: 'Communication Letter' },
+      { timeout: 5000 },
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Acting as' }), {
+      target: { value: 'Juan Dela Cruz' },
+    });
+    const second = within(letters)
+      .getByText('Letter to the Guidance Office')
+      .closest('div')!.parentElement!;
+    const input = second.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: { files: [new File(['%PDF-1.7'], 'v2.pdf', { type: 'application/pdf' })] },
+    });
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.url.endsWith('/tasks/COMMUNICATION_LETTER/documents'))?.body,
+      ).toEqual({
+        uploadKey: UPLOAD_KEY,
+        visibility: 'private',
+        actingAs: 'Juan Dela Cruz',
+        documentId: LETTER_2_ID,
+      }),
+    );
+  });
+
+  it('lets the organization change a tick until that document has a file', async () => {
+    renderAt(`/projects/${PROJECT_ID}`);
+    const group = await screen.findByRole(
+      'group',
+      { name: 'Pre-event documents this project needs' },
+      { timeout: 5000 },
+    );
+    const letter = within(group).getByRole('checkbox', { name: /Communication Letter/ });
+    expect(letter).toBeChecked();
+    expect(letter).toBeDisabled(); // it has a file
+    const nom = within(group).getByRole('checkbox', { name: /Notice of Meeting/ });
+    expect(nom).not.toBeChecked();
+    fireEvent.click(nom);
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({
+        url: `/api/v1/projects/${PROJECT_ID}`,
+        body: { nomRequired: true },
+      }),
+    );
+  });
+
+  it('shows a governing body the steps without the ticks or upload controls', async () => {
+    role = 'governing';
+    renderAt(`/projects/${PROJECT_ID}`);
+    const letters = await screen.findByRole(
+      'region',
+      { name: 'Communication Letter' },
+      { timeout: 5000 },
+    );
+    expect(screen.queryByRole('group', { name: /Pre-event documents/ })).not.toBeInTheDocument();
+    expect(
+      within(letters).queryByRole('button', { name: /Add|New version/ }),
+    ).not.toBeInTheDocument();
   });
 });

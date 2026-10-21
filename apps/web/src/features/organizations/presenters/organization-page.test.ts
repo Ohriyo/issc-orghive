@@ -13,6 +13,13 @@ const JPICE: OrganizationDetail = {
   logoSrcSet: null,
   parent: null,
   college: { code: 'CEA', slug: 'cea', name: 'College of Engineering and Architecture' },
+  mission: null,
+  vision: null,
+  contactEmail: null,
+  links: [],
+  officers: [],
+  coverUrl: null,
+  coverSrcSet: null,
 };
 
 describe('toOrganizationPage', () => {

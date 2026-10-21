@@ -189,8 +189,68 @@ export const documentVersionListResponseSchema = z
   .meta({ id: 'DocumentVersionList' });
 export type DocumentVersionListResponse = z.infer<typeof documentVersionListResponseSchema>;
 
-/** GET /documents/:documentId/versions/:versionId/download-url: a 5-minute signed link. */
+/**
+ * GET /documents/:documentId/versions/:versionId/download-url: a 5-minute signed link to the
+ * original file, for the owning organization's account only (everyone else views pages).
+ */
 export const downloadUrlResponseSchema = z
   .object({ url: z.url(), expiresAt: z.iso.datetime() })
   .meta({ id: 'DownloadUrlResponse' });
 export type DownloadUrlResponse = z.infer<typeof downloadUrlResponseSchema>;
+
+/**
+ * The view-only preview of a version: page images the worker renders and watermarks
+ * ("NwSSU Orghive · View only"). Non-owners view documents only through these; the original
+ * file is served to the owning organization alone (CLAUDE.md, "Security rules").
+ * - pending: not rendered yet (new uploads, and files from before previews existed).
+ * - ready: every page (up to MAX_PREVIEW_PAGES) is rendered.
+ * - failed: the file could not be rendered (damaged or encrypted).
+ */
+export const PREVIEW_STATUSES = ['pending', 'ready', 'failed'] as const;
+export const previewStatusSchema = z.enum(PREVIEW_STATUSES);
+export type PreviewStatus = z.infer<typeof previewStatusSchema>;
+
+/** Longer files are previewed up to this page; the owner can still download the whole file. */
+export const MAX_PREVIEW_PAGES = 500;
+
+/** One rendered page's size in px, so the viewer can reserve its space before it loads. */
+export const previewPageSchema = z.object({
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+});
+export type PreviewPage = z.infer<typeof previewPageSchema>;
+
+/**
+ * GET /documents/:documentId/viewer: the current version's preview. `token` signs every page
+ * request for 5 minutes (`expiresAt`); the client asks again for a fresh one before then.
+ * Pages are fetched from GET /documents/:documentId/pages/:page?token=…
+ */
+export const documentViewerResponseSchema = z
+  .object({
+    versionId: z.uuid(),
+    status: previewStatusSchema,
+    pages: z.array(previewPageSchema),
+    /** How many pages the file has; more than `pages.length` when it was capped. */
+    totalPages: z.number().int().nonnegative(),
+    token: z.string().nullable(),
+    expiresAt: z.iso.datetime().nullable(),
+  })
+  .meta({ id: 'DocumentViewer' });
+export type DocumentViewerResponse = z.infer<typeof documentViewerResponseSchema>;
+
+/** Route params and query for GET /documents/:documentId/pages/:page. */
+export const documentPageParamsSchema = z.object({
+  documentId: z.uuid(),
+  page: z.coerce.number().int().min(1).max(MAX_PREVIEW_PAGES),
+});
+export const documentPageQuerySchema = z.object({
+  token: z.string().min(1).max(2048),
+  /** `thumb`: the small copy the handbook's contents show when the PDF has no bookmarks. */
+  size: z.enum(['full', 'thumb']).default('full'),
+});
+
+/**
+ * GET /documents/:documentId/viewer?versionId=: an older version. Any version of a
+ * Constitution & By-laws; for other documents, the owning account's own only.
+ */
+export const documentViewerQuerySchema = z.object({ versionId: z.uuid().optional() });

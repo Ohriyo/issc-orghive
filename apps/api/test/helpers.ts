@@ -18,8 +18,20 @@ const unwiredServices: AppServices = {
   tokens: { verify: () => unwired('tokens') },
   colleges: { list: () => unwired('colleges'), getBySlug: () => unwired('colleges') },
   organizations: { getBySlug: () => unwired('organizations') },
+  profiles: new Proxy({} as AppServices['profiles'], {
+    get: (_t, key) => () => unwired(`profiles.${String(key)}`),
+  }),
+  constitutions: new Proxy({} as AppServices['constitutions'], {
+    get: (_t, key) => () => unwired(`constitutions.${String(key)}`),
+  }),
+  handbook: new Proxy({} as AppServices['handbook'], {
+    get: (_t, key) => () => unwired(`handbook.${String(key)}`),
+  }),
   documents: new Proxy({} as AppServices['documents'], {
     get: (_t, key) => () => unwired(`documents.${String(key)}`),
+  }),
+  documentPreviews: new Proxy({} as AppServices['documentPreviews'], {
+    get: (_t, key) => () => unwired(`documentPreviews.${String(key)}`),
   }),
   uploads: new Proxy({} as AppServices['uploads'], {
     get: (_t, key) => () => unwired(`uploads.${String(key)}`),

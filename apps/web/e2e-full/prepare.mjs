@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Before the full-stack suite: a clean orghive_e2e database (migrated, seeded, plus the e2e
- * seed) and an empty Redis index 2. Then the suite starts the API, worker and web app.
+ * Before the full-stack suite: an empty Redis index 2 and a clean orghive_e2e database
+ * (migrated, seeded, plus the e2e seed). Then the suite starts the API, worker and web app.
  * Services come from `docker compose up -d` (postgres, redis, minio, clamav, mailpit).
  */
 import { spawnSync } from 'node:child_process';
@@ -23,13 +23,14 @@ function step(label, command, args) {
 }
 
 step('reset the e2e database', 'pnpm', ['exec', 'prisma', 'migrate', 'reset', '--force']);
-step('seed', 'pnpm', ['exec', 'tsx', 'prisma/seed/seed.ts']);
-step('e2e seed', 'pnpm', ['exec', 'tsx', 'prisma/seed/e2e.ts']);
-
+// Before seeding: the seed queues the sample files' previews there for the worker.
 // ioredis is the API's dependency, so this runs from its package.
 step('empty Redis index 2', 'node', [
   '--input-type=module',
   '-e',
   "import { Redis } from 'ioredis'; const r = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 1 }); await r.flushdb(); r.disconnect();",
 ]);
+step('seed', 'pnpm', ['exec', 'tsx', 'prisma/seed/seed.ts']);
+step('e2e seed', 'pnpm', ['exec', 'tsx', 'prisma/seed/e2e.ts']);
+
 console.log('e2e-full: ready');

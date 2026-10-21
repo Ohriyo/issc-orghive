@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 const ADMIN_SECTIONS = [
   { to: '/admin/organizations', label: 'Organizations' },
   { to: '/admin/financial-figures', label: 'Financial figures' },
+  { to: '/admin/handbook', label: 'Student Handbook' },
 ] as const;
 
 const NAV_LINK = cn(

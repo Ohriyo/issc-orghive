@@ -85,7 +85,8 @@ describe('the hourly compliance check', () => {
     await s.sync.syncAll();
     const blocked = (await s.repos.projects.findById(project.id))!;
     expect(blocked.status).toBe('blocked');
-    expect(blocked.tasks.map((t) => t.status)).toEqual(['locked', 'locked', 'locked']);
+    // Proposal, the optional other pre-event documents, ACR and Financial Report.
+    expect(blocked.tasks.map((t) => t.status)).toEqual(['locked', 'locked', 'locked', 'locked']);
     expect(await audits('project_block', project.id)).toBe(1);
     expect(await notified('officer', 'deadline_missed')).toBe(1);
     // Only the organization's own account is told, and each email is queued once.

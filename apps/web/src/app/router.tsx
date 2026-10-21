@@ -57,6 +57,18 @@ function pages(): RouteObject[] {
       }),
     },
     {
+      path: 'handbook',
+      lazy: async () => ({ Component: (await handbookPages()).HandbookPage }),
+    },
+    {
+      path: 'handbook/editions',
+      lazy: async () => ({ Component: (await handbookPages()).HandbookEditionsPage }),
+    },
+    {
+      path: 'handbook/:year',
+      lazy: async () => ({ Component: (await handbookPages()).HandbookEditionPage }),
+    },
+    {
       path: 'orgs/:slug/paperworks',
       lazy: async () => ({
         Component: (await import('@/features/paperworks/paperworks-page')).PaperworksPage,
@@ -145,6 +157,12 @@ function dashboardRoutes(): RouteObject[] {
       }),
     },
     {
+      path: 'dashboard/profile',
+      lazy: async () => ({
+        Component: (await import('@/features/profile/profile-page')).ProfilePage,
+      }),
+    },
+    {
       path: 'dashboard/projects',
       lazy: async () => ({
         Component: (await import('@/features/projects/projects-page')).ProjectsPage,
@@ -211,11 +229,18 @@ function dashboardRoutes(): RouteObject[] {
         Component: (await import('@/features/admin/admin-pages')).AdminFinancialFiguresPage,
       }),
     },
+    {
+      path: 'admin/handbook',
+      lazy: async () => ({
+        Component: (await import('@/features/admin/admin-pages')).AdminHandbookPage,
+      }),
+    },
     ...systemRoutes(),
   ];
 }
 
 const systemPages = () => import('@/features/system/system-pages');
+const handbookPages = () => import('@/features/handbook/handbook-page');
 
 /** /system: the super admin console. */
 function systemRoutes(): RouteObject[] {

@@ -141,10 +141,10 @@ describe('organizations', () => {
 
   it('edits an organization’s names and description, audited', async () => {
     const { service, cache } = setup();
-    cache.store.set('org:jpice', '{}');
+    cache.store.set('org:jpice:v2', '{}');
     const org = await service.updateOrganization(ACTOR(), 'jpice', { description: 'Civil.' });
     expect(org.description).toBe('Civil.');
-    expect(cache.store.has('org:jpice')).toBe(false);
+    expect(cache.store.has('org:jpice:v2')).toBe(false);
     expect((await auditsOf('organization_change'))[0]).toMatchObject({
       organizationId: world.orgs.jpice.id,
       metadata: { change: 'update', fields: ['description'] },

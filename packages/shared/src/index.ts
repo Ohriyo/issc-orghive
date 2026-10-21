@@ -26,3 +26,5 @@ export * from './reveal';
 export * from './account-request';
 export * from './account-csv';
 export * from './leaderboard';
+export * from './profile';
+export * from './handbook';

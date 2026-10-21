@@ -1,6 +1,8 @@
 import {
   academicYearOf,
   ErrorCode,
+  isMultiFileTask,
+  PRE_EVENT_CHOICES,
   PROJECT_TASK_DOCUMENT_TYPES,
   PROJECT_TASK_LABELS,
   type CreateFinancialReportDocumentRequest,
@@ -36,7 +38,7 @@ import type { UploadService } from '#src/services/upload.service';
 export interface ProjectServiceDeps {
   projects: Pick<
     ProjectRepository,
-    'create' | 'findById' | 'listByOrganization' | 'update' | 'linkDocument'
+    'create' | 'findById' | 'listByOrganization' | 'update' | 'linkDocument' | 'addTaskFile'
   >;
   sync: Pick<ProjectSync, 'sync' | 'syncOrganization'>;
   freezes: Pick<OrgFreezeRepository, 'listOpen'>;
@@ -55,10 +57,17 @@ export interface ProjectServiceDeps {
 
 /** Why a task cannot take a file yet, in words for the officer. */
 function lockedReason(type: ProjectTaskType, targetDate: string): string {
-  if (type === 'NOM' || type === 'MOM') {
-    return `The ${PROJECT_TASK_LABELS[type]} unlocks once the Project Proposal is submitted.`;
+  if (type === 'ACR' || type === 'FINANCIAL_REPORT') {
+    return `The ${PROJECT_TASK_LABELS[type]} opens on the event day, ${targetDate}.`;
   }
-  return `The ${PROJECT_TASK_LABELS[type]} opens on the event day, ${targetDate}.`;
+  return `The ${PROJECT_TASK_LABELS[type]} unlocks once the Project Proposal is submitted.`;
+}
+
+/** Whether a task already has a file (any state but deleted), so its tick must stay. */
+function hasFile(task: ProjectRecord['tasks'][number] | undefined): boolean {
+  if (!task) return false;
+  const live = (doc: { deletedAt: Date | null } | null) => !!doc && !doc.deletedAt;
+  return (!!task.documentId && live(task.document)) || task.files.some((f) => live(f.document));
 }
 
 /**
@@ -95,6 +104,8 @@ export function createProjectService({
       postEventDueAt: plan.postEventDueAt.toISOString(),
       nomRequired: record.nomRequired,
       momRequired: record.momRequired,
+      communicationLetterRequired: record.communicationLetterRequired,
+      attendanceSheetRequired: record.attendanceSheetRequired,
       nextDeadline: next && { type: next.type, dueAt: next.dueAt.toISOString() },
       organization: {
         type: record.organization.type,
@@ -111,7 +122,10 @@ export function createProjectService({
   async function toDetail(viewer: DocumentViewer, record: ProjectRecord): Promise<ProjectDetail> {
     const plan = planProject(factsOf(record), now());
     const rows = new Map(record.tasks.map((t) => [t.type, t]));
-    const ids = record.tasks.flatMap((t) => (t.documentId ? [t.documentId] : []));
+    const ids = record.tasks.flatMap((t) => [
+      ...(t.documentId ? [t.documentId] : []),
+      ...t.files.map((f) => f.documentId),
+    ]);
     const briefs: Map<string, DocumentBrief> = await documentReads.findVisibleBriefs(viewer, ids);
     return {
       ...toSummary(record, plan),
@@ -121,10 +135,16 @@ export function createProjectService({
         return {
           type: task.type,
           status: task.status,
+          required: task.required,
           dueAt: task.dueAt?.toISOString() ?? null,
           submittedAt:
             task.status === 'submitted' ? (row?.submittedAt ?? now()).toISOString() : null,
           document: brief ?? null,
+          // Only the files this viewer may see: the visibility rule applies to each.
+          files: (row?.files ?? []).flatMap((f) => {
+            const file = briefs.get(f.documentId);
+            return file ? [{ label: f.label, document: file }] : [];
+          }),
         };
       }),
       financialFigures: toFiguresView(record),
@@ -142,6 +162,70 @@ export function createProjectService({
     const record = await sync.sync(id);
     if (!record) throw AppError.notFound('Project not found');
     return record;
+  }
+
+  /** A new task document of the project, through the document pipeline (scanning first). */
+  async function createTaskDocument(
+    actor: Actor,
+    org: OrgRef,
+    record: ProjectRecord,
+    type: ProjectTaskType,
+    input: CreateTaskDocumentRequest,
+    title: string,
+  ) {
+    const { slug } = PROJECT_TASK_DOCUMENT_TYPES[type];
+    const docType = await documentTypes.findBySlug(slug);
+    if (!docType) throw new Error(`Document type ${slug} is missing; run the migrations`);
+    return documents.create(actor, org, {
+      typeId: docType.id,
+      title: title.slice(0, 200),
+      academicYear: academicYearOf(factsOf(record).targetDate),
+      visibility: input.visibility,
+      tags: [],
+      uploadKey: input.uploadKey,
+      actingAs: input.actingAs,
+    });
+  }
+
+  /**
+   * A multi-file task: a new labelled file (a letter to another office), or with
+   * `documentId` a new version of one of its files. 404 for a file of another task.
+   */
+  async function fileMultiTask(
+    actor: Actor,
+    org: OrgRef,
+    record: ProjectRecord,
+    type: ProjectTaskType,
+    row: ProjectRecord['tasks'][number] | undefined,
+    input: CreateTaskDocumentRequest,
+  ): Promise<void> {
+    if (input.documentId) {
+      const file = row?.files.find((f) => f.documentId === input.documentId);
+      if (!file || !file.document || file.document.deletedAt) {
+        throw AppError.notFound('File not found in this task');
+      }
+      const inProgress = file.document.status === 'scanning' || file.document.status === 'quarantined';
+      if (inProgress && file.document.createdById !== actor.userId) {
+        throw AppError.conflict(
+          'Another officer’s copy of this file is still being checked. Try again once it is done.',
+        );
+      }
+      await documents.addVersion(actor, org, file.documentId, {
+        uploadKey: input.uploadKey,
+        actingAs: input.actingAs,
+      });
+      return;
+    }
+    const label = input.label!;
+    const created = await createTaskDocument(
+      actor,
+      org,
+      record,
+      type,
+      input,
+      `${PROJECT_TASK_LABELS[type]}: ${label} (${record.name})`,
+    );
+    await projects.addTaskFile(record.id, type, created.id, label);
   }
 
   /** The task as the rules see it now; 404 if the project does not need it, 409 if locked. */
@@ -203,6 +287,8 @@ export function createProjectService({
         description: input.description,
         nomRequired: input.nomRequired ?? false,
         momRequired: input.momRequired ?? false,
+        communicationLetterRequired: input.communicationLetterRequired ?? false,
+        attendanceSheetRequired: input.attendanceSheetRequired ?? false,
         createdById: actor.userId,
         createdAt,
       };
@@ -232,8 +318,9 @@ export function createProjectService({
     },
 
     /**
-     * Details, the target date (the post-event deadlines follow) and which optional tasks
-     * the project needs. An optional task that already has a file cannot be dropped. Audited.
+     * Details, the target date (the deadlines follow) and which optional pre-event documents
+     * the project needs (spec 2B). A ticked document that already has a file stays ticked:
+     * 409. Audited.
      */
     async update(
       actor: Actor,
@@ -242,12 +329,12 @@ export function createProjectService({
       patch: UpdateProjectRequest,
     ): Promise<ProjectDetail> {
       const record = await loadInOrg(org, id);
-      for (const [field, type] of [
-        ['nomRequired', 'NOM'],
-        ['momRequired', 'MOM'],
-      ] as const) {
+      for (const [type, field] of Object.entries(PRE_EVENT_CHOICES) as [
+        keyof typeof PRE_EVENT_CHOICES,
+        (typeof PRE_EVENT_CHOICES)[keyof typeof PRE_EVENT_CHOICES],
+      ][]) {
         const task = record.tasks.find((t) => t.type === type);
-        if (patch[field] === false && task?.documentId) {
+        if (patch[field] === false && hasFile(task)) {
           throw AppError.conflict(
             `The ${PROJECT_TASK_LABELS[type]} already has a file, so it stays part of this project.`,
           );
@@ -285,7 +372,8 @@ export function createProjectService({
     /**
      * Files an uploaded object as the task's document, through the document pipeline: the
      * first upload creates the document (scanning, visible to the uploader only), later ones
-     * add versions. The task becomes submitted when the worker finds the file clean. A
+     * add versions. A multi-file task takes a new labelled file each time, or a new version
+     * of one of its files (`documentId`). The task becomes submitted when the worker finds the file clean. A
      * Financial Report's totals are saved first, so a refused change files nothing.
      */
     async submitTaskFile(
@@ -308,6 +396,11 @@ export function createProjectService({
         await figures.saveWithFile(actor, record, input.figures, input.actingAs);
       }
       const row = record.tasks.find((t) => t.type === type);
+      if (isMultiFileTask(type)) {
+        await fileMultiTask(actor, org, record, type, row, input);
+        const updated = await synced(id);
+        return toDetail(await viewers.forUser(actor.userId), updated);
+      }
       const current = row?.documentId && row.document && !row.document.deletedAt ? row : null;
 
       if (current) {
@@ -323,19 +416,14 @@ export function createProjectService({
           actingAs: input.actingAs,
         });
       } else {
-        const { slug } = PROJECT_TASK_DOCUMENT_TYPES[type];
-        const docType = await documentTypes.findBySlug(slug);
-        if (!docType) throw new Error(`Document type ${slug} is missing; run the migrations`);
-        const targetDate = factsOf(record).targetDate;
-        const created = await documents.create(actor, org, {
-          typeId: docType.id,
-          title: `${PROJECT_TASK_LABELS[type]}: ${record.name}`.slice(0, 200),
-          academicYear: academicYearOf(targetDate),
-          visibility: input.visibility,
-          tags: [],
-          uploadKey: input.uploadKey,
-          actingAs: input.actingAs,
-        });
+        const created = await createTaskDocument(
+          actor,
+          org,
+          record,
+          type,
+          input,
+          `${PROJECT_TASK_LABELS[type]}: ${record.name}`,
+        );
         await projects.linkDocument(id, type, created.id);
       }
       // The scan may already have finished; the sync settles either way.

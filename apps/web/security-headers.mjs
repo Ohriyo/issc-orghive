@@ -11,6 +11,7 @@
  *   storageOrigin: where browsers fetch logos and thumbnails and PUT uploads (the S3/MinIO
  *     public endpoint, e.g. https://files.orghive.example).
  *   apiOrigin: only when the API is on another origin (VITE_API_URL); same-origin needs none.
+ *     The viewer's page images come from the API, so it is an image source too.
  *   csp: false for the Vite dev server, whose hot reload needs inline scripts.
  * @returns {Record<string, string>}
  */
@@ -32,7 +33,8 @@ export function securityHeaders({ storageOrigin, apiOrigin, csp = true } = {}) {
       "script-src 'self'",
       // Radix and sonner inject <style> elements, and components set style attributes.
       "style-src 'self' 'unsafe-inline'",
-      `img-src ${origins('data:', 'blob:', storageOrigin)}`,
+      // Logos and thumbnails from storage; view-only page images from the API.
+      `img-src ${origins('data:', 'blob:', storageOrigin, apiOrigin)}`,
       "font-src 'self' data:",
       // API calls, and uploads PUT straight to storage with pre-signed URLs.
       `connect-src ${origins(apiOrigin, storageOrigin)}`,

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { z } from 'zod';
 import {
+  CONSTITUTION_DOCUMENT_TYPE,
   actingAsSchema,
   contentTypeForFilename,
   documentMetadataSchema,
@@ -266,7 +267,10 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
       paperworksHref: `/orgs/${slug}/paperworks`,
     },
     options: {
-      types: (types.data?.types ?? []).map((t) => ({ value: t.id, label: t.name })),
+      // The Constitution & By-laws is uploaded from the organization profile only.
+      types: (types.data?.types ?? [])
+        .filter((t) => t.slug !== CONSTITUTION_DOCUMENT_TYPE.slug)
+        .map((t) => ({ value: t.id, label: t.name })),
       years: yearOptions(new Date()),
       semesters: Object.entries(SEMESTER_LABELS).map(([value, label]) => ({ value, label })),
     },

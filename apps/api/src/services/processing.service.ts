@@ -1,7 +1,7 @@
 import { MAX_UPLOAD_BYTES } from '@orghive/shared';
 import { type Cache, invalidateDocuments } from '#src/lib/cache';
 import type { VirusScanner } from '#src/lib/clamav';
-import type { JobQueue } from '#src/lib/queue';
+import type { JobQueue, PreviewQueue } from '#src/lib/queue';
 import type { Storage } from '#src/lib/storage';
 import type { Logger } from '#src/logger';
 import type { AppealRepository } from '#src/repositories/appeal.repository';
@@ -61,17 +61,17 @@ async function dropUpload(
 export interface FileTools {
   detectMimeType(body: Uint8Array): Promise<string | undefined>;
   sha256Hex(body: Uint8Array): string;
-  pdfThumbnail(body: Uint8Array): Promise<Buffer>;
   pdfText(body: Uint8Array): Promise<string>;
-  imageThumbnail(body: Uint8Array): Promise<Buffer>;
 }
 
 export interface ProcessingServiceDeps {
   documents: Pick<DocumentRepository, 'findForProcessing' | 'markClean' | 'markRefused'>;
   intents: Pick<UploadIntentRepository, 'listAbandoned' | 'deleteMany'>;
-  storage: Pick<Storage, 'read' | 'put' | 'copy' | 'move' | 'delete'>;
+  storage: Pick<Storage, 'read' | 'copy' | 'move' | 'delete'>;
   scanner: VirusScanner;
   tools: FileTools;
+  /** A clean file's watermarked page images and thumbnail are rendered by their own job. */
+  previews: PreviewQueue;
   audit: Pick<AuditLogRepository, 'record'>;
   cache: Pick<Cache, 'deleteMatching' | 'bump'>;
   logger: Pick<Logger, 'warn' | 'info'>;
@@ -123,8 +123,8 @@ export const ABANDONED_AFTER_MS = 60 * 60 * 1000;
 
 /**
  * What the worker does with an uploaded version, in order: the stored size matches, ClamAV
- * finds nothing, the magic bytes are the declared type, then sha256, a page-1 preview and
- * search text. A refused file is moved to quarantine/ and never served.
+ * finds nothing, the magic bytes are the declared type, then sha256 and search text, and the
+ * view-only preview is queued. A refused file is moved to quarantine/ and never served.
  */
 export function createProcessingService({
   documents,
@@ -132,6 +132,7 @@ export function createProcessingService({
   storage,
   scanner,
   tools,
+  previews,
   audit,
   cache,
   logger,
@@ -179,28 +180,15 @@ export function createProcessingService({
     return scanStatus;
   }
 
-  /** Optional extras: a failure here never blocks a clean file. */
-  async function preview(rec: ProcessingRecord, body: Buffer) {
-    let thumbnailKey: string | null = null;
-    let contentText: string | null = null;
-    const isPdf = rec.mimeType === 'application/pdf';
-    const isImage = rec.mimeType === 'image/jpeg' || rec.mimeType === 'image/png';
+  /** Search text, optional: a failure here never blocks a clean file. */
+  async function searchText(rec: ProcessingRecord, body: Buffer): Promise<string | null> {
+    if (rec.mimeType !== 'application/pdf') return null;
     try {
-      if (isPdf || isImage) {
-        const thumbnail = isPdf ? await tools.pdfThumbnail(body) : await tools.imageThumbnail(body);
-        thumbnailKey = `thumbnails/${rec.document.id}/${rec.id}.webp`;
-        await storage.put(thumbnailKey, thumbnail, 'image/webp');
-      }
-    } catch (err) {
-      thumbnailKey = null;
-      logger.warn({ err, versionId: rec.id }, 'Could not render a preview');
-    }
-    try {
-      if (isPdf) contentText = (await tools.pdfText(body)) || null;
+      return (await tools.pdfText(body)) || null;
     } catch (err) {
       logger.warn({ err, versionId: rec.id }, 'Could not extract text');
+      return null;
     }
-    return { thumbnailKey, contentText };
   }
 
   return {
@@ -217,13 +205,14 @@ export function createProcessingService({
       const verdict = await inspectUpload(body, rec, { scanner, tools });
       if (!verdict.clean) return refuse(rec, scannedKey, verdict.scanStatus, verdict.reason);
 
-      const extras = await preview(rec, body);
+      const contentText = await searchText(rec, body);
       await documents.markClean(
         versionId,
-        { storageKey: scannedKey, sha256: tools.sha256Hex(body), ...extras },
+        { storageKey: scannedKey, sha256: tools.sha256Hex(body), contentText },
         now(),
       );
       await dropUpload(storage, logger, rec.storageKey);
+      await previews.enqueuePreview(versionId);
       // A project task's file: its project may move on (the task is submitted).
       await onDocumentScanned(rec.document.id);
       await invalidateDocuments(cache, rec.document.organization.slug);

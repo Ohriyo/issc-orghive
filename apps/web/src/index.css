@@ -280,6 +280,11 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Clears the notch and status bar for UI that covers the whole screen (the full-screen viewer). */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 /* The prototype's page background: white on the left fading to gray on the right. */
 @utility bg-surface-sweep {
   background-image: linear-gradient(

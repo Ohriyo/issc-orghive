@@ -18,6 +18,9 @@ export interface ProjectStandingFacts {
   targetDate: string;
   nomRequired: boolean;
   momRequired: boolean;
+  /** Ticked pre-event documents with a deadline count toward lateness (spec 5C). */
+  communicationLetterRequired: boolean;
+  attendanceSheetRequired: boolean;
   /**
    * When each task was submitted: its file first passed the virus scan (`submittedAt`).
    * Only tasks whose file is still filed (not deleted, not refused).
@@ -72,11 +75,22 @@ export interface RankingOptions {
 
 const ON_TIME = 100;
 
-/** Each required task's original deadline. NOM and MOM have none, so they are never late. */
-function originalDeadlines(project: ProjectStandingFacts): [ProjectTaskType, Date][] {
+/**
+ * Each required task's original deadline (spec 5C). NOM, MOM and other pre-event documents
+ * have none, so they are never late. A ticked Communication Letter is due at the end of the
+ * event day; a ticked Attendance Sheet with the ACR. Same dates as planProject's, without
+ * appeal overrides.
+ */
+export function originalDeadlines(project: ProjectStandingFacts): [ProjectTaskType, Date][] {
   const postEvent = deadlineAfter(project.targetDate);
   return [
     ['PROPOSAL', deadlineAfter(project.createdAt)],
+    ...(project.communicationLetterRequired
+      ? [['COMMUNICATION_LETTER', endOfManilaDay(project.targetDate)] as [ProjectTaskType, Date]]
+      : []),
+    ...(project.attendanceSheetRequired
+      ? [['ATTENDANCE_SHEET', postEvent] as [ProjectTaskType, Date]]
+      : []),
     ['ACR', postEvent],
     ['FINANCIAL_REPORT', postEvent],
   ];
@@ -86,9 +100,10 @@ function originalDeadlines(project: ProjectStandingFacts): [ProjectTaskType, Dat
  * One project's contribution (docs/PROJECT_WORKFLOW_SPEC.md, 5B to 5D).
  * - Implemented: the event day has come (Manila) and the ACR and Financial Report are both
  *   submitted, whenever that happened (it counts in its event's semester).
- * - Late: a required task with a deadline (Proposal, ACR, Financial Report) was submitted
- *   after its original 14-day deadline, or that deadline passed with nothing submitted. A
- *   deadline an approved appeal set never makes a task on time.
+ * - Late: a required task with a deadline (Proposal, a ticked Communication Letter or
+ *   Attendance Sheet, ACR, Financial Report) was submitted after its original deadline, or
+ *   that deadline passed with nothing submitted. A deadline an approved appeal set never
+ *   makes a task on time.
  * - Profit: every submitted Financial Report with figures, implemented or not, late or not.
  */
 export function scoreProject(

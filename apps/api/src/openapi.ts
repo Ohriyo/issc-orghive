@@ -3,6 +3,12 @@ import {
   apiErrorBodySchema,
   collegeDetailSchema,
   collegeListResponseSchema,
+  constitutionResponseSchema,
+  handbookEditionListSchema,
+  handbookResponseSchema,
+  handbookSearchQuerySchema,
+  handbookSearchResponseSchema,
+  handbookYearParamsSchema,
   leaderboardEventSchema,
   leaderboardQuerySchema,
   leaderboardResponseSchema,
@@ -81,6 +87,83 @@ export function createOpenApiDocument(): ReturnType<typeof createDocument> {
             },
             '304': { description: 'Not modified (ETag matched)' },
             ...errors,
+          },
+        },
+      },
+      '/organizations/{slug}/constitution': {
+        get: {
+          summary: 'An organization’s Constitution & By-laws and its amendment history',
+          description:
+            'Always public and view-only: open a version in the watermarked viewer (GET /documents/{id}/viewer?versionId=). Null until one has passed the virus scan.',
+          tags: ['Public'],
+          requestParams: { path: slugParamsSchema },
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(constitutionResponseSchema),
+            },
+            '304': { description: 'Not modified (ETag matched)' },
+            ...errors,
+          },
+        },
+      },
+      '/handbook': {
+        get: {
+          summary: 'The current Student Handbook edition (null before one is published)',
+          description:
+            'Always public and view-only: read its pages in the watermarked viewer (GET /documents/{documentId}/viewer).',
+          tags: ['Public'],
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(handbookResponseSchema),
+            },
+          },
+        },
+      },
+      '/handbook/editions': {
+        get: {
+          summary: 'Every published Student Handbook edition, newest year first',
+          tags: ['Public'],
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(handbookEditionListSchema),
+            },
+          },
+        },
+      },
+      '/handbook/{year}': {
+        get: {
+          summary: 'One academic year’s Student Handbook edition',
+          tags: ['Public'],
+          requestParams: { path: handbookYearParamsSchema },
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(handbookResponseSchema),
+            },
+            '404': { description: 'No edition for that year', content: json(apiErrorBodySchema) },
+          },
+        },
+      },
+      '/handbook/{year}/search': {
+        get: {
+          summary: 'Pages of an edition matching the words (by prefix), best first',
+          description: 'GET /handbook/search searches the current edition the same way.',
+          tags: ['Public'],
+          requestParams: { path: handbookYearParamsSchema, query: handbookSearchQuerySchema },
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(handbookSearchResponseSchema),
+            },
+            '404': { description: 'No edition for that year', content: json(apiErrorBodySchema) },
           },
         },
       },

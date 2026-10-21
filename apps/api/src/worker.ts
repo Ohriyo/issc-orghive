@@ -1,6 +1,6 @@
 // The worker: a separate process from the API. It drains the BullMQ queues the API fills
 // (src/lib/queue.ts): checks, scans and processes each uploaded version and appeal
-// attachment, sweeps abandoned uploads, runs the hourly compliance check, sends
+// attachment, renders each clean version's watermarked view-only pages, sweeps abandoned uploads, runs the hourly compliance check, sends
 // notification emails, makes Semestral End Reports and recomputes the leaderboard. Run with `pnpm --filter api dev:worker` (part of `pnpm dev`).
 import { UnrecoverableError, Worker, type Job } from 'bullmq';
 import { academicYearSchema, semesterSchema } from '@orghive/shared';
@@ -9,12 +9,15 @@ import { ConfigError, loadConfig, type Config } from '#src/config';
 import { createRedis, createRedisCache } from '#src/lib/cache';
 import { createClamavScanner } from '#src/lib/clamav';
 import * as tools from '#src/lib/file-processing';
+import { createGotenbergConverter } from '#src/lib/office-converter';
+import * as previewRenderer from '#src/lib/preview-render';
 import { createRedisLeaderboardEvents } from '#src/lib/leaderboard-events';
 import { createRedisLeaderboardStore } from '#src/lib/leaderboard-store';
 import { createSmtpMailer } from '#src/lib/mailer';
 import {
   createBullLeaderboardQueue,
   createBullNotificationQueue,
+  createBullPreviewQueue,
   createBullQueue,
   createBullReportQueue,
   createQueueConnection,
@@ -22,10 +25,12 @@ import {
   EMAILS_PER_SECOND,
   LEADERBOARD_QUEUE,
   NOTIFICATION_QUEUE,
+  PREVIEW_QUEUE,
   REPORT_QUEUE,
   type DocumentJob,
   type LeaderboardJob,
   type NotificationJob,
+  type PreviewJob,
   type ReportJob,
 } from '#src/lib/queue';
 import { createChromiumRenderer } from '#src/lib/report-pdf';
@@ -46,10 +51,7 @@ import { createReportRepository } from '#src/repositories/report.repository';
 import { createSystemSettingRepository } from '#src/repositories/system-setting.repository';
 import { createUploadIntentRepository } from '#src/repositories/upload-intent.repository';
 import { createCompliance } from '#src/services/compliance.service';
-import {
-  createLeaderboardRecompute,
-  openSemesters,
-} from '#src/services/leaderboard-recompute';
+import { createLeaderboardRecompute, openSemesters } from '#src/services/leaderboard-recompute';
 import { createLeaderboardService } from '#src/services/leaderboard.service';
 import {
   createNotificationMailer,
@@ -60,6 +62,7 @@ import {
   createPendingRequeue,
   createProcessingService,
 } from '#src/services/processing.service';
+import { createPreviewService, queuePendingPreviews } from '#src/services/preview.service';
 import { createProjectSync } from '#src/services/project-sync.service';
 import { createTermReminders } from '#src/services/term-reminders.service';
 import { createRevealRepository } from '#src/repositories/reveal.repository';
@@ -75,6 +78,11 @@ const REPORT_LOCK_MS = 10 * 60 * 1000;
 
 /** A version still pending this long lost its job; the sweep queues it again. */
 const STALE_PENDING_MS = 10 * 60 * 1000;
+/**
+ * Previews still pending (lost jobs, and files from before previews existed) queued per sweep,
+ * so a large backfill spreads over several sweeps; `pages:backfill` queues them all at once.
+ */
+const PREVIEWS_PER_SWEEP = 200;
 const SWEEP_EVERY_MS = 30 * 60 * 1000;
 /**
  * The compliance check (docs/PROJECT_WORKFLOW_SPEC.md, section 3). Reads run the same check
@@ -112,7 +120,11 @@ const storage = createS3Storage(config);
 const scanner = createClamavScanner({ host: config.CLAMAV_HOST, port: config.CLAMAV_PORT });
 const leaderboardQueue = createBullLeaderboardQueue(connection);
 const projectRepo = createProjectRepository(db);
-const recompute = createLeaderboardRecompute({ queue: leaderboardQueue, projects: projectRepo, logger });
+const recompute = createLeaderboardRecompute({
+  queue: leaderboardQueue,
+  projects: projectRepo,
+  logger,
+});
 const notificationRepo = createNotificationRepository(db);
 const notifications = createNotificationService({
   notifications: notificationRepo,
@@ -133,12 +145,22 @@ const projectSync = createProjectSync({
   }),
 });
 
+const previewQueue = createBullPreviewQueue(connection);
+const previews = createPreviewService({
+  documents,
+  storage,
+  renderer: previewRenderer,
+  converter: createGotenbergConverter({ url: config.GOTENBERG_URL }),
+  cache: createRedisCache(redis, logger),
+  logger,
+});
 const processing = createProcessingService({
   documents,
   intents: createUploadIntentRepository(db),
   storage,
   scanner,
   tools,
+  previews: previewQueue,
   audit,
   cache: createRedisCache(redis, logger),
   logger,
@@ -182,7 +204,7 @@ const reports = createReportService({
   storage,
   queue: reportQueue,
   renderer: () => createChromiumRenderer(config.CHROMIUM_EXECUTABLE_PATH),
-  thumbnail: tools.pdfThumbnail,
+  previews: previewQueue,
   sha256: tools.sha256Hex,
   notifications,
   audit,
@@ -206,9 +228,16 @@ async function handle(job: Job<DocumentJob['data'], unknown, DocumentJob['name']
     }
     case 'sweep-uploads': {
       const removed = await processing.sweepAbandonedUploads();
-      const requeued = await requeueStale(new Date(Date.now() - STALE_PENDING_MS));
-      if (removed || requeued) logger.info({ removed, requeued }, 'Upload sweep');
-      return { removed, requeued };
+      const staleBefore = new Date(Date.now() - STALE_PENDING_MS);
+      const requeued = await requeueStale(staleBefore);
+      const previewsQueued = await queuePendingPreviews(
+        { documents, queue: previewQueue },
+        { before: staleBefore, max: PREVIEWS_PER_SWEEP },
+      );
+      if (removed || requeued || previewsQueued) {
+        logger.info({ removed, requeued, previewsQueued }, 'Upload sweep');
+      }
+      return { removed, requeued, previewsQueued };
     }
     case 'check-compliance': {
       const checked = await projectSync.syncAll();
@@ -254,6 +283,14 @@ async function handleLeaderboard(
   }
 }
 
+async function handlePreview(job: Job<PreviewJob['data'], unknown, PreviewJob['name']>) {
+  const { versionId } = job.data as { versionId?: unknown };
+  if (typeof versionId !== 'string') throw new UnrecoverableError('Job has no versionId');
+  // On the last try a file that still cannot be rendered is marked failed, not left pending.
+  const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+  return previews.renderVersion(versionId, { lastAttempt });
+}
+
 async function handleReport(job: Job<ReportJob['data'], unknown, ReportJob['name']>) {
   const { reportId } = job.data as { reportId?: unknown };
   if (typeof reportId !== 'string') throw new UnrecoverableError('Job has no reportId');
@@ -273,12 +310,14 @@ const reportWorker = new Worker(REPORT_QUEUE, handleReport, {
   concurrency: 1,
   lockDuration: REPORT_LOCK_MS,
 });
+// One preview at a time: each renders up to 500 pages, and scans must never wait behind it.
+const previewWorker = new Worker(PREVIEW_QUEUE, handlePreview, { connection, concurrency: 1 });
 // One recompute at a time: each reads every project of a semester.
 const leaderboardWorker = new Worker(LEADERBOARD_QUEUE, handleLeaderboard, {
   connection,
   concurrency: 1,
 });
-for (const w of [worker, mailWorker, reportWorker, leaderboardWorker]) {
+for (const w of [worker, mailWorker, previewWorker, reportWorker, leaderboardWorker]) {
   w.on('failed', (job, err) => {
     logger.error({ err, jobId: job?.id, attempts: job?.attemptsMade }, 'Job failed');
   });
@@ -302,7 +341,9 @@ await leaderboardQueue.queue.upsertJobScheduler(
   { name: 'daily', data: {} },
 );
 logger.info(
-  { queues: [DOCUMENT_QUEUE, NOTIFICATION_QUEUE, REPORT_QUEUE, LEADERBOARD_QUEUE] },
+  {
+    queues: [DOCUMENT_QUEUE, NOTIFICATION_QUEUE, PREVIEW_QUEUE, REPORT_QUEUE, LEADERBOARD_QUEUE],
+  },
   'Worker started',
 );
 
@@ -311,12 +352,14 @@ async function shutdown(signal: string) {
   await Promise.allSettled([
     worker.close(),
     mailWorker.close(),
+    previewWorker.close(),
     reportWorker.close(),
     leaderboardWorker.close(),
   ]);
   await Promise.allSettled([
     jobs.queue.close(),
     notificationQueue.queue.close(),
+    previewQueue.queue.close(),
     reportQueue.queue.close(),
     leaderboardQueue.queue.close(),
     connection.quit(),

@@ -34,10 +34,12 @@ function project(
     targetDate: new Date('2026-10-20T00:00:00Z'),
     nomRequired: false,
     momRequired: false,
+    communicationLetterRequired: false,
+    attendanceSheetRequired: false,
     tasks: [
-      { type: 'PROPOSAL', submittedAt: new Date('2026-10-05T02:00:00Z'), document: clean },
-      { type: 'ACR', submittedAt: reports, document: doc },
-      { type: 'FINANCIAL_REPORT', submittedAt: ON_TIME, document: clean },
+      { type: 'PROPOSAL', submittedAt: new Date('2026-10-05T02:00:00Z'), document: clean, files: [] },
+      { type: 'ACR', submittedAt: reports, document: doc, files: [] },
+      { type: 'FINANCIAL_REPORT', submittedAt: ON_TIME, document: clean, files: [] },
     ],
     figures: { incomeCentavos, expensesCentavos: 0, flaggedAt: null },
   };

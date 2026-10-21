@@ -3,6 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import {
+  CONSTITUTION_DOCUMENT_TYPE,
   dashboardResponseSchema,
   documentListResponseSchema,
   documentStatusSchema,
@@ -298,7 +299,8 @@ export function useMyDocuments(): MyDocumentsModel {
             loadMore: () => void list.fetchNextPage(),
             loadingMore: list.isFetchingNextPage,
           },
-    types: types.data?.types ?? [],
+    // Nothing is re-filed as the Constitution & By-laws (only the profile uploads it).
+    types: (types.data?.types ?? []).filter((t) => t.slug !== CONSTITUTION_DOCUMENT_TYPE.slug),
     yearsFor: (doc) => {
       const years = yearOptions(new Date());
       return years.some((y) => y.value === doc.academicYear)

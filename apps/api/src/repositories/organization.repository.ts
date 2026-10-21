@@ -12,6 +12,7 @@ const organizationSelect = {
   logoWidths: true,
   parentId: true,
   deactivatedAt: true,
+  constitutionDocumentId: true,
   parent: {
     select: {
       type: true,
@@ -26,6 +27,30 @@ const organizationSelect = {
   college: { select: { id: true, code: true, slug: true, name: true } },
 } satisfies Prisma.OrganizationSelect;
 
+/**
+ * The public profile on top of the summary. Hidden officers are filtered here, so no public
+ * response can include them.
+ */
+const publicProfileSelect = {
+  ...organizationSelect,
+  mission: true,
+  vision: true,
+  contactEmail: true,
+  facebookUrl: true,
+  coverKey: true,
+  coverWidths: true,
+  officers: {
+    where: { isPublic: true },
+    orderBy: { sortOrder: 'asc' },
+    select: { position: true, name: true },
+  },
+  links: { orderBy: { sortOrder: 'asc' }, select: { url: true } },
+} satisfies Prisma.OrganizationSelect;
+
+export type PublicProfileRecord = Prisma.OrganizationGetPayload<{
+  select: typeof publicProfileSelect;
+}>;
+
 export type OrganizationRecord = Prisma.OrganizationGetPayload<{
   select: typeof organizationSelect;
 }>;
@@ -37,6 +62,14 @@ export function createOrganizationRepository(db: Db) {
       return db.organization.findFirst({
         where: { slug, deletedAt: null },
         select: organizationSelect,
+      });
+    },
+
+    /** The public organization page: the summary plus its public profile. */
+    findPublicProfile(slug: string): Promise<PublicProfileRecord | null> {
+      return db.organization.findFirst({
+        where: { slug, deletedAt: null },
+        select: publicProfileSelect,
       });
     },
 

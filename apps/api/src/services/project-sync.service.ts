@@ -7,18 +7,31 @@ import { planProject, type ProjectFacts } from './project-rules';
 /** A task's file counts once it passed the virus scan (available) and was not deleted. */
 const FILED_STATUSES = new Set(['available', 'archived']);
 
-/** The rules' input, read from a stored project. */
+type FileState = { status: string; deletedAt: Date | null } | null;
+
+/** Whether a task's file passed the scan and is still there. */
+export function isFiled(doc: FileState): boolean {
+  return !!doc && !doc.deletedAt && FILED_STATUSES.has(doc.status);
+}
+
+/**
+ * The rules' input, read from a stored project. A multi-file task (Communication Letters,
+ * other pre-event documents) is filed once any one of its files is.
+ */
 export function factsOf(record: ProjectRecord): ProjectFacts {
   const filed = new Set<ProjectTaskType>();
   for (const task of record.tasks) {
-    const doc = task.document;
-    if (doc && !doc.deletedAt && FILED_STATUSES.has(doc.status)) filed.add(task.type);
+    if (isFiled(task.document) || task.files.some((f) => isFiled(f.document))) {
+      filed.add(task.type);
+    }
   }
   return {
     createdAt: record.createdAt,
     targetDate: record.targetDate.toISOString().slice(0, 10),
     nomRequired: record.nomRequired,
     momRequired: record.momRequired,
+    communicationLetterRequired: record.communicationLetterRequired,
+    attendanceSheetRequired: record.attendanceSheetRequired,
     proposalDueOverride: record.proposalDueOverride,
     postEventDueOverride: record.postEventDueOverride,
     filed,

@@ -3,6 +3,7 @@ import { NotFoundPanel } from '@/components/not-found-panel';
 import { usePageChrome } from '@/navigation/page-chrome';
 import { chrome } from '@/navigation/trails';
 import { useOrgPlace } from '@/navigation/use-places';
+import { useConstitution } from './presenters/use-constitution';
 import { useOrganizationPage } from './presenters/use-organization-page';
 import { OrganizationView } from './views/organization-view';
 
@@ -10,10 +11,11 @@ import { OrganizationView } from './views/organization-view';
 export function OrganizationPage() {
   const { slug = '' } = useParams();
   const state = useOrganizationPage(slug);
+  const constitution = useConstitution(slug);
   usePageChrome(chrome.organization(slug, useOrgPlace(slug)));
 
   if (state.status === 'not-found') return <OrganizationNotFound />;
-  return <OrganizationView {...state} />;
+  return <OrganizationView {...state} constitution={constitution} />;
 }
 
 export function OrganizationNotFound() {

@@ -6,6 +6,7 @@ import type {
   DocumentSearchMatch,
 } from '#src/repositories/document.repository';
 import { PUBLIC_VIEWER, type DocumentViewer } from '#src/repositories/document-visibility';
+import type { HandbookService } from '#src/services/handbook.service';
 import { createSearchService } from '#src/services/search.service';
 
 const VIEWER: DocumentViewer = {
@@ -38,6 +39,9 @@ function match(overrides: Partial<DocumentSearchMatch> = {}): DocumentSearchMatc
       sizeBytes: 10,
       scanStatus: 'clean',
       thumbnailKey: 'thumbs/v1.webp',
+      previewStatus: 'ready',
+      previewPages: [[1240, 1754]],
+      pageCount: 1,
       createdAt: at,
     },
     headline: `lifted with a ${SNIPPET_MATCH_START}ram${SNIPPET_MATCH_END} pump`,
@@ -49,7 +53,13 @@ function setup({
   items = [match()],
   hasMore = false,
   cache = memoryCache(),
-}: { items?: DocumentSearchMatch[]; hasMore?: boolean; cache?: Cache } = {}) {
+  handbookMatches = null,
+}: {
+  items?: DocumentSearchMatch[];
+  hasMore?: boolean;
+  cache?: Cache;
+  handbookMatches?: Awaited<ReturnType<HandbookService['siteMatches']>>;
+} = {}) {
   const documents = {
     search: vi.fn((_viewer: DocumentViewer, _filters: DocumentSearchFilters) =>
       Promise.resolve({ items, hasMore }),
@@ -60,8 +70,9 @@ function setup({
   const storage = {
     presignGet: vi.fn((key: string) => Promise.resolve(`https://s.test/${key}?sig=${++signed}`)),
   };
-  const service = createSearchService({ documents, viewers, storage, cache });
-  return { service, documents, viewers, storage, cache };
+  const handbook = { siteMatches: vi.fn(() => Promise.resolve(handbookMatches)) };
+  const service = createSearchService({ documents, viewers, storage, cache, handbook });
+  return { service, documents, viewers, storage, cache, handbook };
 }
 
 describe('searchService.search', () => {
@@ -80,6 +91,7 @@ describe('searchService.search', () => {
       organizationSlug: 'jpice',
       typeSlug: 'accomplishment-report',
       academicYear: '2026-2027',
+      excludeTypeSlug: 'student-handbook',
       offset: 0,
       limit: 20,
     });
@@ -190,5 +202,26 @@ describe('invalidateDocuments', () => {
     await invalidateDocuments(cache, 'jpice');
     expect([...cache.store.keys()].sort()).toEqual(['org:psme:docs:h', 'search:gen']);
     expect(await cache.generation(cacheKeys.searchGeneration())).toBe('1');
+  });
+});
+
+describe('searchService and the Student Handbook', () => {
+  const MATCHES = {
+    academicYear: '2026-2027',
+    matches: [{ page: 34, snippet: [{ text: 'dress', match: true }] }],
+  };
+
+  it('puts the current handbook pages above the documents, on an unfiltered first page', async () => {
+    const { service, handbook } = setup({ handbookMatches: MATCHES });
+    const result = await service.search(undefined, { q: 'Dress' });
+    expect(handbook.siteMatches).toHaveBeenCalledWith('dress', 3);
+    expect(result.handbook).toEqual(MATCHES);
+  });
+
+  it('leaves the handbook out of filtered searches and later pages', async () => {
+    const { service, handbook } = setup({ handbookMatches: MATCHES });
+    expect((await service.search(undefined, { q: 'dress', college: 'cea' })).handbook).toBeNull();
+    expect((await service.search(undefined, { q: 'dress', page: 2 })).handbook).toBeNull();
+    expect(handbook.siteMatches).not.toHaveBeenCalled();
   });
 });

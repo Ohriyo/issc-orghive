@@ -16,8 +16,20 @@ export const PROJECT_STATUSES = ['active', 'blocked', 'completed'] as const;
 export const projectStatusSchema = z.enum(PROJECT_STATUSES);
 export type ProjectStatus = z.infer<typeof projectStatusSchema>;
 
-/** In checklist order: pre-event, then post-event. */
-export const PROJECT_TASK_TYPES = ['PROPOSAL', 'NOM', 'MOM', 'ACR', 'FINANCIAL_REPORT'] as const;
+/**
+ * In checklist order: pre-event, then post-event. The Attendance Sheet is listed with the
+ * pre-event files but is due with the ACR, since it is signed during the event.
+ */
+export const PROJECT_TASK_TYPES = [
+  'PROPOSAL',
+  'NOM',
+  'MOM',
+  'COMMUNICATION_LETTER',
+  'ATTENDANCE_SHEET',
+  'OTHER_PRE_EVENT',
+  'ACR',
+  'FINANCIAL_REPORT',
+] as const;
 export const projectTaskTypeSchema = z.enum(PROJECT_TASK_TYPES);
 export type ProjectTaskType = z.infer<typeof projectTaskTypeSchema>;
 
@@ -30,6 +42,9 @@ export const PROJECT_TASK_PHASE: Record<ProjectTaskType, 'pre_event' | 'post_eve
   PROPOSAL: 'pre_event',
   NOM: 'pre_event',
   MOM: 'pre_event',
+  COMMUNICATION_LETTER: 'pre_event',
+  ATTENDANCE_SHEET: 'pre_event',
+  OTHER_PRE_EVENT: 'pre_event',
   ACR: 'post_event',
   FINANCIAL_REPORT: 'post_event',
 };
@@ -38,6 +53,9 @@ export const PROJECT_TASK_LABELS: Record<ProjectTaskType, string> = {
   PROPOSAL: 'Project Proposal',
   NOM: 'Notice of Meeting',
   MOM: 'Minutes of Meeting',
+  COMMUNICATION_LETTER: 'Communication Letter',
+  ATTENDANCE_SHEET: 'Attendance Sheet',
+  OTHER_PRE_EVENT: 'Other pre-event document',
   ACR: 'Activity Completion Report',
   FINANCIAL_REPORT: 'Financial Report',
 };
@@ -48,21 +66,58 @@ export const PROJECT_TASK_DOCUMENT_TYPES: Record<ProjectTaskType, { slug: string
     PROPOSAL: { slug: 'project-proposal', name: 'Project proposal' },
     NOM: { slug: 'notice-of-meeting', name: 'Notice of meeting' },
     MOM: { slug: 'minutes-of-meeting', name: 'Minutes of meeting' },
+    COMMUNICATION_LETTER: { slug: 'communication-letter', name: 'Communication letter' },
+    ATTENDANCE_SHEET: { slug: 'attendance-sheet', name: 'Attendance sheet' },
+    OTHER_PRE_EVENT: { slug: 'other-pre-event-document', name: 'Other pre-event document' },
     ACR: { slug: 'activity-completion-report', name: 'Activity completion report' },
     FINANCIAL_REPORT: { slug: 'financial-report', name: 'Financial report' },
   };
 
 /**
  * Who sees a task's file unless the officer chooses otherwise (provisional,
- * docs/DOMAIN_RULES.md): proposals and financial reports stay with the organization.
+ * docs/DOMAIN_RULES.md): proposals and financial reports stay with the organization, and so
+ * do letters, attendance sheets (students' names and signatures) and other files (decided
+ * 2026-10-21).
  */
 export const TASK_DEFAULT_VISIBILITY: Record<ProjectTaskType, DocumentVisibility> = {
   PROPOSAL: 'private',
   NOM: 'public',
   MOM: 'public',
+  COMMUNICATION_LETTER: 'private',
+  ATTENDANCE_SHEET: 'private',
+  OTHER_PRE_EVENT: 'private',
   ACR: 'public',
   FINANCIAL_REPORT: 'private',
 };
+
+/**
+ * Tasks that hold several files, each with its own label: Communication Letters (one per
+ * office, e.g. "Letter to the Dean") and other pre-event documents. Every other task holds
+ * one file, whose re-uploads are its versions.
+ */
+export const MULTI_FILE_TASK_TYPES = ['COMMUNICATION_LETTER', 'OTHER_PRE_EVENT'] as const;
+export function isMultiFileTask(type: ProjectTaskType): boolean {
+  return (MULTI_FILE_TASK_TYPES as readonly string[]).includes(type);
+}
+
+/**
+ * Tasks the organization ticks on creation when the project needs them (spec 2B), and the
+ * project field that records each tick. They can change until that task is submitted.
+ */
+export const PRE_EVENT_CHOICES = {
+  NOM: 'nomRequired',
+  MOM: 'momRequired',
+  COMMUNICATION_LETTER: 'communicationLetterRequired',
+  ATTENDANCE_SHEET: 'attendanceSheetRequired',
+} as const satisfies Partial<Record<ProjectTaskType, string>>;
+export type PreEventChoiceField = (typeof PRE_EVENT_CHOICES)[keyof typeof PRE_EVENT_CHOICES];
+
+/** A file's label in a multi-file task, e.g. "Letter to the Dean". */
+export const taskFileLabelSchema = z
+  .string()
+  .trim()
+  .min(2, 'Name this file, e.g. "Letter to the Dean"')
+  .max(80, 'Keep the name under 80 characters');
 
 /** Task files are merged into the Semestral End Report, so only PDF and images. */
 export const TASK_UPLOAD_CONTENT_TYPES = [
@@ -89,18 +144,27 @@ const projectFields = {
   description: z.string().trim().min(1, 'Describe the project briefly').max(2000),
 };
 
+/** Which optional pre-event documents the project needs (spec 2B); none by default. */
+const preEventChoices = {
+  nomRequired: z.boolean(),
+  momRequired: z.boolean(),
+  communicationLetterRequired: z.boolean(),
+  attendanceSheetRequired: z.boolean(),
+};
+
 /** POST /organizations/:slug/projects: all five fields are required (spec 2A). */
 export const createProjectRequestSchema = z.strictObject({
   ...projectFields,
-  /** Whether this project needs a Notice / Minutes of Meeting (spec 2B). */
-  nomRequired: z.boolean().default(false),
-  momRequired: z.boolean().default(false),
+  nomRequired: preEventChoices.nomRequired.default(false),
+  momRequired: preEventChoices.momRequired.default(false),
+  communicationLetterRequired: preEventChoices.communicationLetterRequired.default(false),
+  attendanceSheetRequired: preEventChoices.attendanceSheetRequired.default(false),
 });
 export type CreateProjectRequest = z.input<typeof createProjectRequestSchema>;
 
 /** PATCH /projects/:projectId. At least one field. */
 export const updateProjectRequestSchema = z
-  .strictObject({ ...projectFields, nomRequired: z.boolean(), momRequired: z.boolean() })
+  .strictObject({ ...projectFields, ...preEventChoices })
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, 'Change at least one field');
 export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;
@@ -117,11 +181,17 @@ export const taskUploadUrlRequestSchema = uploadUrlRequestSchema.refine(
   { path: ['contentType'], message: 'Task files must be PDF, JPG or PNG' },
 );
 
-/** POST /projects/:projectId/tasks/:type/documents: the uploaded file and who can see it. */
+/**
+ * POST /projects/:projectId/tasks/:type/documents: the uploaded file and who can see it. In
+ * a multi-file task (MULTI_FILE_TASK_TYPES) a new file needs its `label`; `documentId`
+ * instead uploads a new version of one of the task's files.
+ */
 export const createTaskDocumentRequestSchema = z.strictObject({
   uploadKey: uploadKeySchema,
   visibility: documentVisibilitySchema,
   actingAs: actingAsSchema,
+  label: taskFileLabelSchema.optional(),
+  documentId: z.uuid().optional(),
 });
 export type CreateTaskDocumentRequest = z.infer<typeof createTaskDocumentRequestSchema>;
 
@@ -136,28 +206,60 @@ export type CreateFinancialReportDocumentRequest = z.infer<
   typeof createFinancialReportDocumentRequestSchema
 >;
 
-/** The body schema for a task's file: the Financial Report also carries its figures. */
+/**
+ * The body schema for a task's file: the Financial Report also carries its figures; a
+ * multi-file task's new file needs a label; a one-file task takes neither a label nor a
+ * `documentId` (its re-uploads are versions of its one file).
+ */
 export function taskDocumentRequestSchemaFor(type: ProjectTaskType) {
-  return type === 'FINANCIAL_REPORT'
-    ? createFinancialReportDocumentRequestSchema
-    : createTaskDocumentRequestSchema;
+  if (type === 'FINANCIAL_REPORT') {
+    return createFinancialReportDocumentRequestSchema.refine(
+      (body) => body.label === undefined && body.documentId === undefined,
+      'This task holds one file; upload it again to replace it',
+    );
+  }
+  const multi = isMultiFileTask(type);
+  return createTaskDocumentRequestSchema.superRefine((body, ctx) => {
+    if (multi && body.documentId === undefined && body.label === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['label'],
+        message: 'Name this file, e.g. "Letter to the Dean"',
+      });
+    }
+    if (!multi && (body.label !== undefined || body.documentId !== undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['label'],
+        message: 'This task holds one file; upload it again to replace it',
+      });
+    }
+  });
 }
+
+/** A file of a task, as the checklist shows it (the visibility rule applies). */
+const taskDocumentBriefSchema = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  status: documentStatusSchema,
+  visibility: documentVisibilitySchema,
+});
 
 export const projectTaskSchema = z.object({
   type: projectTaskTypeSchema,
   status: projectTaskStatusSchema,
-  /** Null for tasks without a deadline (NOM and MOM). */
+  /**
+   * False only for the optional "Other pre-event document": never due, and the project
+   * completes without it.
+   */
+  required: z.boolean(),
+  /** Null for tasks without a deadline (NOM, MOM and other pre-event documents). */
   dueAt: z.iso.datetime().nullable(),
   submittedAt: z.iso.datetime().nullable(),
-  /** The task's file, when the viewer may see it (the visibility rule applies). */
-  document: z
-    .object({
-      id: z.uuid(),
-      title: z.string(),
-      status: documentStatusSchema,
-      visibility: documentVisibilitySchema,
-    })
-    .nullable(),
+  /** A one-file task's file, when the viewer may see it (the visibility rule applies). */
+  document: taskDocumentBriefSchema.nullable(),
+  /** A multi-file task's files the viewer may see, oldest first, each with its label. */
+  files: z.array(z.object({ label: z.string(), document: taskDocumentBriefSchema })),
 });
 export type ProjectTask = z.infer<typeof projectTaskSchema>;
 
@@ -174,6 +276,8 @@ export const projectSummarySchema = z
     postEventDueAt: z.iso.datetime(),
     nomRequired: z.boolean(),
     momRequired: z.boolean(),
+    communicationLetterRequired: z.boolean(),
+    attendanceSheetRequired: z.boolean(),
     /** The earliest deadline among open tasks; null when nothing is due. */
     nextDeadline: z.object({ type: projectTaskTypeSchema, dueAt: z.iso.datetime() }).nullable(),
     organization: z.object({

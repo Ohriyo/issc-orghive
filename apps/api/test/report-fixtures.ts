@@ -103,7 +103,11 @@ export async function seedReportProject(
     targetDate: string;
     nomRequired?: boolean;
     momRequired?: boolean;
+    communicationLetterRequired?: boolean;
+    attendanceSheetRequired?: boolean;
     files?: Partial<Record<ProjectTaskType, FixtureName>>;
+    /** Labelled files of multi-file tasks (letters, other pre-event documents), in order. */
+    labelled?: { task: ProjectTaskType; label: string; file: FixtureName }[];
   },
 ) {
   const projects = createProjectRepository(db);
@@ -118,6 +122,8 @@ export async function seedReportProject(
     description: 'A project.',
     nomRequired: input.nomRequired ?? false,
     momRequired: input.momRequired ?? false,
+    communicationLetterRequired: input.communicationLetterRequired ?? false,
+    attendanceSheetRequired: input.attendanceSheetRequired ?? false,
     createdById: input.createdById,
     createdAt,
   };
@@ -133,10 +139,8 @@ export async function seedReportProject(
   );
   const project = await projects.create(fields, plan);
   const type = await db.documentType.findUniqueOrThrow({ where: { slug: 'project-proposal' } });
-  for (const [task, name] of Object.entries(input.files ?? {}) as [
-    ProjectTaskType,
-    FixtureName,
-  ][]) {
+  /** A clean, available document holding the fixture. */
+  async function fixtureDocument(task: ProjectTaskType, name: FixtureName) {
     const fixture = FIXTURE_FILES[name];
     const doc = await db.document.create({
       data: {
@@ -163,7 +167,18 @@ export async function seedReportProject(
       },
     });
     await db.document.update({ where: { id: doc.id }, data: { currentVersionId: version.id } });
-    await projects.linkDocument(project.id, task, doc.id);
+    return doc.id;
+  }
+  for (const [task, name] of Object.entries(input.files ?? {}) as [
+    ProjectTaskType,
+    FixtureName,
+  ][]) {
+    await projects.linkDocument(project.id, task, await fixtureDocument(task, name));
+  }
+  for (const { task, label, file } of input.labelled ?? []) {
+    await projects.addTaskFile(project.id, task, await fixtureDocument(task, file), label);
+    // Files added one after another keep their order (created_at has millisecond precision).
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   return project;
 }
@@ -180,6 +195,7 @@ export async function ensureReportDocumentType(db: Db) {
 export function buildReportService(db: Db, now?: () => Date) {
   const { storage, stored, failing } = fixtureStorage();
   const queued: string[] = [];
+  const previewsQueued: string[] = [];
   const notified: { userIds: string[]; title: string; link: string | null }[] = [];
   const service = createReportService({
     reports: createReportRepository(db),
@@ -193,6 +209,12 @@ export function buildReportService(db: Db, now?: () => Date) {
       },
     },
     renderer: testRenderer,
+    previews: {
+      enqueuePreview: (versionId) => {
+        previewsQueued.push(versionId);
+        return Promise.resolve();
+      },
+    },
     sha256: sha256Hex,
     notifications: {
       notify: (input) => {
@@ -205,7 +227,7 @@ export function buildReportService(db: Db, now?: () => Date) {
     logger: pino({ level: 'silent' }),
     now,
   });
-  return { service, stored, failing, queued, notified };
+  return { service, stored, failing, queued, previewsQueued, notified };
 }
 
 /** The text of each page of a PDF, in order. */

@@ -48,7 +48,9 @@ import { createReportService } from '#src/services/report.service';
 import { createAuthService } from '#src/services/auth.service';
 import { createCollegeService } from '#src/services/college.service';
 import { createDashboardService } from '#src/services/dashboard.service';
+import { createDocumentPreviewService } from '#src/services/document-preview.service';
 import { createDocumentService } from '#src/services/document.service';
+import { createPageTokenService } from '#src/services/page-token.service';
 import { createSearchService } from '#src/services/search.service';
 import { createAnnouncementService } from '#src/services/announcement.service';
 import { createAnnouncementRepository } from '#src/repositories/announcement.repository';
@@ -61,6 +63,11 @@ import { createProjectSync } from '#src/services/project-sync.service';
 import { createUploadService } from '#src/services/upload.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createOrganizationService } from '#src/services/organization.service';
+import { createProfileService } from '#src/services/profile.service';
+import { createConstitutionService } from '#src/services/constitution.service';
+import { createProfileRepository } from '#src/repositories/profile.repository';
+import { createHandbookRepository } from '#src/repositories/handbook.repository';
+import { createHandbookService } from '#src/services/handbook.service';
 import { createTokenService } from '#src/services/token.service';
 import { createSecretBox } from '#src/lib/secret-box';
 import { createRedisSuperAdminStore } from '#src/lib/super-admin-store';
@@ -190,7 +197,28 @@ const documentService = createDocumentService({
   cache,
   leaderboard: recompute,
 });
-const search = createSearchService({ documents, viewers, storage, cache });
+const documentPreviews = createDocumentPreviewService({
+  documents,
+  viewers,
+  pageTokens: createPageTokenService({
+    privateKeyPem: config.JWT_PRIVATE_KEY,
+    publicKeyPem: config.JWT_PUBLIC_KEY,
+  }),
+  storage,
+});
+const handbook = createHandbookService({
+  handbooks: createHandbookRepository(db),
+  documents,
+  documentTypes,
+  organizations,
+  viewers,
+  uploads,
+  queue: jobs,
+  storage,
+  audit,
+  cache,
+});
+const search = createSearchService({ documents, viewers, storage, cache, handbook });
 const announcementRepository = createAnnouncementRepository(db);
 const announcements = createAnnouncementService({
   announcements: announcementRepository,
@@ -321,7 +349,26 @@ const app = createApp({
       publicUrl,
     }),
     organizations: createOrganizationService({ organizations, cache, publicUrl }),
+    profiles: createProfileService({
+      profiles: createProfileRepository(db),
+      storage,
+      audit,
+      cache,
+      publicUrl,
+    }),
+    handbook,
+    constitutions: createConstitutionService({
+      organizations,
+      documents,
+      documentTypes,
+      viewers,
+      uploads,
+      queue: jobs,
+      audit,
+      cache,
+    }),
     documents: documentService,
+    documentPreviews,
     uploads,
     access: createAccessService({
       accounts,

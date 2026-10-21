@@ -109,30 +109,43 @@ function ProjectForm({ model }: { model: Ready }) {
           {...form.register('description')}
         />
         <fieldset>
-          <legend className="text-body font-medium text-ink">Meeting documents</legend>
+          <legend className="text-body font-medium text-ink">Pre-event documents</legend>
           <p className="mt-1 text-small text-ink-muted">
-            Check the ones this project needs. They unlock once the proposal is submitted.
+            Tick the ones this project needs; only ticked ones are required. They unlock once the
+            proposal is submitted, and you can change a tick until its document has a file.
           </p>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:gap-6">
+          <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
             {(
               [
-                ['nomRequired', 'Notice of Meeting (NOM)'],
-                ['momRequired', 'Minutes of Meeting (MOM)'],
+                ['nomRequired', 'Notice of Meeting (NOM)', 'No deadline'],
+                ['momRequired', 'Minutes of Meeting (MOM)', 'No deadline'],
+                [
+                  'communicationLetterRequired',
+                  'Communication Letter',
+                  'Due on the event day; one file per office',
+                ],
+                ['attendanceSheetRequired', 'Attendance Sheet', 'Due with the ACR'],
               ] as const
-            ).map(([name, label]) => (
+            ).map(([name, label, hint]) => (
               <label
                 key={name}
-                className="flex min-h-11 cursor-pointer items-center gap-3 text-body text-ink"
+                className="flex min-h-11 cursor-pointer items-center gap-3 py-1 text-body text-ink"
               >
                 <input
                   type="checkbox"
-                  className="size-5 accent-forest-700"
+                  className="size-5 shrink-0 accent-forest-700"
                   {...form.register(name)}
                 />
-                {label}
+                <span className="min-w-0">
+                  {label}
+                  <span className="block text-small text-ink-muted">{hint}</span>
+                </span>
               </label>
             ))}
           </div>
+          <p className="mt-2 text-small text-ink-muted">
+            You can also add other pre-event documents later; they are optional.
+          </p>
         </fieldset>
         {model.saveError ? (
           <p role="alert" className="text-body font-medium text-destructive">

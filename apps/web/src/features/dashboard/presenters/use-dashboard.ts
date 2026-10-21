@@ -101,7 +101,7 @@ export interface RecentDocument {
 }
 
 /** An extension point: each role that has extra work adds a panel here. */
-export type RolePanel = { kind: 'admin' | 'appeals' | 'overview'; href: string };
+export type RolePanel = { kind: 'admin' | 'handbook' | 'appeals' | 'overview'; href: string };
 
 export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   active: 'Active',
@@ -144,6 +144,8 @@ export interface SelectedOrganization {
   /** Nothing filed yet: the page shows a welcome instead of empty sections. */
   isEmpty: boolean;
   uploadHref: string | null;
+  /** The organization's own account edits its public profile there. */
+  profileHref: string | null;
   paperworksHref: string;
   documentsHref: string;
   canRevise: boolean;
@@ -309,7 +311,10 @@ export function rolePanels(data: DashboardResponse): RolePanel[] {
   const panels: RolePanel[] = [];
   if (decidesAppeals(data)) panels.push({ kind: 'appeals', href: '/dashboard/appeals' });
   if (data.canSeeCompliance) panels.push({ kind: 'overview', href: '/dashboard/compliance' });
-  if (data.isIssc) panels.push({ kind: 'admin', href: '/admin' });
+  if (data.isIssc) {
+    panels.push({ kind: 'admin', href: '/admin' });
+    panels.push({ kind: 'handbook', href: '/admin/handbook' });
+  }
   return panels;
 }
 
@@ -370,6 +375,7 @@ export function selectOrganization(
     })),
     isEmpty: total === 0,
     uploadHref: isOfficer ? `/orgs/${org.slug}/paperworks/upload` : null,
+    profileHref: isOfficer ? '/dashboard/profile' : null,
     paperworksHref: `/orgs/${org.slug}/paperworks`,
     documentsHref: documentsHref(org.slug),
     canRevise: isOfficer,

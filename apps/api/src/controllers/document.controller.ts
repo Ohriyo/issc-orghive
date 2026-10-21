@@ -6,6 +6,9 @@ import {
   createDocumentRequestSchema,
   documentIdParamsSchema,
   documentListQuerySchema,
+  documentPageParamsSchema,
+  documentPageQuerySchema,
+  documentViewerQuerySchema,
   slugParamsSchema,
   updateDocumentRequestSchema,
   updateVisibilityRequestSchema,
@@ -13,6 +16,7 @@ import {
   versionParamsSchema,
 } from '@orghive/shared';
 import { authOf, maybeAuthOf, orgOf } from '#src/middleware/require-auth';
+import type { DocumentPreviewService } from '#src/services/document-preview.service';
 import type { Actor, DocumentService, Reader } from '#src/services/document.service';
 import type { UploadService } from '#src/services/upload.service';
 
@@ -29,7 +33,25 @@ function readerOf(req: Request, res: Response): Reader {
   return { userId: maybeAuthOf(res)?.userId, ip: req.ip };
 }
 
-export function createDocumentController(documents: DocumentService, uploads: UploadService) {
+/**
+ * A page image: shown, never saved. Private to this browser for the token's 5 minutes, never
+ * indexed, never framed elsewhere, and nothing invites a download.
+ */
+const PAGE_HEADERS = {
+  'Content-Type': 'image/webp',
+  'Content-Disposition': 'inline',
+  'Cache-Control': 'private, max-age=300',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Robots-Tag': 'noindex, noimageindex, noarchive',
+  'Cross-Origin-Resource-Policy': 'same-site',
+  'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
+} as const;
+
+export function createDocumentController(
+  documents: DocumentService,
+  uploads: UploadService,
+  previews: DocumentPreviewService,
+) {
   const uploadUrl: RequestHandler = async (req, res) => {
     const body = uploadUrlRequestSchema.parse(req.body);
     res.set('Cache-Control', 'private, no-store');
@@ -55,6 +77,21 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     // A signed link is a credential for 5 minutes: never cache it anywhere.
     res.set('Cache-Control', 'private, no-store');
     res.json(await documents.downloadUrl(readerOf(req, res), documentId, versionId, disposition));
+  };
+
+  const viewer: RequestHandler = async (req, res) => {
+    const { documentId } = documentIdParamsSchema.parse(req.params);
+    const { versionId } = documentViewerQuerySchema.parse(req.query);
+    // Carries a page token: a credential for 5 minutes, never cached.
+    res.set('Cache-Control', 'private, no-store');
+    res.json(await previews.viewer(maybeAuthOf(res)?.userId, documentId, versionId));
+  };
+
+  const page: RequestHandler = async (req, res) => {
+    const { documentId, page: pageNumber } = documentPageParamsSchema.parse(req.params);
+    const { token, size } = documentPageQuerySchema.parse(req.query);
+    const image = await previews.page(documentId, pageNumber, token, size);
+    res.set(PAGE_HEADERS).send(image);
   };
 
   const list: RequestHandler = async (req, res) => {
@@ -112,6 +149,8 @@ export function createDocumentController(documents: DocumentService, uploads: Up
     addVersion,
     listVersions,
     downloadUrl,
+    viewer,
+    page,
     list,
     listTypes,
     get,

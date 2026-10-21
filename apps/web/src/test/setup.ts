@@ -34,3 +34,7 @@ class NoopObserver {
 
 window.IntersectionObserver ??= NoopObserver as unknown as typeof IntersectionObserver;
 window.ResizeObserver ??= NoopObserver as unknown as typeof ResizeObserver;
+// jsdom lays nothing out, so scrolling an element has nothing to do.
+if (!('scrollTo' in Element.prototype)) {
+  Object.defineProperty(Element.prototype, 'scrollTo', { value: () => {}, writable: true });
+}

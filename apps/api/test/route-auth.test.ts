@@ -81,14 +81,25 @@ const PUBLIC: Record<string, string> = {
   'get /api/v1/colleges/:slug': 'public browsing',
   'get /api/v1/organizations/:slug': 'public browsing',
   'get /api/v1/organizations/:slug/documents': 'Paperworks; visibility filter in the repository',
+  'get /api/v1/organizations/:slug/constitution':
+    'Constitution & By-laws is always public; visibility filter in the repository',
   'get /api/v1/documents/:documentId': 'public files; visibility filter in the repository',
   'get /api/v1/documents/:documentId/versions': 'public files; visibility filter',
-  'get /api/v1/documents/:documentId/versions/:versionId/download-url':
-    'public files; visibility filter, 5-minute signed URL',
+  'get /api/v1/documents/:documentId/viewer':
+    'view-only viewer; visibility filter in the repository, issues 5-minute page tokens',
+  'get /api/v1/documents/:documentId/pages/:page':
+    'watermarked page image; authorized by its signed page token (an <img> sends no session)',
   'get /api/v1/document-types': 'upload and filter choices',
   'get /api/v1/search': 'public search; visibility filter in the repository',
+  'get /api/v1/handbook': 'the Student Handbook is public (DOMAIN_RULES.md); view only',
+  'get /api/v1/handbook/editions': 'the Student Handbook is public; its past editions too',
+  'get /api/v1/handbook/search': 'search inside the public Student Handbook',
+  'get /api/v1/handbook/:year': 'the Student Handbook is public; one edition',
+  'get /api/v1/handbook/:year/search': 'search inside one public edition',
   'get /api/v1/announcements': 'updates are public (DOMAIN_RULES.md)',
   'get /api/v1/announcements/:announcementId': 'updates are public (DOMAIN_RULES.md)',
+  'get /api/v1/leaderboard': 'leaderboard is public (spec 5F); public fields only',
+  'get /api/v1/leaderboard/stream': 'live leaderboard (SSE), public fields only; capped per IP',
 };
 
 const UUID = '0199f0a0-0000-7000-8000-000000000001';

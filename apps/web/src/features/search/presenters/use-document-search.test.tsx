@@ -49,7 +49,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 function respond(items: SearchHit[], nextPage: number | null = null) {
   fetchMock.mockResolvedValue(
-    new Response(JSON.stringify({ query: 'bridge', items, page: 1, nextPage }), {
+    new Response(JSON.stringify({ query: 'bridge', items, page: 1, nextPage, handbook: null }), {
       headers: { 'Content-Type': 'application/json' },
     }),
   );

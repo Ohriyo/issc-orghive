@@ -50,13 +50,26 @@ export const searchHitSchema = z
   .meta({ id: 'SearchHit' });
 export type SearchHit = z.infer<typeof searchHitSchema>;
 
-/** Best matches first. `nextPage` is null on the last page. */
+/** One page of the Student Handbook that matches a search, best first. */
+export const handbookPageMatchSchema = z
+  .object({ page: z.number().int().positive(), snippet: searchSnippetSchema })
+  .meta({ id: 'HandbookPageMatch' });
+export type HandbookPageMatch = z.infer<typeof handbookPageMatchSchema>;
+
+/**
+ * Best matches first. `nextPage` is null on the last page. `handbook`: the pages of the
+ * current Student Handbook that match, shown above the documents (first page only; null when
+ * none match or there is no current edition). The handbook is never among `items`.
+ */
 export const searchResponseSchema = z
   .object({
     query: z.string(),
     items: z.array(searchHitSchema),
     page: z.number().int(),
     nextPage: z.number().int().nullable(),
+    handbook: z
+      .object({ academicYear: z.string(), matches: z.array(handbookPageMatchSchema) })
+      .nullable(),
   })
   .meta({ id: 'SearchResponse' });
 export type SearchResponse = z.infer<typeof searchResponseSchema>;

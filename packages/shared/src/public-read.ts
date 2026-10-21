@@ -63,13 +63,48 @@ export const collegeDetailSchema = collegeSummarySchema
   .meta({ id: 'CollegeDetail' });
 export type CollegeDetail = z.infer<typeof collegeDetailSchema>;
 
-/** GET /organizations/:slug. `id` lets a signed-in client match its roles to the page. */
+/** What a profile link points to, from its host (`socialLinkOf` in profile.ts). */
+export const SOCIAL_KINDS = [
+  'facebook',
+  'instagram',
+  'tiktok',
+  'youtube',
+  'x',
+  'linkedin',
+  'website',
+] as const;
+export type SocialKind = (typeof SOCIAL_KINDS)[number];
+
+export const socialLinkSchema = z
+  .object({ url: z.url(), kind: z.enum(SOCIAL_KINDS), label: z.string() })
+  .meta({ id: 'SocialLink' });
+export type SocialLink = z.infer<typeof socialLinkSchema>;
+
+/** An officer as the public page lists them: only entries the organization shows publicly. */
+export const publicOfficerSchema = z
+  .object({ position: z.string(), name: z.string() })
+  .meta({ id: 'PublicOfficer' });
+export type PublicOfficer = z.infer<typeof publicOfficerSchema>;
+
+/**
+ * GET /organizations/:slug. `id` lets a signed-in client match its roles to the page. The
+ * profile fields are the organization's own (/dashboard/profile); hidden officers are never
+ * included.
+ */
 export const organizationDetailSchema = organizationSummarySchema
   .extend({
     id: z.uuid(),
     description: z.string().nullable(),
     parent: organizationSummarySchema.nullable(),
     college: collegeRefSchema.nullable(),
+    mission: z.string().nullable(),
+    vision: z.string().nullable(),
+    contactEmail: z.string().nullable(),
+    /** The Facebook page first, then the other links in the organization's order. */
+    links: z.array(socialLinkSchema),
+    officers: z.array(publicOfficerSchema),
+    coverUrl: logoUrlSchema,
+    coverSrcSet: logoSrcSetSchema,
   })
   .meta({ id: 'OrganizationDetail' });
 export type OrganizationDetail = z.infer<typeof organizationDetailSchema>;

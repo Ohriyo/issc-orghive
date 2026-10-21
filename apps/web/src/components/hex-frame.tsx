@@ -13,6 +13,13 @@ export interface HexFrameProps {
   orientation?: HexOrientation;
   /** Dark forest outer band. Off when the hexagon sits on a forest surface already. */
   band?: boolean;
+  /** The band's fill in place of forest, e.g. `bg-medal-gold-band` (leaderboard Top 3). */
+  bandClassName?: string;
+  /**
+   * A soft light sweeping across the band now and then (leaderboard Top 3). Off with
+   * prefers-reduced-motion.
+   */
+  shimmer?: boolean;
   /**
    * White inner border between the band and the fill. `interactive` shows it only on
    * hover or keyboard focus of the nearest `group` ancestor (e.g. a link around the hexagon).
@@ -35,6 +42,8 @@ export interface HexFrameProps {
 export function HexFrame({
   orientation = 'flat',
   band = true,
+  bandClassName,
+  shimmer = false,
   ring = true,
   shadow = true,
   bandWidth = HEX_BAND,
@@ -52,7 +61,7 @@ export function HexFrame({
   const fill = (
     <div
       className={cn(
-        'bg-forest-sheen flex size-full items-center justify-center p-[16%]',
+        'bg-forest-sheen relative flex size-full items-center justify-center p-[16%]',
         ring === 'interactive' &&
           'ease-cinematic scale-(--hex-cover) transition-transform duration-300 group-hover:scale-100 group-focus-visible:scale-100 motion-reduce:transition-none',
         contentClassName,
@@ -64,7 +73,10 @@ export function HexFrame({
   );
 
   const withRing = ring ? (
-    <div className="size-full bg-white" style={{ ...clip, ...hexInset(orientation, ringWidth) }}>
+    <div
+      className="relative size-full bg-white"
+      style={{ ...clip, ...hexInset(orientation, ringWidth) }}
+    >
       {fill}
     </div>
   ) : (
@@ -78,9 +90,17 @@ export function HexFrame({
     >
       {band ? (
         <div
-          className="bg-forest-band size-full"
+          className={cn('relative size-full', bandClassName ?? 'bg-forest-band')}
           style={{ ...clip, ...hexInset(orientation, bandWidth) }}
         >
+          {shimmer ? (
+            // Under the ring and fill, so the light only crosses the band.
+            <span
+              aria-hidden="true"
+              data-testid="hex-shimmer"
+              className="bg-shimmer-streak animate-hex-shimmer absolute inset-0 motion-reduce:hidden"
+            />
+          ) : null}
           {withRing}
         </div>
       ) : (

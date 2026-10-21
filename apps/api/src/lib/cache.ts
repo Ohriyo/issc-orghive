@@ -20,13 +20,19 @@ export const cacheKeys = {
   collegeList: () => 'college:list',
   college: (slug: string) => `college:${slug}`,
   documentTypes: () => 'document-types:list',
-  organization: (slug: string) => `org:${slug}`,
+  /**
+   * The public organization page. Versioned: bump it whenever its shape changes, so an entry
+   * cached by the previous release is never served to the new client (v2: profile fields).
+   */
+  organization: (slug: string) => `org:${slug}:v2`,
   organizationDocuments: (slug: string, queryHash: string) => `org:${slug}:docs:${queryHash}`,
   /** Every cached document list of one organization. Delete it on any document write. */
   organizationDocumentsPattern: (slug: string) => `org:${slug}:docs:*`,
   /** Bumped on every document write; part of every cached search key. */
   searchGeneration: () => 'search:gen',
   search: (generation: string, queryHash: string) => `search:${generation}:${queryHash}`,
+  /** Public fields of the ranked organizations. Delete it when one is renamed or changes logo. */
+  leaderboardOrganizations: () => 'leaderboard:orgs',
 };
 
 /**

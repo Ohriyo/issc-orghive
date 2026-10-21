@@ -28,6 +28,8 @@ import {
 import { AccountRequestsView } from './views/account-requests-view';
 import { ImportView } from './views/import-view';
 import { TestDataView } from './views/test-data-view';
+import { SettingsView } from './views/settings-view';
+import { useSystemSettings } from './presenters/use-system-settings';
 import { BulkCreateButton, CreateAccountButton, UsersView } from './views/users-view';
 
 /** Signed in (with MFA confirmed), then super admins only; everyone else sees why not. */
@@ -179,6 +181,24 @@ function TestData() {
     <Console title="Test data" description="Review, then delete the files flagged as test data.">
       <TestDataView model={model} />
     </Console>
+  );
+}
+
+function Settings() {
+  usePageChrome(chrome.system('Settings'));
+  const model = useSystemSettings();
+  return (
+    <Console title="Settings" description="Rules the whole system follows.">
+      <SettingsView model={model} />
+    </Console>
+  );
+}
+
+export function SystemSettingsPage() {
+  return (
+    <Gated>
+      <Settings />
+    </Gated>
   );
 }
 

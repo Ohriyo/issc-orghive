@@ -9,7 +9,9 @@ import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
 import { createProjectRepository } from '#src/repositories/project.repository';
 import { createAccessService } from '#src/services/access.service';
+import { createDocumentPreviewService } from '#src/services/document-preview.service';
 import { createDocumentService } from '#src/services/document.service';
+import { createPageTokenService, PAGE_TOKEN_TTL_SECONDS } from '#src/services/page-token.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createTokenService } from '#src/services/token.service';
 import { createUploadService } from '#src/services/upload.service';
@@ -35,12 +37,21 @@ const storage: Storage = {
     const intent = await db.uploadIntent.findUnique({ where: { key } });
     return intent ? { sizeBytes: intent.sizeBytes, contentType: intent.contentType } : null;
   },
-  read: () => Promise.reject(new Error('not used')),
+  // Only page images are ever read through the API; every read is recorded.
+  read: (key) => {
+    reads.push(key);
+    return key.startsWith('pages/')
+      ? Promise.resolve(Buffer.from(`webp:${key}`))
+      : Promise.reject(new Error(`The API never reads ${key}`));
+  },
   put: () => Promise.resolve(),
   copy: () => Promise.resolve(),
   move: () => Promise.resolve(),
   delete: () => Promise.resolve(),
 };
+const reads: string[] = [];
+/** The page tokens' clock, moved forward to expire them. */
+let clock = new Date();
 const queued: string[] = [];
 const queue = {
   enqueueProcessing: (versionId: string) => {
@@ -143,6 +154,12 @@ beforeAll(async () => {
       storage,
       audit,
       cache: memoryCache(),
+    }),
+    documentPreviews: createDocumentPreviewService({
+      documents,
+      viewers,
+      pageTokens: createPageTokenService({ ...testKeys(), now: () => clock }),
+      storage,
     }),
     access: createAccessService({
       accounts,
@@ -744,28 +761,19 @@ describe('uploads', () => {
     expect(await versions()).toEqual([1]);
   });
 
-  it('signs downloads for clean, visible versions only; never cacheable', async () => {
+  it('signs downloads for the owning organization only; never cacheable', async () => {
     const pub = await iecepDocument('public');
     const v1 = (await db.document.findUniqueOrThrow({ where: { id: pub.id } })).currentVersionId!;
-    const res = await call('get', `/documents/${pub.id}/versions/${v1}/download-url`).expect(200);
+    const own = (path: string) => call('get', path, tokenOf.iecepOfficer).expect(200);
+    const res = await own(`/documents/${pub.id}/versions/${v1}/download-url`);
     expect((res.body as { url: string }).url).toContain('disposition=attachment');
     expect(res.headers['cache-control']).toBe('private, no-store');
-    const inline = await call(
-      'get',
-      `/documents/${pub.id}/versions/${v1}/download-url?disposition=inline`,
-    ).expect(200);
+    const inline = await own(`/documents/${pub.id}/versions/${v1}/download-url?disposition=inline`);
     expect((inline.body as { url: string }).url).toContain('disposition=inline');
 
     const priv = await iecepDocument('private');
     const pv = (await db.document.findUniqueOrThrow({ where: { id: priv.id } })).currentVersionId!;
-    const download = (token?: string) =>
-      call('get', `/documents/${priv.id}/versions/${pv}/download-url`, token);
-    await download().expect(404);
-    await download(tokenOf.jpiceOfficer).expect(404);
-    await download(tokenOf.ceaGovernor).expect(404);
-    // Private means private: not the ISSC either.
-    await download(tokenOf.admin).expect(404);
-    await download(tokenOf.iecepOfficer).expect(200);
+    await own(`/documents/${priv.id}/versions/${pv}/download-url`);
 
     // A version from another document is not reachable through this one.
     await call(
@@ -774,12 +782,173 @@ describe('uploads', () => {
       tokenOf.iecepOfficer,
     ).expect(404);
 
-    // A refused file is never served: its uploader learns why, everyone else does not see it.
+    // A refused file is never served, not even to its owner, who learns why.
     await db.documentVersion.update({ where: { id: v1 }, data: { scanStatus: 'infected' } });
-    const refused = (token: string) =>
-      call('get', `/documents/${pub.id}/versions/${v1}/download-url`, token);
-    await refused(tokenOf.iecepOfficer).expect(409);
-    await refused(tokenOf.admin).expect(404);
+    await call(
+      'get',
+      `/documents/${pub.id}/versions/${v1}/download-url`,
+      tokenOf.iecepOfficer,
+    ).expect(409);
+  });
+
+  it('refuses the original to everyone but the owner, whatever the visibility', async () => {
+    for (const target of ['public', 'governing', 'private'] as const) {
+      const doc = await iecepDocument(target);
+      const v = (await db.document.findUniqueOrThrow({ where: { id: doc.id } })).currentVersionId!;
+      const download = (token?: string) =>
+        call('get', `/documents/${doc.id}/versions/${v}/download-url`, token);
+      await download().expect(401);
+      // Signed in elsewhere: the governing bodies (CSC-CEA, the ISSC) included.
+      for (const person of ['student', 'jpiceOfficer', 'ceaGovernor', 'cscCat', 'admin'] as const) {
+        const res = await download(tokenOf[person]);
+        expect(res.status, `${person} on a ${target} document`).toBe(403);
+        expect(JSON.stringify(res.body)).not.toContain('storage.test');
+      }
+      await download(tokenOf.iecepOfficer).expect(200);
+    }
+  });
+});
+
+describe('view-only viewer (CLAUDE.md: originals go to the owning organization only)', () => {
+  const PAGES = [
+    [1240, 1754],
+    [1240, 1754],
+    [1754, 1240],
+  ];
+
+  /** An IECEP document whose current version has its watermarked pages rendered. */
+  async function rendered(target: Target) {
+    const doc = await iecepDocument(target);
+    const versionId = (await db.document.findUniqueOrThrow({ where: { id: doc.id } }))
+      .currentVersionId!;
+    await db.documentVersion.update({
+      where: { id: versionId },
+      data: {
+        previewStatus: 'ready',
+        previewPages: PAGES,
+        pageCount: 3,
+        thumbnailKey: `thumbnails/${doc.id}/${versionId}.webp`,
+      },
+    });
+    return { id: doc.id, versionId };
+  }
+
+  interface ViewerBody {
+    versionId: string;
+    status: string;
+    pages: { width: number; height: number }[];
+    totalPages: number;
+    token: string | null;
+    expiresAt: string | null;
+  }
+
+  const viewer = async (id: string, token?: string) => {
+    const res = await call('get', `/documents/${id}/viewer`, token).expect(200);
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    return res.body as ViewerBody;
+  };
+  const page = (id: string, n: number, pageToken?: string) =>
+    request(app).get(
+      `/api/v1/documents/${id}/pages/${n}` +
+        (pageToken === undefined ? '' : `?token=${encodeURIComponent(pageToken)}`),
+    );
+
+  it('gives a visitor the watermarked pages, and never the original by any route', async () => {
+    clock = new Date();
+    reads.length = 0;
+    const { id, versionId } = await rendered('public');
+    const body = await viewer(id);
+    expect(body).toMatchObject({ versionId, status: 'ready', totalPages: 3 });
+    expect(body.pages).toEqual(PAGES.map(([width, height]) => ({ width, height })));
+    expect(body.token).toEqual(expect.any(String));
+
+    const res = await page(id, 2, body.token!).expect(200);
+    expect(res.headers['content-type']).toBe('image/webp');
+    expect(res.headers['cache-control']).toBe('private, max-age=300');
+    expect(res.headers['content-disposition']).toBe('inline');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-robots-tag']).toContain('noindex');
+    expect(Buffer.from(res.body as Buffer).toString()).toBe(`webp:pages/${id}/${versionId}/2.webp`);
+
+    // Every other read route: no original bytes, no link to them.
+    const { storageKey } = await db.documentVersion.findUniqueOrThrow({ where: { id: versionId } });
+    for (const path of [
+      `/documents/${id}`,
+      `/documents/${id}/versions`,
+      `/documents/${id}/viewer`,
+    ]) {
+      const text = JSON.stringify((await call('get', path).expect(200)).body);
+      expect(text, path).not.toContain(storageKey);
+    }
+    const download = `/documents/${id}/versions/${versionId}/download-url`;
+    await call('get', download).expect(401);
+    await call('get', download, tokenOf.student).expect(403);
+    // The API only ever read page images: never the uploaded file.
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((key) => key.startsWith('pages/'))).toBe(true);
+  });
+
+  it('lets each viewer see what the visibility allows, and nothing more', async () => {
+    clock = new Date();
+    const governing = await rendered('governing');
+    expect((await viewer(governing.id, tokenOf.ceaGovernor)).status).toBe('ready');
+    expect((await viewer(governing.id, tokenOf.admin)).status).toBe('ready');
+    await call('get', `/documents/${governing.id}/viewer`).expect(404);
+    await call('get', `/documents/${governing.id}/viewer`, tokenOf.jpiceOfficer).expect(404);
+
+    const priv = await rendered('private');
+    expect((await viewer(priv.id, tokenOf.iecepOfficer)).status).toBe('ready');
+    for (const person of ['ceaGovernor', 'admin', 'jpiceOfficer', 'student'] as const) {
+      await call('get', `/documents/${priv.id}/viewer`, tokenOf[person]).expect(404);
+    }
+  });
+
+  it('expires page tokens after 5 minutes', async () => {
+    clock = new Date();
+    const { id } = await rendered('public');
+    const { token, expiresAt } = await viewer(id);
+    expect(new Date(expiresAt!).getTime() - clock.getTime()).toBe(PAGE_TOKEN_TTL_SECONDS * 1000);
+    await page(id, 1, token!).expect(200);
+
+    clock = new Date(clock.getTime() + PAGE_TOKEN_TTL_SECONDS * 1000 + 1000);
+    const expired = await page(id, 1, token!).expect(403);
+    expect((expired.body as { error: { message: string } }).error.message).toMatch(/expired/);
+    // A fresh token from the viewer works again.
+    await page(id, 1, (await viewer(id)).token!).expect(200);
+  });
+
+  it('refuses a token for another document, a forged one, an access token, or none', async () => {
+    clock = new Date();
+    const a = await rendered('public');
+    const b = await rendered('public');
+    const tokenA = (await viewer(a.id)).token!;
+    await page(b.id, 1, tokenA).expect(403);
+    await page(a.id, 1, `${tokenA.slice(0, -4)}AAAA`).expect(403);
+    await page(a.id, 1, tokenOf.iecepOfficer).expect(403);
+    await page(a.id, 1).expect(400);
+  });
+
+  it('serves no page past the last one, nor of a document deleted since', async () => {
+    clock = new Date();
+    const { id } = await rendered('public');
+    const { token } = await viewer(id);
+    await page(id, 4, token!).expect(404);
+    await page(id, 0, token!).expect(400);
+    await db.document.update({ where: { id }, data: { deletedAt: new Date() } });
+    await page(id, 1, token!).expect(404);
+  });
+
+  it('says "preparing" with no token until the pages are ready', async () => {
+    const doc = await iecepDocument('public');
+    expect(await viewer(doc.id)).toMatchObject({
+      status: 'pending',
+      pages: [],
+      totalPages: 0,
+      token: null,
+      expiresAt: null,
+    });
+    const scanning = await iecepDocument('scanning');
+    expect((await viewer(scanning.id, tokenOf.iecepOfficer)).status).toBe('pending');
   });
 });
 

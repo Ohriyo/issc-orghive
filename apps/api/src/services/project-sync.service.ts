@@ -1,23 +1,37 @@
 import type { ProjectTaskType } from '@orghive/shared';
 import type { ProjectRecord, ProjectRepository } from '#src/repositories/project.repository';
 import type { Compliance } from './compliance.service';
+import type { LeaderboardRecompute } from './leaderboard-recompute';
 import { planProject, type ProjectFacts } from './project-rules';
 
 /** A task's file counts once it passed the virus scan (available) and was not deleted. */
 const FILED_STATUSES = new Set(['available', 'archived']);
 
-/** The rules' input, read from a stored project. */
+type FileState = { status: string; deletedAt: Date | null } | null;
+
+/** Whether a task's file passed the scan and is still there. */
+export function isFiled(doc: FileState): boolean {
+  return !!doc && !doc.deletedAt && FILED_STATUSES.has(doc.status);
+}
+
+/**
+ * The rules' input, read from a stored project. A multi-file task (Communication Letters,
+ * other pre-event documents) is filed once any one of its files is.
+ */
 export function factsOf(record: ProjectRecord): ProjectFacts {
   const filed = new Set<ProjectTaskType>();
   for (const task of record.tasks) {
-    const doc = task.document;
-    if (doc && !doc.deletedAt && FILED_STATUSES.has(doc.status)) filed.add(task.type);
+    if (isFiled(task.document) || task.files.some((f) => isFiled(f.document))) {
+      filed.add(task.type);
+    }
   }
   return {
     createdAt: record.createdAt,
     targetDate: record.targetDate.toISOString().slice(0, 10),
     nomRequired: record.nomRequired,
     momRequired: record.momRequired,
+    communicationLetterRequired: record.communicationLetterRequired,
+    attendanceSheetRequired: record.attendanceSheetRequired,
     proposalDueOverride: record.proposalDueOverride,
     postEventDueOverride: record.postEventDueOverride,
     filed,
@@ -29,6 +43,8 @@ export interface ProjectSyncDeps {
   projects: Pick<ProjectRepository, 'findById' | 'applyPlan' | 'projectOfDocument' | 'listOpenIds'>;
   /** What crossing a deadline sets off (section 3). Omitted where only the plan matters. */
   compliance?: Pick<Compliance, 'statusChanged' | 'planApplied'>;
+  /** A task's file passing the scan may move the standings (spec 5B). */
+  leaderboard?: Pick<LeaderboardRecompute, 'forEventDates'>;
   now?: () => Date;
 }
 
@@ -41,6 +57,7 @@ export interface ProjectSyncDeps {
 export function createProjectSync({
   projects,
   compliance,
+  leaderboard,
   now = () => new Date(),
 }: ProjectSyncDeps) {
   async function sync(projectId: string): Promise<ProjectRecord | null> {
@@ -67,7 +84,9 @@ export function createProjectSync({
     /** The worker processed a document: if it is a task's file, its project may move on. */
     async documentScanned(documentId: string): Promise<void> {
       const projectId = await projects.projectOfDocument(documentId);
-      if (projectId) await sync(projectId);
+      if (!projectId) return;
+      const record = await sync(projectId);
+      if (record) await leaderboard?.forEventDates(record.targetDate);
     },
 
     /** One organization's projects that are not completed (before creating or listing). */

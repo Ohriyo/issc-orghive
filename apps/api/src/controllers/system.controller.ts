@@ -5,14 +5,20 @@ import {
   stepUpRequestSchema,
   systemAuditQuerySchema,
   systemUserIdParamsSchema,
+  updateSystemSettingsRequestSchema,
   type RecoveryCodesResponse,
 } from '@orghive/shared';
 import { authOf } from '#src/middleware/require-auth';
 import { requestContext, superAdminSessionOf } from '#src/middleware/require-super-admin';
 import type { SuperAdminService } from '#src/services/super-admin.service';
 import type { SystemService } from '#src/services/system.service';
+import type { SystemSettingsService } from '#src/services/system-settings.service';
 
-export function createSystemController(system: SystemService, superAdmins: SuperAdminService) {
+export function createSystemController(
+  system: SystemService,
+  superAdmins: SuperAdminService,
+  settings: Pick<SystemSettingsService, 'get' | 'update'>,
+) {
   const overview: RequestHandler = async (_req, res) => {
     res.json(await system.overview());
   };
@@ -59,8 +65,19 @@ export function createSystemController(system: SystemService, superAdmins: Super
     res.json({ recoveryCodes } satisfies RecoveryCodesResponse);
   };
 
+  const getSettings: RequestHandler = async (_req, res) => {
+    res.json(await settings.get());
+  };
+
+  const updateSettings: RequestHandler = async (req, res) => {
+    const patch = updateSystemSettingsRequestSchema.parse(req.body);
+    res.json(await settings.update(authOf(res).userId, patch, requestContext(req)));
+  };
+
   return {
     overview,
+    getSettings,
+    updateSettings,
     setUserStatus,
     setSystemRole,
     listAuditLogs,

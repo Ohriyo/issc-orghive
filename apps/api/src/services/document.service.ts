@@ -33,7 +33,9 @@ import type { DocumentTypeRepository } from '#src/repositories/document-type.rep
 import { PUBLIC_VIEWER, type DocumentViewer } from '#src/repositories/document-visibility';
 import type { OrganizationRepository } from '#src/repositories/organization.repository';
 import type { OrgRef } from '#src/services/access.service';
+import { managedKindOf, managedRefusal, type ManagedAction } from '#src/services/managed-document-rules';
 import type { DocumentViewerService } from '#src/services/document-viewer.service';
+import type { LeaderboardRecompute } from '#src/services/leaderboard-recompute';
 import type { UploadService } from '#src/services/upload.service';
 
 /** Signed-out document lists are cached for 5 minutes under `org:{slug}:docs:{hash}`. */
@@ -81,6 +83,8 @@ export interface DocumentServiceDeps {
   storage: Pick<Storage, 'presignGet'>;
   audit: Pick<AuditLogRepository, 'record'>;
   cache: Cache;
+  /** Deleting a task's file can un-implement its project (spec 5B). */
+  leaderboard?: Pick<LeaderboardRecompute, 'forDocument'>;
   now?: () => Date;
 }
 
@@ -121,7 +125,8 @@ export function toStoredSummary(doc: DocumentRecord): StoredSummary {
       sizeBytes: v.sizeBytes,
       scanStatus: v.scanStatus,
       createdAt: v.createdAt.toISOString(),
-      thumbnailKey: v.thumbnailKey,
+      // Only the watermarked thumbnail the preview job made; one from before is never served.
+      thumbnailKey: v.previewStatus === 'ready' ? v.thumbnailKey : null,
     },
   };
 }
@@ -192,6 +197,7 @@ export function createDocumentService({
   storage,
   audit,
   cache,
+  leaderboard,
   now = () => new Date(),
 }: DocumentServiceDeps) {
   function viewerFor(userId: string | undefined): Promise<DocumentViewer> {
@@ -215,10 +221,26 @@ export function createDocumentService({
     return summarize(doc);
   }
 
+  /** A type a document may be filed as here: known, and not the Constitution & By-laws. */
   async function assertTypeExists(typeId: string) {
-    if (!(await documentTypes.findById(typeId))) {
+    const type = await documentTypes.findById(typeId);
+    if (!type) {
       throw new AppError(400, ErrorCode.VALIDATION_ERROR, 'typeId: Unknown document type');
     }
+    const managed = managedKindOf(type);
+    if (managed) {
+      throw new AppError(400, ErrorCode.VALIDATION_ERROR, managedRefusal(managed, 'file'));
+    }
+  }
+
+  /**
+   * Managed documents (an organization's Constitution & By-laws, the Student Handbook) are
+   * always public and only replaced by a new version from their own screen: never edited,
+   * re-filed, archived or deleted here (managed-document-rules.ts).
+   */
+  function assertNotManaged(doc: DocumentRecord, action: ManagedAction) {
+    const managed = managedKindOf(doc.type);
+    if (managed) throw AppError.conflict(managedRefusal(managed, action));
   }
 
   /** Any write to an organization's documents clears its cached lists (CLAUDE.md). */
@@ -345,6 +367,7 @@ export function createDocumentService({
     ): Promise<DocumentVersion> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
+      assertNotManaged(doc, 'reupload');
       if (doc.status === 'archived') throw AppError.conflict('An archived document cannot change');
       const file = await uploads.claim(actor.userId, org, uploadKey);
       const added = await documents.addVersion(viewer, id, {
@@ -390,8 +413,10 @@ export function createDocumentService({
     },
 
     /**
-     * A 5-minute signed link to one version (old versions stay downloadable). Only clean
-     * files; 404 when the viewer may not see the document.
+     * A 5-minute signed link to one version's original file (old versions stay
+     * downloadable), for the owning organization's account only: everyone else, governing
+     * bodies included, views the watermarked pages (CLAUDE.md, "Security rules"). The route
+     * already requires the owner; this checks again. Only clean files.
      */
     async downloadUrl(
       reader: Reader,
@@ -402,6 +427,9 @@ export function createDocumentService({
       const viewer = await viewerFor(reader.userId);
       const version = await documents.findVersion(viewer, id, versionId);
       if (!version) throw AppError.notFound('Document not found');
+      if (viewer.kind !== 'account' || viewer.organizationId !== version.document.organizationId) {
+        throw AppError.forbidden('Only the organization that owns this file can download it');
+      }
       if (version.scanStatus !== 'clean') {
         throw AppError.conflict('This file is not available: it has not passed the virus scan');
       }
@@ -425,6 +453,7 @@ export function createDocumentService({
     ): Promise<DocumentSummary> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
+      assertNotManaged(doc, 'edit');
       if (!EDITABLE.includes(doc.status)) {
         throw AppError.conflict(`A ${doc.status} document cannot be edited`);
       }
@@ -448,6 +477,7 @@ export function createDocumentService({
     ): Promise<DocumentSummary> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
+      assertNotManaged(doc, 'visibility');
       if (doc.visibility === visibility) return summarize(doc);
 
       const updated = await documents.setVisibility(viewer, id, visibility);
@@ -477,6 +507,7 @@ export function createDocumentService({
     ): Promise<DocumentSummary> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
+      assertNotManaged(doc, 'archive');
       if (doc.status !== 'available') {
         throw AppError.conflict(`A ${doc.status} document cannot be archived`);
       }
@@ -522,6 +553,7 @@ export function createDocumentService({
     async remove(actor: Actor, org: OrgRef, id: string, actingAs: string): Promise<void> {
       const viewer = await viewers.forUser(actor.userId);
       const doc = await loadInOrg(viewer, org, id);
+      assertNotManaged(doc, 'delete');
       if (!(await documents.softDelete(viewer, id))) throw AppError.notFound('Document not found');
       await audit.record({
         action: 'delete',
@@ -534,6 +566,7 @@ export function createDocumentService({
         actingAs,
       });
       await invalidate(org);
+      await leaderboard?.forDocument(id);
     },
   };
 }

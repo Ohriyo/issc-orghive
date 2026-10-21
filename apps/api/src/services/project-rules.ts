@@ -2,6 +2,7 @@ import {
   daysBetween,
   deadlineAfter,
   DEADLINE_REMINDER_DAYS,
+  endOfManilaDay,
   manilaDate,
   type ProjectStatus,
   type ProjectTaskStatus,
@@ -13,8 +14,11 @@ export interface ProjectFacts {
   createdAt: Date;
   /** The event date in Manila, `YYYY-MM-DD`. */
   targetDate: string;
+  /** The optional pre-event documents the organization ticked (spec 2B). */
   nomRequired: boolean;
   momRequired: boolean;
+  communicationLetterRequired: boolean;
+  attendanceSheetRequired: boolean;
   /** A proposal deadline an approved appeal set, replacing the 14 days. */
   proposalDueOverride: Date | null;
   /** A post-event deadline an approved appeal set, replacing the 14 days. */
@@ -31,15 +35,20 @@ export interface ProjectFacts {
 export interface PlannedTask {
   type: ProjectTaskType;
   status: ProjectTaskStatus;
-  /** Null for tasks without a deadline (NOM and MOM). */
+  /** Null for tasks without a deadline (NOM, MOM and other pre-event documents). */
   dueAt: Date | null;
+  /** False for the optional other pre-event documents: the project completes without them. */
+  required: boolean;
 }
 
 export interface ProjectPlan {
   status: ProjectStatus;
   proposalDueAt: Date;
   postEventDueAt: Date;
-  /** In checklist order. NOM and MOM appear only when the project needs them. */
+  /**
+   * In checklist order. NOM, MOM, the Communication Letter and the Attendance Sheet appear
+   * only when the organization ticked them; other pre-event documents always (optional).
+   */
   tasks: PlannedTask[];
   /**
    * Post-event reports missing after their deadline: the organization is frozen (spec 3B).
@@ -55,14 +64,18 @@ const POST_EVENT: readonly ProjectTaskType[] = ['ACR', 'FINANCIAL_REPORT'];
  * and 3), in one pure function. Deadlines are 23:59:59 Manila time on day 14
  * (docs/DOMAIN_RULES.md), unless an approved appeal set a new one.
  * - PROPOSAL: open from creation, due 14 days after it.
- * - NOM, MOM: only when the project needs them; locked until the proposal is submitted.
- *   No deadline.
+ * - NOM, MOM, COMMUNICATION_LETTER, ATTENDANCE_SHEET: only when the organization ticked
+ *   them; locked until the proposal is submitted. NOM and MOM have no deadline. The
+ *   Communication Letter is due at the end of the event day; the Attendance Sheet, signed
+ *   during the event, is due with the ACR (and moves with it when an appeal does).
+ * - OTHER_PRE_EVENT: always offered, never required, never due; unlocks with the proposal.
  * - ACR, FINANCIAL_REPORT: locked until the target date (Manila), due 14 days after it.
- * - Any task whose file is uploaded and clean is submitted. Nobody reviews it.
+ * - Any task whose file is uploaded and clean is submitted (a multi-file task: any of its
+ *   files). Nobody reviews it.
  * - Blocked (3A): the proposal is not submitted by its deadline. Every task that is not
  *   submitted is locked until an appeal moves the deadline.
  * - Overdue reports (3B): the ACR or Financial Report is not submitted by its deadline.
- * - Completed once every task the project needs is submitted.
+ * - Completed once every required task is submitted.
  * - The ISSC is exempt: its projects never block and its reports never freeze it.
  */
 export function planProject(facts: ProjectFacts, now: Date): ProjectPlan {
@@ -72,21 +85,36 @@ export function planProject(facts: ProjectFacts, now: Date): ProjectPlan {
   const proposalFiled = facts.filed.has('PROPOSAL');
   const blocked = !facts.exemptFromCompliance && !proposalFiled && now > proposalDueAt;
 
-  const task = (type: ProjectTaskType, unlocked: boolean, dueAt: Date | null): PlannedTask => ({
+  const task = (
+    type: ProjectTaskType,
+    unlocked: boolean,
+    dueAt: Date | null,
+    required = true,
+  ): PlannedTask => ({
     type,
     status: facts.filed.has(type) ? 'submitted' : unlocked && !blocked ? 'open' : 'locked',
     dueAt,
+    required,
   });
+  const ticked = (on: boolean, type: ProjectTaskType, dueAt: Date | null) =>
+    on ? [task(type, proposalFiled, dueAt)] : [];
 
   const tasks: PlannedTask[] = [
     task('PROPOSAL', true, proposalDueAt),
-    ...(facts.nomRequired ? [task('NOM', proposalFiled, null)] : []),
-    ...(facts.momRequired ? [task('MOM', proposalFiled, null)] : []),
+    ...ticked(facts.nomRequired, 'NOM', null),
+    ...ticked(facts.momRequired, 'MOM', null),
+    ...ticked(
+      facts.communicationLetterRequired,
+      'COMMUNICATION_LETTER',
+      endOfManilaDay(facts.targetDate),
+    ),
+    ...ticked(facts.attendanceSheetRequired, 'ATTENDANCE_SHEET', postEventDueAt),
+    task('OTHER_PRE_EVENT', proposalFiled, null, false),
     task('ACR', eventReached, postEventDueAt),
     task('FINANCIAL_REPORT', eventReached, postEventDueAt),
   ];
 
-  const allSubmitted = tasks.every((t) => t.status === 'submitted');
+  const allSubmitted = tasks.every((t) => !t.required || t.status === 'submitted');
   const status: ProjectStatus = blocked ? 'blocked' : allSubmitted ? 'completed' : 'active';
   const overdueReports =
     facts.exemptFromCompliance || blocked || now <= postEventDueAt

@@ -20,7 +20,9 @@ describe('secret box', () => {
     expect(() => box.open(sealed, 'user-2')).toThrow();
     expect(() => createSecretBox(generateSecretBoxKey()).open(sealed, 'user-1')).toThrow();
     const [v, iv, tag, ct] = sealed.split('.');
-    expect(() => box.open([v, iv, tag, `A${ct!.slice(1)}`].join('.'), 'user-1')).toThrow();
+    // Always a different first character: replacing it with 'A' alone did nothing 1 time in 64.
+    const tampered = `${ct!.startsWith('A') ? 'B' : 'A'}${ct!.slice(1)}`;
+    expect(() => box.open([v, iv, tag, tampered].join('.'), 'user-1')).toThrow();
     expect(() => box.open('v2.a.b.c', 'user-1')).toThrow(/Unrecognized/);
     expect(() => createSecretBox('c2hvcnQ=')).toThrow(/32 random bytes/);
   });

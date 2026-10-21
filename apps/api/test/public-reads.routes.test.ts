@@ -162,13 +162,13 @@ describe('GET /api/v1/organizations/:slug', () => {
 
   it('serves the second call from the Redis cache', async () => {
     const { app, organizations } = buildApp();
-    const findBySlug = vi.spyOn(organizations, 'findBySlug');
+    const findProfile = vi.spyOn(organizations, 'findPublicProfile');
 
     await request(app).get('/api/v1/organizations/jpice');
     await request(app).get('/api/v1/organizations/jpice');
 
-    expect(findBySlug).toHaveBeenCalledTimes(1);
-    expect(await redis.exists('org:jpice')).toBe(1);
+    expect(findProfile).toHaveBeenCalledTimes(1);
+    expect(await redis.exists('org:jpice:v2')).toBe(1);
   });
 
   it('returns 404 for an unknown slug', async () => {
@@ -201,9 +201,17 @@ describe('GET /api/docs', () => {
       '/colleges',
       '/colleges/{slug}',
       '/organizations/{slug}',
+      '/organizations/{slug}/constitution',
+      '/handbook',
+      '/handbook/editions',
+      '/handbook/{year}',
+      '/handbook/{year}/search',
       '/search',
+      '/leaderboard',
+      '/leaderboard/stream',
     ]);
     expect(spec.body.components.schemas).toHaveProperty('CollegeDetail');
+    expect(spec.body.components.schemas).toHaveProperty('LeaderboardResponse');
   });
 
   it('is not served outside development', async () => {

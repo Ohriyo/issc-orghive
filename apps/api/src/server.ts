@@ -4,6 +4,13 @@ import { createApp } from '#src/app';
 import { createRedis, createRedisCache } from '#src/lib/cache';
 import { createHash } from 'node:crypto';
 import {
+  createRedisLeaderboardEvents,
+  subscribeLeaderboardChanges,
+} from '#src/lib/leaderboard-events';
+import { createRedisLeaderboardStore } from '#src/lib/leaderboard-store';
+import { createLeaderboardStream } from '#src/lib/leaderboard-stream';
+import {
+  createBullLeaderboardQueue,
   createBullNotificationQueue,
   createBullQueue,
   createBullReportQueue,
@@ -41,7 +48,9 @@ import { createReportService } from '#src/services/report.service';
 import { createAuthService } from '#src/services/auth.service';
 import { createCollegeService } from '#src/services/college.service';
 import { createDashboardService } from '#src/services/dashboard.service';
+import { createDocumentPreviewService } from '#src/services/document-preview.service';
 import { createDocumentService } from '#src/services/document.service';
+import { createPageTokenService } from '#src/services/page-token.service';
 import { createSearchService } from '#src/services/search.service';
 import { createAnnouncementService } from '#src/services/announcement.service';
 import { createAnnouncementRepository } from '#src/repositories/announcement.repository';
@@ -54,6 +63,11 @@ import { createProjectSync } from '#src/services/project-sync.service';
 import { createUploadService } from '#src/services/upload.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createOrganizationService } from '#src/services/organization.service';
+import { createProfileService } from '#src/services/profile.service';
+import { createConstitutionService } from '#src/services/constitution.service';
+import { createProfileRepository } from '#src/repositories/profile.repository';
+import { createHandbookRepository } from '#src/repositories/handbook.repository';
+import { createHandbookService } from '#src/services/handbook.service';
 import { createTokenService } from '#src/services/token.service';
 import { createSecretBox } from '#src/lib/secret-box';
 import { createRedisSuperAdminStore } from '#src/lib/super-admin-store';
@@ -73,6 +87,15 @@ import { createAccountAdminService } from '#src/services/account-admin.service';
 import { createRevealService } from '#src/services/reveal.service';
 import { createSupportService } from '#src/services/support.service';
 import { createSystemService } from '#src/services/system.service';
+import { createFinancialFiguresRepository } from '#src/repositories/financial-figures.repository';
+import { createLeaderboardRepository } from '#src/repositories/leaderboard.repository';
+import { createSystemSettingRepository } from '#src/repositories/system-setting.repository';
+import { createFinancialFiguresService } from '#src/services/financial-figures.service';
+import { createSystemSettingsService } from '#src/services/system-settings.service';
+import { createLeaderboardRecompute } from '#src/services/leaderboard-recompute';
+import { createLeaderboardService } from '#src/services/leaderboard.service';
+import { createPublicLeaderboardService } from '#src/services/public-leaderboard.service';
+import { createMyStandingService } from '#src/services/my-standing.service';
 
 let config: Config;
 try {
@@ -104,6 +127,9 @@ const jobs = createBullQueue(queueConnection);
 const uploads = createUploadService({ intents: createUploadIntentRepository(db), storage });
 const documentTypes = createDocumentTypeRepository(db);
 const projects = createProjectRepository(db);
+const leaderboardQueue = createBullLeaderboardQueue(queueConnection);
+// Changes queue a recompute; the worker runs it and publishes the change.
+const recompute = createLeaderboardRecompute({ queue: leaderboardQueue, projects, logger });
 const freezes = createOrgFreezeRepository(db);
 const notificationQueue = createBullNotificationQueue(queueConnection);
 const notifications = createNotificationService({
@@ -114,7 +140,50 @@ const notifications = createNotificationService({
 const recipients = createRecipients({ accounts, organizations });
 const projectSync = createProjectSync({
   projects,
+  leaderboard: recompute,
   compliance: createCompliance({ freezes, recipients, notifications, audit }),
+});
+const financialFigures = createFinancialFiguresService({
+  figures: createFinancialFiguresRepository(db),
+  projects,
+  recipients,
+  notifications,
+  audit,
+  leaderboard: recompute,
+});
+const systemSettings = createSystemSettingsService({
+  settings: createSystemSettingRepository(db),
+  audit,
+  onLatePointsChanged: () => recompute.forOpenSemesters(),
+});
+const leaderboardReads = createLeaderboardRepository(db);
+// Computes here only when the store misses a board (Redis restarted or the board expired).
+const leaderboard = createLeaderboardService({
+  leaderboard: leaderboardReads,
+  settings: systemSettings,
+  store: createRedisLeaderboardStore(redis, logger),
+  events: createRedisLeaderboardEvents(redis, logger),
+});
+const publicLeaderboard = createPublicLeaderboardService({
+  leaderboard,
+  organizations: leaderboardReads,
+  settings: systemSettings,
+  cache,
+  publicUrl,
+});
+const leaderboardStream = createLeaderboardStream({
+  boards: (semester) => publicLeaderboard.boards(semester),
+  logger,
+});
+// A subscribed connection can run nothing else, so it gets its own.
+const leaderboardSubscriber = createRedis(config.REDIS_URL);
+leaderboardSubscriber.on('error', (err) => logger.warn({ err }, 'Redis subscriber error'));
+subscribeLeaderboardChanges(
+  leaderboardSubscriber,
+  logger,
+  (semester) => void leaderboardStream.changed(semester),
+).catch((err: unknown) => {
+  logger.warn({ err }, 'Leaderboard changes could not be subscribed; streams get no updates');
 });
 const documentService = createDocumentService({
   documents,
@@ -126,8 +195,30 @@ const documentService = createDocumentService({
   storage,
   audit,
   cache,
+  leaderboard: recompute,
 });
-const search = createSearchService({ documents, viewers, storage, cache });
+const documentPreviews = createDocumentPreviewService({
+  documents,
+  viewers,
+  pageTokens: createPageTokenService({
+    privateKeyPem: config.JWT_PRIVATE_KEY,
+    publicKeyPem: config.JWT_PUBLIC_KEY,
+  }),
+  storage,
+});
+const handbook = createHandbookService({
+  handbooks: createHandbookRepository(db),
+  documents,
+  documentTypes,
+  organizations,
+  viewers,
+  uploads,
+  queue: jobs,
+  storage,
+  audit,
+  cache,
+});
+const search = createSearchService({ documents, viewers, storage, cache, handbook });
 const announcementRepository = createAnnouncementRepository(db);
 const announcements = createAnnouncementService({
   announcements: announcementRepository,
@@ -149,6 +240,7 @@ const adminOrganizations = createAdminOrganizationService({
   cache,
   storage,
   publicUrl,
+  leaderboard: recompute,
 });
 const reportQueue = createBullReportQueue(queueConnection);
 // The API only queues reports; the worker renders them (src/worker.ts).
@@ -204,6 +296,7 @@ const queues = [
   { name: 'documents', queue: jobs.queue },
   { name: 'notifications', queue: notificationQueue.queue },
   { name: 'reports', queue: reportQueue.queue },
+  { name: 'leaderboard', queue: leaderboardQueue.queue },
 ];
 
 const app = createApp({
@@ -256,7 +349,26 @@ const app = createApp({
       publicUrl,
     }),
     organizations: createOrganizationService({ organizations, cache, publicUrl }),
+    profiles: createProfileService({
+      profiles: createProfileRepository(db),
+      storage,
+      audit,
+      cache,
+      publicUrl,
+    }),
+    handbook,
+    constitutions: createConstitutionService({
+      organizations,
+      documents,
+      documentTypes,
+      viewers,
+      uploads,
+      queue: jobs,
+      audit,
+      cache,
+    }),
     documents: documentService,
+    documentPreviews,
     uploads,
     access: createAccessService({
       accounts,
@@ -283,7 +395,9 @@ const app = createApp({
       documentTypes,
       uploads,
       viewers,
+      figures: financialFigures,
       audit,
+      leaderboard: recompute,
     }),
     appeals: createAppealService({
       appeals: createAppealRepository(db),
@@ -297,6 +411,7 @@ const app = createApp({
       queue: jobs,
       storage,
       audit,
+      leaderboard: recompute,
     }),
     notifications,
     reports,
@@ -341,6 +456,15 @@ const app = createApp({
       cache,
       audit,
     }),
+    financialFigures,
+    systemSettings,
+    leaderboard: publicLeaderboard,
+    leaderboardStream,
+    myStanding: createMyStandingService({
+      accounts,
+      leaderboard: publicLeaderboard,
+      projects: leaderboardReads,
+    }),
   },
 });
 
@@ -353,13 +477,18 @@ const server = app.listen(config.PORT, () => {
 
 function shutdown(signal: string) {
   logger.info({ signal }, 'Shutting down');
+  // Open streams would keep server.close waiting; browsers reconnect to another instance.
+  leaderboardStream.closeAll();
   server.close(() => {
     void Promise.allSettled([
+      // QUIT is allowed on a subscribed connection.
+      leaderboardSubscriber.quit(),
       db.$disconnect(),
       redis.quit(),
       jobs.queue.close(),
       notificationQueue.queue.close(),
       reportQueue.queue.close(),
+      leaderboardQueue.queue.close(),
       queueConnection.quit(),
     ]).then(() => process.exit(0));
   });

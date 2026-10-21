@@ -7,6 +7,7 @@ import { createDocumentService, type DocumentServiceDeps } from '#src/services/d
 const JPICE = { id: 'jpice', slug: 'jpice' };
 const IECEP = { id: 'iecep', slug: 'iecep' };
 const TYPE = { id: '0195f3c0-0000-7000-8000-0000000000e1', slug: 'proposal', name: 'Proposal' };
+const CONSTITUTION = { id: 't-con', slug: 'constitution-by-laws', name: 'Constitution & By-laws' };
 const ACTOR = { userId: 'u1', ip: '10.0.0.1' };
 const READER = { userId: 'u1', ip: '10.0.0.1' };
 const SIGNED_OUT = {};
@@ -40,6 +41,9 @@ function record(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
       sizeBytes: 10,
       scanStatus: 'clean',
       thumbnailKey: null,
+      previewStatus: 'pending',
+      previewPages: null,
+      pageCount: null,
       createdAt: at,
     },
     ...overrides,
@@ -56,6 +60,9 @@ function version(id: string, n: number, scanStatus: 'pending' | 'clean' | 'infec
     scanStatus,
     storageKey: `uploads/${id}`,
     actingAs: 'Juan Dela Cruz',
+    previewStatus: 'pending' as const,
+    amendedOn: null,
+    note: null,
     createdAt: new Date('2026-10-01T00:00:00Z'),
     document: { organizationId: 'jpice', visibility: 'private' as const },
   };
@@ -102,10 +109,12 @@ function setup(doc: DocumentRecord | null = record(), viewer: DocumentViewer = V
   const storage = {
     presignGet: vi.fn((key: string) => Promise.resolve(`https://storage.test/${key}?signed`)),
   };
+  const leaderboard = { forDocument: vi.fn(() => Promise.resolve()) };
   const service = createDocumentService({
     documents,
     documentTypes: {
-      findById: (id: string) => Promise.resolve(id === TYPE.id ? TYPE : null),
+      findById: (id: string) =>
+        Promise.resolve(id === TYPE.id ? TYPE : id === CONSTITUTION.id ? CONSTITUTION : null),
       list: vi.fn(() => Promise.resolve([TYPE])),
     },
     organizations: {
@@ -117,13 +126,24 @@ function setup(doc: DocumentRecord | null = record(), viewer: DocumentViewer = V
     storage,
     audit,
     cache,
+    leaderboard,
     now: () => new Date('2026-10-16T00:00:00Z'),
   });
   // A cached list that every write must clear.
   cache.store.set(cacheKeys.organizationDocuments('jpice', 'abc'), '{}');
   cache.store.set(cacheKeys.organizationDocuments('psme', 'abc'), '{}');
   const jpiceListCached = () => cache.store.has(cacheKeys.organizationDocuments('jpice', 'abc'));
-  return { service, documents, audit, cache, jpiceListCached, uploads, queue, storage };
+  return {
+    service,
+    documents,
+    audit,
+    cache,
+    jpiceListCached,
+    uploads,
+    queue,
+    storage,
+    leaderboard,
+  };
 }
 
 describe('documentService.list', () => {
@@ -305,9 +325,9 @@ describe('documentService.listVersions', () => {
 });
 
 describe('documentService.downloadUrl', () => {
-  it('signs a 5-minute link to a clean version, as an attachment by default', async () => {
+  it('signs a 5-minute link to a clean version for its owner, as an attachment by default', async () => {
     const { service, storage } = setup();
-    const link = await service.downloadUrl(SIGNED_OUT, 'd1', 'v1');
+    const link = await service.downloadUrl(READER, 'd1', 'v1');
     expect(storage.presignGet).toHaveBeenCalledWith(
       'uploads/v1',
       { filename: 'v1.pdf', contentType: 'application/pdf', disposition: 'attachment' },
@@ -319,21 +339,51 @@ describe('documentService.downloadUrl', () => {
     });
   });
 
+  it('403s everyone but the owning organization, governing bodies included', async () => {
+    const governing: DocumentViewer = {
+      kind: 'account',
+      userId: 'u9',
+      organizationId: 'issc',
+      organizationType: 'ISSC',
+    };
+    for (const [viewer, reader] of [
+      [{ kind: 'public' } as const, SIGNED_OUT],
+      [governing, { userId: 'u9' }],
+      [{ ...VIEWER, organizationId: 'psme' }, READER],
+    ] as const) {
+      const { service, storage } = setup(record(), viewer);
+      await expect(service.downloadUrl(reader, 'd1', 'v1')).rejects.toMatchObject({
+        status: 403,
+      });
+      expect(storage.presignGet).not.toHaveBeenCalled();
+    }
+  });
+
   it('409s a file that has not passed the scan, 404s an invisible one', async () => {
     const { service, documents } = setup();
     documents.findVersion.mockResolvedValueOnce(version('v2', 2, 'infected'));
     await expect(service.downloadUrl(READER, 'd1', 'v2')).rejects.toMatchObject({ status: 409 });
     documents.findVersion.mockResolvedValueOnce(null);
-    await expect(service.downloadUrl(SIGNED_OUT, 'd1', 'v1')).rejects.toMatchObject({
+    await expect(service.downloadUrl(READER, 'd1', 'v1')).rejects.toMatchObject({
       status: 404,
     });
   });
 });
 
 describe('documentService previews', () => {
+  it('serves no thumbnail until the watermarked one is rendered', async () => {
+    const doc = record({ visibility: 'public' });
+    // A thumbnail from before previews existed: unwatermarked, so never shown.
+    doc.currentVersion!.thumbnailKey = 'thumbnails/d1/v1.webp';
+    const { service, storage } = setup(doc);
+    expect((await service.get(SIGNED_OUT, 'd1')).currentVersion?.thumbnailUrl).toBeNull();
+    expect(storage.presignGet).not.toHaveBeenCalled();
+  });
+
   it('signs the current version preview when serving, never caching a signed link', async () => {
     const doc = record({ visibility: 'public' });
     doc.currentVersion!.thumbnailKey = 'thumbnails/d1/v1.webp';
+    doc.currentVersion!.previewStatus = 'ready';
     const { service, cache } = setup(doc);
     const summary = await service.get(SIGNED_OUT, 'd1');
     expect(summary.currentVersion?.thumbnailUrl).toBe(
@@ -425,8 +475,10 @@ describe('documentService.setVisibility', () => {
 
 describe('documentService.remove', () => {
   it('soft-deletes, audits and clears the cache', async () => {
-    const { service, documents, audit, jpiceListCached } = setup();
+    const { service, documents, audit, jpiceListCached, leaderboard } = setup();
     await service.remove(ACTOR, JPICE, 'd1', 'Juan Dela Cruz');
+    // A task's file deleted can un-implement its project (spec 5B).
+    expect(leaderboard.forDocument).toHaveBeenCalledWith('d1');
     expect(documents.softDelete).toHaveBeenCalledWith(VIEWER, 'd1');
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -502,5 +554,54 @@ describe('documentService.restore', () => {
       status: 409,
     });
     expect(raced.audit.record).not.toHaveBeenCalled();
+  });
+});
+
+describe('documentService and the Constitution & By-laws', () => {
+  const constitution = () => record({ type: CONSTITUTION, visibility: 'public' });
+
+  it('refuses to file a new document as the constitution type', async () => {
+    const { service, documents } = setup();
+    await expect(
+      service.create(ACTOR, JPICE, {
+        typeId: CONSTITUTION.id,
+        title: 'Constitution',
+        academicYear: '2026-2027',
+        visibility: 'public',
+        tags: [],
+        uploadKey: 'uploads/jpice/k1',
+        actingAs: 'Ana',
+      }),
+    ).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/organization profile/) as unknown });
+    expect(documents.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses to change its visibility, archive, delete, edit or re-upload it here', async () => {
+    const { service, documents } = setup(constitution());
+    await expect(service.setVisibility(ACTOR, JPICE, 'd1', 'private')).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringMatching(/always public/) as unknown,
+    });
+    await expect(service.archive(ACTOR, JPICE, 'd1', 'Ana')).rejects.toMatchObject({ status: 409 });
+    await expect(service.remove(ACTOR, JPICE, 'd1', 'Ana')).rejects.toMatchObject({ status: 409 });
+    await expect(service.update(ACTOR, JPICE, 'd1', { title: 'New' })).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(
+      service.addVersion(ACTOR, JPICE, 'd1', { uploadKey: 'uploads/jpice/k1', actingAs: 'Ana' }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(documents.setVisibility).not.toHaveBeenCalled();
+    expect(documents.archive).not.toHaveBeenCalled();
+    expect(documents.softDelete).not.toHaveBeenCalled();
+    expect(documents.update).not.toHaveBeenCalled();
+    expect(documents.addVersion).not.toHaveBeenCalled();
+  });
+
+  it('refuses to re-file another document as the constitution', async () => {
+    const { service, documents } = setup();
+    await expect(service.update(ACTOR, JPICE, 'd1', { typeId: CONSTITUTION.id })).rejects.toMatchObject(
+      { status: 400 },
+    );
+    expect(documents.update).not.toHaveBeenCalled();
   });
 });

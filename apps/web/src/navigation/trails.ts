@@ -25,6 +25,7 @@ const HOME: Crumb = { label: 'Home', href: '/' };
 const COLLEGES: Crumb = { label: 'Colleges', href: '/colleges' };
 const DASHBOARD: Crumb = { label: 'Dashboard', href: '/dashboard' };
 const UPDATES: Crumb = { label: 'Updates', href: '/updates' };
+const HANDBOOK: Crumb = { label: 'Student Handbook', href: '/handbook' };
 const NOTIFICATIONS: Crumb = { label: 'Notifications', href: '/dashboard/notifications' };
 
 const toDestination = (crumb: Crumb) => ({ path: crumb.href ?? '/', label: crumb.label });
@@ -56,6 +57,30 @@ function here(label: string): Crumb {
 export const chrome = {
   home(): PageChrome {
     return { section: 'home', trail: [], parent: null, overlay: true };
+  },
+
+  /**
+   * /handbook → parent home; /handbook/:year (a past edition) → parent the editions list.
+   */
+  handbook(yearLabel: string | null): PageChrome {
+    if (!yearLabel) {
+      return { section: 'handbook', trail: [HOME, here('Student Handbook')], parent: toDestination(HOME) };
+    }
+    const editions = { label: 'Editions', href: '/handbook/editions' };
+    return {
+      section: 'handbook',
+      trail: [HOME, HANDBOOK, editions, here(yearLabel)],
+      parent: toDestination(editions),
+    };
+  },
+
+  /** /handbook/editions → parent the current edition. */
+  handbookEditions(): PageChrome {
+    return {
+      section: 'handbook',
+      trail: [HOME, HANDBOOK, here('Editions')],
+      parent: toDestination(HANDBOOK),
+    };
   },
 
   /** /search → parent home. Search spans every organization, so no header section. */
@@ -120,6 +145,15 @@ export const chrome = {
         here(title ?? 'Document'),
       ],
       parent: toDestination(paperworks),
+    };
+  },
+
+  /** /leaderboard: both boards, linked from the homepage band; parent home. */
+  leaderboard(): PageChrome {
+    return {
+      section: 'leaderboard',
+      trail: [HOME, here('Leaderboard')],
+      parent: toDestination(HOME),
     };
   },
 

@@ -32,13 +32,28 @@ const reportProjectSelect = {
   beneficiaries: true,
   nomRequired: true,
   momRequired: true,
+  communicationLetterRequired: true,
+  attendanceSheetRequired: true,
   tasks: {
-    where: { document: filedDocument },
+    where: { OR: [{ document: filedDocument }, { files: { some: { document: filedDocument } } }] },
     select: {
       type: true,
       document: {
         select: {
           currentVersion: { select: { storageKey: true, mimeType: true, scanStatus: true } },
+        },
+      },
+      // Multi-file tasks: every filed letter or other document, oldest first.
+      files: {
+        where: { document: filedDocument },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          label: true,
+          document: {
+            select: {
+              currentVersion: { select: { storageKey: true, mimeType: true, scanStatus: true } },
+            },
+          },
         },
       },
     },

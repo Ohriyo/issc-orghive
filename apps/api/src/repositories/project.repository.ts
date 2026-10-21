@@ -4,6 +4,7 @@ import type {
   ProjectTaskStatus,
   ProjectTaskType,
 } from '#src/generated/prisma/client';
+import { figuresSelect } from './financial-figures.repository';
 import type { Db } from './prisma';
 
 export const projectSelect = {
@@ -21,6 +22,8 @@ export const projectSelect = {
   postEventDueOverride: true,
   nomRequired: true,
   momRequired: true,
+  communicationLetterRequired: true,
+  attendanceSheetRequired: true,
   createdById: true,
   createdAt: true,
   updatedAt: true,
@@ -36,12 +39,25 @@ export const projectSelect = {
       // System view of the task's file, for the unlock rules only. What a viewer may see of
       // it goes through the document repository's visibility filter.
       document: { select: { status: true, deletedAt: true, createdById: true } },
+      // A multi-file task's files (Communication Letters, other pre-event documents).
+      files: {
+        orderBy: { createdAt: 'asc' },
+        select: {
+          label: true,
+          documentId: true,
+          createdAt: true,
+          document: { select: { status: true, deletedAt: true, createdById: true } },
+        },
+      },
     },
   },
+  /** The Financial Report's totals (spec 5D). */
+  figures: { select: figuresSelect },
 } satisfies Prisma.ProjectSelect;
 
 export type ProjectRecord = Prisma.ProjectGetPayload<{ select: typeof projectSelect }>;
 export type TaskRecord = ProjectRecord['tasks'][number];
+export type TaskFileRecord = TaskRecord['files'][number];
 
 export interface NewProject {
   organizationId: string;
@@ -53,6 +69,8 @@ export interface NewProject {
   description: string;
   nomRequired: boolean;
   momRequired: boolean;
+  communicationLetterRequired: boolean;
+  attendanceSheetRequired: boolean;
   createdById: string;
   createdAt: Date;
 }
@@ -65,6 +83,8 @@ export interface ProjectPatch {
   description?: string;
   nomRequired?: boolean;
   momRequired?: boolean;
+  communicationLetterRequired?: boolean;
+  attendanceSheetRequired?: boolean;
 }
 
 /** What the unlock rules decided, to store. */
@@ -74,6 +94,13 @@ export interface StoredPlan {
   postEventDueAt: Date;
   tasks: { type: ProjectTaskType; status: ProjectTaskStatus; dueAt: Date | null }[];
 }
+
+/** A planned task as stored: the rules' `required` flag is not a column. */
+const storedTask = ({ type, status, dueAt }: StoredPlan['tasks'][number]) => ({
+  type,
+  status,
+  dueAt,
+});
 
 /** A DATE column from `YYYY-MM-DD` (stored as UTC midnight). */
 const asDate = (isoDate: string) => new Date(`${isoDate}T00:00:00Z`);
@@ -98,7 +125,7 @@ export function createProjectRepository(db: Db) {
           status: plan.status,
           proposalDueAt: plan.proposalDueAt,
           postEventDueAt: plan.postEventDueAt,
-          tasks: { create: plan.tasks },
+          tasks: { create: plan.tasks.map(storedTask) },
         },
         select: projectSelect,
       });
@@ -136,8 +163,8 @@ export function createProjectRepository(db: Db) {
 
     /**
      * Stores what the rules decided: the project's status and deadlines, every planned task
-     * (created when missing), and removes tasks no longer needed (an optional NOM or MOM
-     * without a file). Stamps `submittedAt` on tasks that just became submitted.
+     * (created when missing), and removes tasks no longer needed (an unticked pre-event
+     * document without a file). Stamps `submittedAt` on tasks that just became submitted.
      *
      * Returns the status it replaced when this call changed it, else null. The status
      * changes through a conditional update, so when two checks race (the hourly job and a
@@ -167,13 +194,13 @@ export function createProjectRepository(db: Db) {
           const submittedAt = task.status === 'submitted' ? (before?.submittedAt ?? now) : null;
           await tx.projectTask.upsert({
             where: { projectId_type: { projectId: id, type: task.type } },
-            create: { projectId: id, ...task, submittedAt },
+            create: { projectId: id, ...storedTask(task), submittedAt },
             update: { status: task.status, dueAt: task.dueAt, submittedAt },
           });
         }
         const planned = plan.tasks.map((t) => t.type);
         await tx.projectTask.deleteMany({
-          where: { projectId: id, type: { notIn: planned }, documentId: null },
+          where: { projectId: id, type: { notIn: planned }, documentId: null, files: { none: {} } },
         });
         return changed.count === 1 ? before.status : null;
       });
@@ -191,13 +218,40 @@ export function createProjectRepository(db: Db) {
       });
     },
 
-    /** The project a document is the task file of, if any. */
+    /**
+     * Adds a file to a multi-file task (a Communication Letter, another pre-event document),
+     * creating the task row when the project has none yet (projects completed before the
+     * task existed).
+     */
+    async addTaskFile(
+      projectId: string,
+      type: ProjectTaskType,
+      documentId: string,
+      label: string,
+    ): Promise<void> {
+      await db.projectTask.upsert({
+        where: { projectId_type: { projectId, type } },
+        create: { projectId, type, status: 'open', files: { create: { documentId, label } } },
+        update: { files: { create: { documentId, label } } },
+      });
+    },
+
+    /** The project a document is a task file of (one-file or multi-file task), if any. */
     async projectOfDocument(documentId: string): Promise<string | null> {
-      const task = await db.projectTask.findUnique({
-        where: { documentId },
+      const task = await db.projectTask.findFirst({
+        where: { OR: [{ documentId }, { files: { some: { documentId } } }] },
         select: { projectId: true },
       });
       return task?.projectId ?? null;
+    },
+
+    /** The target date of the project whose task holds this file; null for other files. */
+    async targetDateOfDocument(documentId: string): Promise<Date | null> {
+      const task = await db.projectTask.findFirst({
+        where: { OR: [{ documentId }, { files: { some: { documentId } } }] },
+        select: { project: { select: { targetDate: true } } },
+      });
+      return task?.project.targetDate ?? null;
     },
 
     /**

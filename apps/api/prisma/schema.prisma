@@ -51,6 +51,13 @@ enum ScanStatus {
   invalid
 }
 
+/// A version's view-only preview (watermarked page images), rendered after the scan.
+enum PreviewStatus {
+  pending
+  ready
+  failed
+}
+
 /// The actions CLAUDE.md requires an audit entry for.
 enum AuditAction {
   login
@@ -93,6 +100,8 @@ enum AuditAction {
   org_unfreeze
   /// An officer appealed a block or a freeze. Decisions are `approve` / `reject`.
   appeal_submit
+  /// The ISSC account made a Student Handbook edition the current one.
+  handbook_current
   /// Someone opened an appeal's supporting file.
   appeal_attachment_view
   /// An officer asked for a Semestral End Report (spec section 4).
@@ -148,6 +157,14 @@ enum AuditAction {
   account_request_decline
   /// The end of term: one entry per account (metadata: runId, change) and one for the run.
   end_of_term
+  /// An officer entered or corrected a Financial Report's totals (spec 5D); metadata has
+  /// `before` (null on the first entry) and `after`, in centavos.
+  financial_figures_change
+  /// The ISSC account put a Financial Report's figures under review, or cleared it (spec 5D).
+  financial_figures_flag
+  financial_figures_unflag
+  /// A super admin changed a system setting; metadata has `key`, `before` and `after`.
+  system_setting_change
 }
 
 /// System-level role: SUPER_ADMIN is the developer's personal console account, the only
@@ -170,6 +187,9 @@ enum ProjectTaskType {
   PROPOSAL
   NOM
   MOM
+  COMMUNICATION_LETTER
+  ATTENDANCE_SHEET
+  OTHER_PRE_EVENT
   ACR
   FINANCIAL_REPORT
 }
@@ -205,6 +225,8 @@ enum NotificationKind {
   announcement_posted
   password_reveal
   account_request_declined
+  /// The ISSC put the organization's Financial Report figures under review, or cleared them.
+  figures_review
 }
 
 /// requested -> created (the super admin made the account) | declined (with a reason).
@@ -250,31 +272,46 @@ model College {
 /// ISSC, CSCs and SBOs in one table. ISSC: no parent, no college. CSC: parent ISSC.
 /// SBO: parent CSC. The database enforces this with a CHECK constraint (see migrations).
 model Organization {
-  id            String           @id @default(uuid(7)) @db.Uuid
-  type          OrganizationType
-  slug          String           @unique
-  acronym       String
-  name          String
-  description   String?
+  id                     String           @id @default(uuid(7)) @db.Uuid
+  type                   OrganizationType
+  slug                   String           @unique
+  acronym                String
+  name                   String
+  description            String?
   /// Object-storage key under `logos/`; that prefix is public-read and served via PUBLIC_ASSET_BASE_URL.
-  logoKey       String?          @map("logo_key")
+  logoKey                String?          @map("logo_key")
   /// Widths of the resized variants stored next to logoKey as `<key without .webp>-<w>.webp`,
   /// for srcset. Empty when only the original exists.
-  logoWidths    Int[]            @default([]) @map("logo_widths")
-  parentId      String?          @map("parent_id") @db.Uuid
-  collegeId     String?          @map("college_id") @db.Uuid
+  logoWidths             Int[]            @default([]) @map("logo_widths")
+  parentId               String?          @map("parent_id") @db.Uuid
+  collegeId              String?          @map("college_id") @db.Uuid
   /// Carousel order among its siblings (an SBO within its college). Set by admins.
-  position      Int              @default(0)
+  position               Int              @default(0)
+  /// Profile fields the organization's own account edits (/dashboard/profile). Name,
+  /// acronym, type and college stay with the ISSC account (/admin).
+  mission                String?
+  vision                 String?
+  contactEmail           String?          @map("contact_email") @db.VarChar(254)
+  facebookUrl            String?          @map("facebook_url") @db.VarChar(300)
+  /// Cover image key, also under the public-read `logos/` prefix (`logos/covers/…`).
+  coverKey               String?          @map("cover_key")
+  coverWidths            Int[]            @default([]) @map("cover_widths")
+  /// Its Constitution & By-laws: one document, always public, amended by new versions and
+  /// never archived or deleted (docs/DOMAIN_RULES.md, "Constitution & By-laws").
+  constitutionDocumentId String?          @unique @map("constitution_document_id") @db.Uuid
   /// Set while an admin has deactivated it: hidden from browsing, no uploads or new
   /// projects. Unlike deletedAt, its documents stay visible (docs/DOMAIN_RULES.md).
-  deactivatedAt DateTime?        @map("deactivated_at")
-  deletedAt     DateTime?        @map("deleted_at")
-  createdAt     DateTime         @default(now()) @map("created_at")
-  updatedAt     DateTime         @updatedAt @map("updated_at")
+  deactivatedAt          DateTime?        @map("deactivated_at")
+  deletedAt              DateTime?        @map("deleted_at")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
 
-  parent          Organization?      @relation("OrganizationHierarchy", fields: [parentId], references: [id])
-  children        Organization[]     @relation("OrganizationHierarchy")
-  college         College?           @relation(fields: [collegeId], references: [id])
+  parent          Organization?         @relation("OrganizationHierarchy", fields: [parentId], references: [id])
+  constitution    Document?             @relation("OrganizationConstitution", fields: [constitutionDocumentId], references: [id])
+  officers        OrganizationOfficer[]
+  links           OrganizationLink[]
+  children        Organization[]        @relation("OrganizationHierarchy")
+  college         College?              @relation(fields: [collegeId], references: [id])
   /// Its shared account (at most one active: users_one_active_account_per_org).
   accounts        User[]
   officerTerms    OfficerTerm[]
@@ -293,6 +330,38 @@ model Organization {
   @@index([collegeId])
   @@index([type])
   @@map("organizations")
+}
+
+/// The officers list on the public organization page, in the organization's order. Separate
+/// from officer_terms (the account's officer in charge). Hidden entries stay out of every
+/// public response.
+model OrganizationOfficer {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  position       String   @db.VarChar(80)
+  name           String   @db.VarChar(120)
+  isPublic       Boolean  @default(true) @map("is_public")
+  sortOrder      Int      @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, sortOrder])
+  @@map("organization_officers")
+}
+
+/// Links on the profile other than the Facebook page (Instagram, a website…), in order.
+model OrganizationLink {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  url            String   @db.VarChar(300)
+  sortOrder      Int      @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, sortOrder])
+  @@map("organization_links")
 }
 
 model User {
@@ -349,6 +418,8 @@ model User {
   accountRequestsDecided  AccountRequest[]         @relation("AccountRequestDecider")
   accountRequestsCreated  AccountRequest[]         @relation("AccountRequestAccount")
   reportsRequested        SemestralReport[]
+  figuresFlagged          FinancialFigures[]       @relation("FiguresFlaggedBy")
+  settingsUpdated         SystemSetting[]          @relation("SystemSettingUpdatedBy")
 
   @@index([systemRole])
   @@index([organizationId])
@@ -434,15 +505,20 @@ model Document {
   /// Generated: title (A), tags and description (B), file text (C); see the search migrations.
   searchVector     Unsupported("tsvector")? @default(dbgenerated()) @map("search_vector")
 
-  organization   Organization      @relation(fields: [organizationId], references: [id])
-  type           DocumentType      @relation(fields: [typeId], references: [id])
-  createdBy      User              @relation("DocumentCreatedBy", fields: [createdById], references: [id])
-  currentVersion DocumentVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
-  versions       DocumentVersion[] @relation("DocumentVersions")
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  type            DocumentType      @relation(fields: [typeId], references: [id])
+  createdBy       User              @relation("DocumentCreatedBy", fields: [createdById], references: [id])
+  currentVersion  DocumentVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  versions        DocumentVersion[] @relation("DocumentVersions")
   /// Set when this document is a project task's file.
-  projectTask    ProjectTask?
+  projectTask     ProjectTask?
+  taskFile        ProjectTaskFile?
   /// Set when this document is a generated Semestral End Report.
-  report         SemestralReport?
+  report          SemestralReport?
+  /// Set when this document is an organization's Constitution & By-laws.
+  constitutionOf  Organization?     @relation("OrganizationConstitution")
+  /// Set when this document is an edition of the Student Handbook.
+  handbookEdition HandbookEdition?
 
   @@index([organizationId, academicYear, typeId])
   @@index([status])
@@ -451,31 +527,47 @@ model Document {
 }
 
 model DocumentVersion {
-  id               String     @id @default(uuid(7)) @db.Uuid
-  documentId       String     @map("document_id") @db.Uuid
+  id               String        @id @default(uuid(7)) @db.Uuid
+  documentId       String        @map("document_id") @db.Uuid
   version          Int
   /// Object-storage key. Never reused: files are never overwritten.
-  storageKey       String     @unique @map("storage_key")
-  originalFilename String     @map("original_filename")
-  mimeType         String     @map("mime_type")
-  sizeBytes        Int        @map("size_bytes")
+  storageKey       String        @unique @map("storage_key")
+  originalFilename String        @map("original_filename")
+  mimeType         String        @map("mime_type")
+  sizeBytes        Int           @map("size_bytes")
   /// Computed by the worker from the stored bytes; null until processed.
   sha256           String?
-  scanStatus       ScanStatus @default(pending) @map("scan_status")
-  /// Private key of the page-1 preview (PDFs), served through signed URLs.
-  thumbnailKey     String?    @map("thumbnail_key")
+  scanStatus       ScanStatus    @default(pending) @map("scan_status")
+  /// Private key of the page-1 preview (watermarked), served through signed URLs.
+  thumbnailKey     String?       @map("thumbnail_key")
+  /// The page images non-owners view (`pages/{documentId}/{versionId}/{n}.webp`, private,
+  /// watermarked). Pending until the worker renders them; the backfill queues old files.
+  previewStatus    PreviewStatus @default(pending) @map("preview_status")
+  /// Rendered page sizes, `[[width, height], …]`; null until ready.
+  previewPages     Json?         @map("preview_pages")
+  /// How many pages the file has (more than were rendered when capped); null until ready.
+  pageCount        Int?          @map("page_count")
   /// Why processing refused the file (virus name or type mismatch). Never shown publicly.
-  failureReason    String?    @map("failure_reason")
-  processedAt      DateTime?  @map("processed_at")
-  uploadedById     String     @map("uploaded_by_id") @db.Uuid
+  failureReason    String?       @map("failure_reason")
+  processedAt      DateTime?     @map("processed_at")
+  uploadedById     String        @map("uploaded_by_id") @db.Uuid
   /// The officer who uploaded it for the shared account ("Acting as"). Null for files Orghive
   /// made (the Semestral End Report) and for uploads from before it was asked.
-  actingAs         String?    @map("acting_as") @db.VarChar(80)
-  createdAt        DateTime   @default(now()) @map("created_at")
+  actingAs         String?       @map("acting_as") @db.VarChar(80)
+  /// Constitution & By-laws only: the Manila date it was adopted (version 1) or amended, and
+  /// what the amendment changed. Null for every other document.
+  amendedOn        DateTime?     @map("amended_on") @db.Date
+  note             String?       @db.VarChar(280)
+  /// Student Handbook only: the PDF's bookmarks resolved to pages (HandbookOutlineItem[]),
+  /// null when it has none; and whether small page thumbnails were rendered for the contents.
+  outline          Json?
+  pageThumbnails   Boolean       @default(false) @map("page_thumbnails")
+  createdAt        DateTime      @default(now()) @map("created_at")
 
-  document   Document  @relation("DocumentVersions", fields: [documentId], references: [id])
-  currentOf  Document? @relation("CurrentVersion")
-  uploadedBy User      @relation(fields: [uploadedById], references: [id])
+  document   Document           @relation("DocumentVersions", fields: [documentId], references: [id])
+  pageTexts  DocumentPageText[]
+  currentOf  Document?          @relation("CurrentVersion")
+  uploadedBy User               @relation(fields: [uploadedById], references: [id])
 
   @@unique([documentId, version])
   @@map("document_versions")
@@ -591,35 +683,40 @@ model UploadIntent {
 /// An event an organization plans (spec 2A). Every field is required; the milestone
 /// checklist (ProjectTask) is created with it.
 model Project {
-  id                   String        @id @default(uuid(7)) @db.Uuid
-  organizationId       String        @map("organization_id") @db.Uuid
-  name                 String
+  id                          String        @id @default(uuid(7)) @db.Uuid
+  organizationId              String        @map("organization_id") @db.Uuid
+  name                        String
   /// The event date, a calendar date in Asia/Manila.
-  targetDate           DateTime      @map("target_date") @db.Date
-  location             String
-  beneficiaries        String
-  description          String
-  status               ProjectStatus @default(active)
+  targetDate                  DateTime      @map("target_date") @db.Date
+  location                    String
+  beneficiaries               String
+  description                 String
+  status                      ProjectStatus @default(active)
   /// 23:59:59 Manila time, 14 days after the project was created.
-  proposalDueAt        DateTime      @map("proposal_due_at")
+  proposalDueAt               DateTime      @map("proposal_due_at")
   /// 23:59:59 Manila time, 14 days after the target date (ACR and Financial Report).
-  postEventDueAt       DateTime      @map("post_event_due_at")
+  postEventDueAt              DateTime      @map("post_event_due_at")
   /// A new proposal deadline set by an approved PROJECT_BLOCK appeal; replaces the 14 days.
-  proposalDueOverride  DateTime?     @map("proposal_due_override")
+  proposalDueOverride         DateTime?     @map("proposal_due_override")
   /// A new post-event deadline set by an approved appeal; replaces the 14 days.
-  postEventDueOverride DateTime?     @map("post_event_due_override")
-  nomRequired          Boolean       @default(false) @map("nom_required")
-  momRequired          Boolean       @default(false) @map("mom_required")
-  createdById          String        @map("created_by_id") @db.Uuid
-  deletedAt            DateTime?     @map("deleted_at")
-  createdAt            DateTime      @default(now()) @map("created_at")
-  updatedAt            DateTime      @updatedAt @map("updated_at")
+  postEventDueOverride        DateTime?     @map("post_event_due_override")
+  /// The optional pre-event documents the organization ticked (spec 2B); each can change
+  /// until its task is submitted.
+  nomRequired                 Boolean       @default(false) @map("nom_required")
+  momRequired                 Boolean       @default(false) @map("mom_required")
+  communicationLetterRequired Boolean       @default(false) @map("communication_letter_required")
+  attendanceSheetRequired     Boolean       @default(false) @map("attendance_sheet_required")
+  createdById                 String        @map("created_by_id") @db.Uuid
+  deletedAt                   DateTime?     @map("deleted_at")
+  createdAt                   DateTime      @default(now()) @map("created_at")
+  updatedAt                   DateTime      @updatedAt @map("updated_at")
 
-  organization Organization  @relation(fields: [organizationId], references: [id])
-  createdBy    User          @relation(fields: [createdById], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  createdBy    User              @relation(fields: [createdById], references: [id])
   tasks        ProjectTask[]
   freezes      OrgFreeze[]
   appeals      Appeal[]
+  figures      FinancialFigures?
 
   @@index([organizationId, status])
   @@index([organizationId, targetDate])
@@ -633,20 +730,40 @@ model ProjectTask {
   projectId   String            @map("project_id") @db.Uuid
   type        ProjectTaskType
   status      ProjectTaskStatus @default(locked)
-  /// Null for tasks without a deadline (NOM and MOM).
+  /// Null for tasks without a deadline (NOM, MOM and other pre-event documents).
   dueAt       DateTime?         @map("due_at")
-  /// The task's file. Re-uploads are new versions of this document.
+  /// A one-file task's file. Re-uploads are new versions of this document. Multi-file tasks
+  /// (Communication Letters, other pre-event documents) keep theirs in `files` instead.
   documentId  String?           @unique @map("document_id") @db.Uuid
   submittedAt DateTime?         @map("submitted_at")
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
 
-  project  Project   @relation(fields: [projectId], references: [id])
-  document Document? @relation(fields: [documentId], references: [id])
+  project  Project           @relation(fields: [projectId], references: [id])
+  document Document?         @relation(fields: [documentId], references: [id])
+  files    ProjectTaskFile[]
 
   @@unique([projectId, type])
   @@index([status, dueAt])
   @@map("project_tasks")
+}
+
+/// One file of a multi-file task (MULTI_FILE_TASK_TYPES in packages/shared): a Communication
+/// Letter to one office, or another pre-event document, with the label the organization gave
+/// it. Each file is its own Paperworks document; re-uploads are new versions of it.
+model ProjectTaskFile {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  taskId     String   @map("task_id") @db.Uuid
+  documentId String   @unique @map("document_id") @db.Uuid
+  /// e.g. "Letter to the Dean".
+  label      String   @db.VarChar(80)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  task     ProjectTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  document Document    @relation(fields: [documentId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@map("project_task_files")
 }
 
 /// An organization frozen because one project's ACR or Financial Report is overdue (spec
@@ -846,4 +963,89 @@ model SemestralReport {
 
   @@index([organizationId, createdAt])
   @@map("semestral_reports")
+}
+
+/// A Financial Report's totals (docs/PROJECT_WORKFLOW_SPEC.md, section 5D), one per project,
+/// in integer centavos (CHECK constraints keep them in range). They count toward the
+/// leaderboard once the Financial Report task is submitted, unless the ISSC flagged them.
+/// The flag concerns the reported figures only, never who can see the file.
+model FinancialFigures {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  projectId        String    @unique @map("project_id") @db.Uuid
+  incomeCentavos   Int       @map("income_centavos")
+  expensesCentavos Int       @map("expenses_centavos")
+  /// Set while the ISSC has the figures under review; all three are set or none (CHECK).
+  flaggedAt        DateTime? @map("flagged_at")
+  flaggedById      String?   @map("flagged_by_id") @db.Uuid
+  flagRemark       String?   @map("flag_remark")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  project   Project @relation(fields: [projectId], references: [id])
+  flaggedBy User?   @relation("FiguresFlaggedBy", fields: [flaggedById], references: [id])
+
+  @@map("financial_figures")
+}
+
+/// Settings the super admin changes in /system, one row per key. A missing row means the
+/// default in packages/shared (e.g. DEFAULT_LATE_POINTS).
+model SystemSetting {
+  /// e.g. "leaderboard.latePoints"
+  key         String   @id
+  value       Json
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("SystemSettingUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("system_settings")
+}
+
+/// The standings of one board (SBO or CSC) in one semester, as computed (spec section 5):
+/// written on every change and at least daily, for history and rank-change arrows.
+model LeaderboardSnapshot {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  /// "2026-2027"
+  academicYear String           @map("academic_year")
+  semester     Semester
+  type         OrganizationType
+  /// The ranked rows (apps/api/src/services/leaderboard-rules.ts, Standing[]).
+  rows         Json
+  computedAt   DateTime         @default(now()) @map("computed_at")
+
+  @@index([academicYear, semester, type, computedAt])
+  @@map("leaderboard_snapshots")
+}
+
+/// One edition of the Student Handbook per academic year, filed as a public, view-only
+/// document of the ISSC (docs/DOMAIN_RULES.md, "Student Handbook"). At most one is current:
+/// a partial unique index (handbook_editions_one_current) the schema cannot express.
+/// Editions are never deleted.
+model HandbookEdition {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  /// "2026-2027"
+  academicYear String   @unique @map("academic_year") @db.VarChar(9)
+  documentId   String   @unique @map("document_id") @db.Uuid
+  isCurrent    Boolean  @default(false) @map("is_current")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  document Document @relation(fields: [documentId], references: [id])
+
+  @@map("handbook_editions")
+}
+
+/// The text of each page of a Student Handbook version, for searching inside it and
+/// jumping to the page. Written by the worker with the page images.
+model DocumentPageText {
+  versionId    String                   @map("version_id") @db.Uuid
+  page         Int
+  text         String
+  /// Generated from `text` (see the handbook migration).
+  searchVector Unsupported("tsvector")? @default(dbgenerated()) @map("search_vector")
+
+  version DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@id([versionId, page])
+  @@index([searchVector], type: Gin)
+  @@map("document_page_texts")
 }

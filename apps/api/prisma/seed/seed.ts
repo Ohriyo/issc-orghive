@@ -14,7 +14,10 @@ import { loadConfig } from '#src/config';
 import { pdfText } from '#src/lib/file-processing';
 import { LOGO_CACHE_CONTROL, logoWidthsFor } from '#src/lib/logo';
 import { logoVariantKey } from '#src/lib/public-url';
+import { createBullPreviewQueue, createQueueConnection } from '#src/lib/queue';
+import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createDb, type Db } from '#src/repositories/prisma';
+import { queuePendingPreviews } from '#src/services/preview.service';
 import {
   colleges,
   cscSlug,
@@ -187,6 +190,21 @@ async function seedLogos(db: Db) {
   return updated;
 }
 
+/**
+ * Queues the watermarked page images of every seeded file still without them, as the backfill
+ * does; the worker (pnpm dev) renders them. Until then their viewer says "Preparing preview…".
+ */
+async function queueSeedPreviews(db: Db): Promise<number> {
+  const connection = createQueueConnection(config.REDIS_URL);
+  const queue = createBullPreviewQueue(connection);
+  try {
+    return await queuePendingPreviews({ documents: createDocumentRepository(db), queue });
+  } finally {
+    await queue.queue.close();
+    await connection.quit();
+  }
+}
+
 /** Public reads are cached in Redis for 10 minutes; drop them so seeded changes show at once. */
 async function clearPublicReadCache() {
   const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 1 });
@@ -350,12 +368,13 @@ async function main() {
     const docs = await seedDocuments(db, orgIds, accounts);
     const logos = await seedLogos(db);
     await clearPublicReadCache();
+    const previews = await queueSeedPreviews(db);
     console.log(
       `Seeded ${orgIds.size} organizations, ${colleges.length} colleges, ${accounts.size} accounts (one per organization).`,
     );
     console.log(`Logos: ${logos} updated. Public read cache cleared.`);
     console.log(
-      `Sample documents: ${docs.created} created, ${docs.total - docs.created} already present.`,
+      `Sample documents: ${docs.created} created, ${docs.total - docs.created} already present. ${previews} queued for their view-only preview.`,
     );
     console.log(
       `Sign in as <organization slug>@orghive.local, e.g. ${accountEmail('jpice')}, ${accountEmail('csc-cea')}, ${accountEmail('issc')} (password: SEED_PASSWORD)`,

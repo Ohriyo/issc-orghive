@@ -15,6 +15,7 @@ import type { AdminOrganizationService } from '#src/services/admin-organization.
 import type { SuperAdminService } from '#src/services/super-admin.service';
 import type { SupportService } from '#src/services/support.service';
 import type { SystemService } from '#src/services/system.service';
+import type { SystemSettingsService } from '#src/services/system-settings.service';
 
 export interface SystemRouterDeps {
   system: SystemService;
@@ -24,6 +25,8 @@ export interface SystemRouterDeps {
   support: SupportService;
   requests: AccountRequestService;
   imports: AccountImportService;
+  /** System settings, such as the leaderboard's late value (spec 5C). */
+  settings: Pick<SystemSettingsService, 'get' | 'update'>;
   tokens: AccessVerifier;
 }
 
@@ -40,10 +43,11 @@ export function systemRouter({
   support,
   requests,
   imports,
+  settings,
   tokens,
 }: SystemRouterDeps): Router {
   const router = Router();
-  const controller = createSystemController(system, superAdmins);
+  const controller = createSystemController(system, superAdmins, settings);
   const consoleController = createAccountAdminController(
     accounts,
     organizations,
@@ -90,6 +94,8 @@ export function systemRouter({
   router.post('/documents/:documentId/restore', consoleController.restore);
   router.get('/test-data', consoleController.testData);
   router.post('/test-data/delete', stepUp, consoleController.deleteTestData);
+  router.get('/settings', controller.getSettings);
+  router.patch('/settings', controller.updateSettings);
   router.get('/audit-logs', controller.listAuditLogs);
   router.get('/me/security', controller.security);
   router.post('/me/recovery-codes', stepUp, controller.regenerateRecoveryCodes);

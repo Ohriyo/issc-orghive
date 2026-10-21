@@ -34,6 +34,11 @@ export interface DocumentFilesModel {
   versionsError: boolean;
   /** Opens a signed download link for one version; resolves with an error message, if any. */
   download: (versionId: string) => Promise<string | undefined>;
+  /**
+   * The owning organization's account only: everyone else views the watermarked pages, and
+   * the API refuses them the original.
+   */
+  canDownload: boolean;
   canReupload: boolean;
   /** The owning organization, e.g. "JPICE". */
   orgAcronym: string;
@@ -45,13 +50,15 @@ export interface DocumentFilesModel {
 }
 
 /**
- * Presenter for a document's files: every version (old ones stay downloadable), signed
- * downloads, and re-upload for the organization's officers. While a version is being
+ * Presenter for a document's files: every version, signed downloads of the originals and
+ * re-upload, both for the owning organization's account only. While a version is being
  * scanned the list refreshes every few seconds.
  */
 export function useDocumentFiles(
   documentId: string,
   org: { slug: string } | undefined,
+  /** False for the Constitution & By-laws, which is amended from the profile instead. */
+  reuploadable = true,
 ): DocumentFilesModel {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -74,7 +81,7 @@ export function useDocumentFiles(
   });
 
   const orgId = orgDetail.data?.id;
-  const canReupload = isOwnOrganization(user, { id: orgId });
+  const isOwner = isOwnOrganization(user, { id: orgId });
 
   async function download(versionId: string) {
     try {
@@ -115,7 +122,8 @@ export function useDocumentFiles(
     })),
     versionsError: versions.isError,
     download,
-    canReupload,
+    canDownload: isOwner,
+    canReupload: isOwner && reuploadable,
     orgAcronym,
     actingAs,
     reupload,

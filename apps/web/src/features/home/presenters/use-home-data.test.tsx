@@ -38,6 +38,13 @@ const ISSC: OrganizationDetail = {
   logoSrcSet: null,
   parent: null,
   college: null,
+  mission: null,
+  vision: null,
+  contactEmail: null,
+  links: [],
+  officers: [],
+  coverUrl: null,
+  coverSrcSet: null,
 };
 
 function json(body: unknown, status = 200) {

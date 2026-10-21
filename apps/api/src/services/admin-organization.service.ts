@@ -20,6 +20,7 @@ import type {
 } from '#src/repositories/admin-organization.repository';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import type { Actor } from '#src/services/document.service';
+import type { LeaderboardRecompute } from '#src/services/leaderboard-recompute';
 
 export interface AdminOrganizationServiceDeps {
   admin: AdminOrganizationRepository;
@@ -27,6 +28,8 @@ export interface AdminOrganizationServiceDeps {
   cache: Pick<Cache, 'deleteMatching'>;
   storage: Pick<Storage, 'put'>;
   publicUrl: PublicUrl;
+  /** A deactivated organization leaves the boards; a reactivated one returns (spec 5A). */
+  leaderboard?: Pick<LeaderboardRecompute, 'forOpenSemesters'>;
   now?: () => Date;
 }
 
@@ -48,6 +51,7 @@ export function createAdminOrganizationService({
   cache,
   storage,
   publicUrl,
+  leaderboard,
   now = () => new Date(),
 }: AdminOrganizationServiceDeps) {
   function toOrg(org: AdminOrgRecord): AdminOrganization {
@@ -92,6 +96,7 @@ export function createAdminOrganizationService({
     await Promise.all([
       cache.deleteMatching('college:*'),
       orgSlug ? cache.deleteMatching(cacheKeys.organization(orgSlug)) : Promise.resolve(),
+      cache.deleteMatching(cacheKeys.leaderboardOrganizations()),
     ]);
   }
 
@@ -252,6 +257,7 @@ export function createAdminOrganizationService({
       });
       await auditChange(actor, 'organization', org.id, active ? 'activate' : 'deactivate');
       await invalidate(org.slug);
+      await leaderboard?.forOpenSemesters();
       return toOrg(updated);
     },
 

@@ -119,3 +119,17 @@ export function authRateLimits(store?: RateLimitStoreFactory) {
     }),
   };
 }
+
+/**
+ * The view-only viewer, per IP. Generous: a campus shares few IPs, and scrolling a long
+ * document loads a page image each; the limit only stops a script pulling every page of
+ * every document.
+ */
+export function viewerRateLimits(store?: RateLimitStoreFactory) {
+  return {
+    /** GET /documents/:id/viewer: the page list and a fresh token (every ~4 minutes). */
+    viewer: limiter(store, 'viewer', { windowMs: 60 * 1000, limit: 120, keyGenerator: clientIp }),
+    /** GET /documents/:id/pages/:n: one watermarked page image. */
+    pages: limiter(store, 'pages', { windowMs: 60 * 1000, limit: 600, keyGenerator: clientIp }),
+  };
+}

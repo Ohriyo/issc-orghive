@@ -33,6 +33,18 @@
   --color-caution-surface: #fff1cc;
 
   /*
+   * Leaderboard medals (Top 3 only). The plain tokens are decoration (hexagon bands,
+   * shimmer, confetti): never text. The -ink tokens are for text, numerals included:
+   * on surface 6.3 / 6.0 / 6.4, on surface-deep 4.7 / 4.5 / 4.7.
+   */
+  --color-medal-gold: #c9a227;
+  --color-medal-gold-ink: #7a5600;
+  --color-medal-silver: #a9b3ba;
+  --color-medal-silver-ink: #56616a;
+  --color-medal-bronze: #b9773f;
+  --color-medal-bronze-ink: #8c4a17;
+
+  /*
    * Breakpoints, mobile-first: unprefixed classes style phones, and sm:/md:/lg:/xl:/2xl:
    * add from that width up. Declared here (same values as Tailwind's defaults) so the
    * app's own breakpoints are one explicit list. In rem, so they follow the browser's
@@ -98,6 +110,20 @@
   --shadow-pool: 0 18px 24px -14px rgb(0 0 0 / 0.35);
   --shadow-pool-lift: 0 22px 28px -14px rgb(0 0 0 / 0.4);
   --drop-shadow-hex: 0 14px 22px rgb(0 0 0 / 0.22);
+  /* The leaderboard's #1: a warm gold halo under its hexagon. */
+  --drop-shadow-gold-glow: 0 0 28px color-mix(in oklab, var(--color-medal-gold) 55%, transparent);
+
+  /* A light sweeping across a medal hexagon's band, now and then (Top 3 only). */
+  --animate-hex-shimmer: hex-shimmer 4.5s var(--ease-cinematic) infinite;
+  @keyframes hex-shimmer {
+    0%,
+    55% {
+      background-position: 160% 0;
+    }
+    100% {
+      background-position: -60% 0;
+    }
+  }
 }
 
 @theme inline {
@@ -254,6 +280,11 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Clears the notch and status bar for UI that covers the whole screen (the full-screen viewer). */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 /* The prototype's page background: white on the left fading to gray on the right. */
 @utility bg-surface-sweep {
   background-image: linear-gradient(
@@ -306,6 +337,44 @@
     var(--color-forest-500) 0%,
     color-mix(in oklab, var(--color-forest-500) 80%, var(--color-forest-900)) 100%
   );
+}
+
+/* Medal bands for the leaderboard's Top 3: the metal, lit from the top left. */
+@utility bg-medal-gold-band {
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-medal-gold) 70%, white) 0%,
+    var(--color-medal-gold) 45%,
+    color-mix(in oklab, var(--color-medal-gold) 75%, var(--color-medal-gold-ink)) 100%
+  );
+}
+@utility bg-medal-silver-band {
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-medal-silver) 60%, white) 0%,
+    var(--color-medal-silver) 45%,
+    color-mix(in oklab, var(--color-medal-silver) 70%, var(--color-medal-silver-ink)) 100%
+  );
+}
+@utility bg-medal-bronze-band {
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-medal-bronze) 65%, white) 0%,
+    var(--color-medal-bronze) 45%,
+    color-mix(in oklab, var(--color-medal-bronze) 70%, var(--color-medal-bronze-ink)) 100%
+  );
+}
+
+/* The shimmer's light: a soft white streak, swept by animate-hex-shimmer. */
+@utility bg-shimmer-streak {
+  background-image: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgb(255 255 255 / 0.65) 50%,
+    transparent 62%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
 }
 
 /*

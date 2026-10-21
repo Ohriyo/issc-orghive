@@ -18,8 +18,20 @@ const unwiredServices: AppServices = {
   tokens: { verify: () => unwired('tokens') },
   colleges: { list: () => unwired('colleges'), getBySlug: () => unwired('colleges') },
   organizations: { getBySlug: () => unwired('organizations') },
+  profiles: new Proxy({} as AppServices['profiles'], {
+    get: (_t, key) => () => unwired(`profiles.${String(key)}`),
+  }),
+  constitutions: new Proxy({} as AppServices['constitutions'], {
+    get: (_t, key) => () => unwired(`constitutions.${String(key)}`),
+  }),
+  handbook: new Proxy({} as AppServices['handbook'], {
+    get: (_t, key) => () => unwired(`handbook.${String(key)}`),
+  }),
   documents: new Proxy({} as AppServices['documents'], {
     get: (_t, key) => () => unwired(`documents.${String(key)}`),
+  }),
+  documentPreviews: new Proxy({} as AppServices['documentPreviews'], {
+    get: (_t, key) => () => unwired(`documentPreviews.${String(key)}`),
   }),
   uploads: new Proxy({} as AppServices['uploads'], {
     get: (_t, key) => () => unwired(`uploads.${String(key)}`),
@@ -71,6 +83,17 @@ const unwiredServices: AppServices = {
   superAdmins: new Proxy({} as AppServices['superAdmins'], {
     get: (_t, key) => () => unwired(`superAdmins.${String(key)}`),
   }),
+  financialFigures: new Proxy({} as AppServices['financialFigures'], {
+    get: (_t, key) => () => unwired(`financialFigures.${String(key)}`),
+  }),
+  systemSettings: new Proxy({} as AppServices['systemSettings'], {
+    get: (_t, key) => () => unwired(`systemSettings.${String(key)}`),
+  }),
+  leaderboard: new Proxy({} as AppServices['leaderboard'], {
+    get: (_t, key) => () => unwired(`leaderboard.${String(key)}`),
+  }),
+  leaderboardStream: { open: () => unwired('leaderboardStream') },
+  myStanding: { forUser: () => unwired('myStanding') },
 };
 
 export function buildTestApp(

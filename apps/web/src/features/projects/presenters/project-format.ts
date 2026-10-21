@@ -61,10 +61,20 @@ export function deadlineLabel(dueAt: string, now: Date): DeadlineLabel {
 
 /** Why a task is locked, in words. */
 export function lockedHint(type: ProjectTaskType, targetDate: string): string {
-  if (type === 'NOM' || type === 'MOM') return 'Unlocks once the Project Proposal is submitted.';
   if (type === 'PROPOSAL') return 'Locked while the project is blocked.';
-  return `Opens on the event day, ${formatManilaDate(targetDate)}.`;
+  if (type === 'ACR' || type === 'FINANCIAL_REPORT') {
+    return `Opens on the event day, ${formatManilaDate(targetDate)}.`;
+  }
+  return 'Unlocks once the Project Proposal is submitted.';
 }
+
+/** When a pre-event document is due, in words, shown whatever its state (spec 2B). */
+export const TASK_NOTES: Partial<Record<ProjectTaskType, string>> = {
+  COMMUNICATION_LETTER: 'Due by the end of the event day. Add one file for each office.',
+  ATTENDANCE_SHEET:
+    'Signed during the event, so it is due with the Activity Completion Report, 14 days after.',
+  OTHER_PRE_EVENT: 'Optional, for anything else you prepared. Not counted for deadlines.',
+};
 
 /** "Next: Project Proposal, due in 5 days". */
 export function nextDeadlineText(next: { type: ProjectTaskType; dueAt: string }, now: Date) {

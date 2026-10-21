@@ -1,5 +1,6 @@
 import { useCompliance } from '@/features/appeals/presenters/use-compliance';
 import { RequireAuth } from '@/features/auth/auth-pages';
+import { useMyStanding } from '@/features/leaderboard/presenters/use-my-standing';
 import { useSemestralReports } from '@/features/reports/presenters/use-semestral-reports';
 import { useProjectsOverview } from '@/features/projects/presenters/use-projects';
 import { usePageChrome } from '@/navigation/page-chrome';
@@ -28,7 +29,15 @@ function DashboardContent() {
   const compliance = useCompliance(selected?.org.slug ?? null);
   // The Semestral End Report is for officers (spec section 4).
   const reports = useSemestralReports(selected?.uploadHref ? selected.org.slug : null);
+  // SBOs and CSCs are ranked; the ISSC never is (spec 5A).
+  const standing = useMyStanding(!!selected && selected.org.type !== 'ISSC');
   return (
-    <DashboardView model={model} projects={projects} compliance={compliance} reports={reports} />
+    <DashboardView
+      model={model}
+      projects={projects}
+      compliance={compliance}
+      reports={reports}
+      standing={standing}
+    />
   );
 }

@@ -86,6 +86,19 @@ services:
       retries: 10
       start_period: 300s
 
+  # Headless LibreOffice behind an HTTP API: the worker converts DOCX, XLSX and PPTX to PDF
+  # here for their view-only page images. 3100 on the host: 3000 is often taken.
+  gotenberg:
+    image: gotenberg/gotenberg:8.38.1
+    command: ['gotenberg', '--chromium-auto-start=false', '--api-timeout=180s']
+    ports:
+      - '3100:3000'
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   mailpit:
     image: axllent/mailpit:v1.31.5
     ports:

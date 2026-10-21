@@ -265,7 +265,6 @@ describe('documentRepository processing', () => {
   const clean = (versionId: string) => ({
     storageKey: `files/test/${versionId}`,
     sha256: 'a'.repeat(64),
-    thumbnailKey: null,
     contentText: null,
   });
 
@@ -303,7 +302,6 @@ describe('documentRepository processing', () => {
       {
         storageKey: `files/test/${v2.id}`,
         sha256: 'a'.repeat(64),
-        thumbnailKey: 'thumbnails/x.webp',
         contentText: 'girder words',
       },
       NOW,
@@ -477,5 +475,71 @@ describe('documentRepository.search', () => {
     expect(
       await titles(PUBLIC_VIEWER, { search: 'proposal', organizationId: world.orgs.cscCea.id }),
     ).toEqual(['CEA Days proposal']);
+  });
+});
+
+describe('documentRepository previews', () => {
+  const currentVersionOf = async (id: string) =>
+    (await db.document.findUniqueOrThrow({ where: { id } })).currentVersionId!;
+
+  it('lists clean versions still waiting for pages, never scanning or refused ones', async () => {
+    const pending = await documents.findPendingPreviews({ limit: 100 });
+    expect(pending).toContain(await currentVersionOf(world.docs.jpicePublic.id));
+    expect(pending).toContain(await currentVersionOf(world.docs.jpicePrivate.id));
+    expect(pending).not.toContain(await currentVersionOf(world.docs.jpiceScanning.id));
+  });
+
+  it('pages through pending previews in id order, and honours `before`', async () => {
+    const all = await documents.findPendingPreviews({ limit: 100 });
+    const first = await documents.findPendingPreviews({ limit: 2 });
+    const rest = await documents.findPendingPreviews({ afterId: first.at(-1), limit: 100 });
+    expect([...first, ...rest]).toEqual(all);
+    expect(await documents.findPendingPreviews({ before: new Date(0) })).toEqual([]);
+  });
+
+  it('stores the rendered pages and thumbnail, and leaves the pending list', async () => {
+    const versionId = await currentVersionOf(world.docs.jpicePublic.id);
+    await documents.markPreviewReady(versionId, {
+      pages: [
+        [1240, 1754],
+        [1240, 1754],
+      ],
+      pageCount: 7,
+      thumbnailKey: `thumbnails/x/${versionId}.webp`,
+    });
+    const doc = await documents.findById(PUBLIC_VIEWER, world.docs.jpicePublic.id);
+    expect(doc?.currentVersion).toMatchObject({
+      previewStatus: 'ready',
+      previewPages: [
+        [1240, 1754],
+        [1240, 1754],
+      ],
+      pageCount: 7,
+      thumbnailKey: `thumbnails/x/${versionId}.webp`,
+    });
+    expect(await documents.findPendingPreviews({ limit: 100 })).not.toContain(versionId);
+    expect(await documents.findRenderedPages(world.docs.jpicePublic.id, versionId)).toBe(2);
+  });
+
+  it('marks a file that cannot be rendered as failed', async () => {
+    const versionId = await currentVersionOf(world.docs.jpicePublic.id);
+    await documents.markPreviewFailed(versionId);
+    const version = await db.documentVersion.findUniqueOrThrow({ where: { id: versionId } });
+    expect(version.previewStatus).toBe('failed');
+    expect(await documents.findRenderedPages(world.docs.jpicePublic.id, versionId)).toBeNull();
+  });
+
+  it('serves no pages for a deleted document, a version of another, or before they are ready', async () => {
+    const id = world.docs.jpicePublic.id;
+    const versionId = await currentVersionOf(id);
+    expect(await documents.findRenderedPages(id, versionId)).toBeNull(); // still pending
+    await documents.markPreviewReady(versionId, {
+      pages: [[1240, 1754]],
+      pageCount: 1,
+      thumbnailKey: 'thumbnails/t.webp',
+    });
+    expect(await documents.findRenderedPages(world.docs.jpicePrivate.id, versionId)).toBeNull();
+    await documents.softDelete(jpice(), id);
+    expect(await documents.findRenderedPages(id, versionId)).toBeNull();
   });
 });

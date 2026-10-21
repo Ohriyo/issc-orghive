@@ -27,6 +27,13 @@ const ISSC: OrganizationDetail = {
   description: null,
   parent: null,
   college: null,
+  mission: null,
+  vision: null,
+  contactEmail: null,
+  links: [],
+  officers: [],
+  coverUrl: null,
+  coverSrcSet: null,
 };
 const CEA: CollegeDetail = {
   code: 'CEA',
@@ -95,7 +102,7 @@ function serve({ hits = [HIT], nextPage = null as number | null, searchStatus = 
         return json({ error: { code: 'INTERNAL', message: 'Down' } }, searchStatus);
       }
       const page = Number(new URL(url, 'http://localhost').searchParams.get('page') ?? 1);
-      return json({ query: 'q', items: hits, page, nextPage: page === 1 ? nextPage : null });
+      return json({ query: 'q', items: hits, page, nextPage: page === 1 ? nextPage : null, handbook: null });
     }
     return json({ error: { code: 'UNAUTHORIZED', message: 'No session' } }, 401);
   });

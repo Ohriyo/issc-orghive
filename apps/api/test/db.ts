@@ -12,7 +12,8 @@ export function testDb(): Db {
 
 export async function resetDb(client: Db) {
   await client.$executeRawUnsafe(`
-    TRUNCATE semestral_reports, notifications, appeal_attachments, appeals, org_freezes,
+    TRUNCATE leaderboard_snapshots, system_settings, financial_figures,
+      semestral_reports, notifications, appeal_attachments, appeals, org_freezes,
       project_tasks, projects,
       upload_intents, document_versions, documents, document_types,
       announcements, audit_logs, refresh_tokens, password_reset_tokens, recovery_codes,

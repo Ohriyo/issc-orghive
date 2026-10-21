@@ -1,16 +1,24 @@
 import express, { Router, type RequestHandler } from 'express';
 import { LOGO_MAX_BYTES, LOGO_MIME_TYPES } from '@orghive/shared';
 import { createAdminController } from '#src/controllers/admin.controller';
+import { createFinancialFiguresController } from '#src/controllers/financial-figures.controller';
+import { createHandbookController } from '#src/controllers/handbook.controller';
 import { createOrgGuards, requireAuth } from '#src/middleware/require-auth';
 import type { AccessService } from '#src/services/access.service';
 import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
+import type { FinancialFiguresService } from '#src/services/financial-figures.service';
+import type { HandbookService } from '#src/services/handbook.service';
 import type { TokenService } from '#src/services/token.service';
 
 export interface AdminRouterDeps {
   organizations: AdminOrganizationService;
   /** The ISSC account's requests for organizations' accounts. */
   accountRequests: AccountRequestService;
+  /** Reported Financial Report figures, which the ISSC can put under review (spec 5D). */
+  figures: Pick<FinancialFiguresService, 'list' | 'flag' | 'clearFlag'>;
+  /** The Student Handbook: uploads and the current edition (the ISSC account). */
+  handbook: HandbookService;
   access: AccessService;
   tokens: Pick<TokenService, 'verify'>;
 }
@@ -27,11 +35,15 @@ const noStore: RequestHandler = (_req, res, next) => {
 export function adminRouter({
   organizations,
   accountRequests,
+  figures,
+  handbook,
   access,
   tokens,
 }: AdminRouterDeps): Router {
   const router = Router();
   const controller = createAdminController(organizations, accountRequests);
+  const figuresController = createFinancialFiguresController(figures);
+  const handbookController = createHandbookController(handbook);
   const { requireAdmin } = createOrgGuards(access);
   router.use(requireAuth(tokens), requireAdmin, noStore);
 
@@ -50,6 +62,12 @@ export function adminRouter({
     express.raw({ type: [...LOGO_MIME_TYPES], limit: LOGO_MAX_BYTES }),
     controller.setLogo,
   );
+  router.get('/handbook', handbookController.adminList);
+  router.post('/handbook', handbookController.upload);
+  router.put('/handbook/:year/current', handbookController.makeCurrent);
+  router.get('/financial-figures', figuresController.list);
+  router.put('/projects/:projectId/financial-figures/flag', figuresController.flag);
+  router.delete('/projects/:projectId/financial-figures/flag', figuresController.clearFlag);
 
   return router;
 }

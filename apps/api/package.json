@@ -18,6 +18,8 @@
     "test": "vitest run",
     "keys:generate": "tsx scripts/generate-jwt-keys.ts",
     "create-super-admin": "tsx --env-file-if-exists=.env scripts/create-super-admin.ts",
+    "load:sse": "tsx --env-file-if-exists=.env scripts/load-sse.ts",
+    "pages:backfill": "tsx --env-file-if-exists=.env scripts/backfill-previews.ts",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {

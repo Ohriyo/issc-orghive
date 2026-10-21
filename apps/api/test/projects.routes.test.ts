@@ -1,11 +1,18 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { addDays, manilaDate, type ProjectDetail, type ProjectTaskType } from '@orghive/shared';
+import {
+  addDays,
+  endOfManilaDay,
+  manilaDate,
+  type ProjectDetail,
+  type ProjectTaskType,
+} from '@orghive/shared';
 import { memoryCache } from '#src/lib/cache';
 import type { Storage } from '#src/lib/storage';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
+import { createFinancialFiguresRepository } from '#src/repositories/financial-figures.repository';
 import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrgFreezeRepository } from '#src/repositories/org-freeze.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
@@ -14,8 +21,10 @@ import { createUploadIntentRepository } from '#src/repositories/upload-intent.re
 import { createAccessService } from '#src/services/access.service';
 import { createDocumentService } from '#src/services/document.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
+import { createFinancialFiguresService } from '#src/services/financial-figures.service';
 import { createProjectService } from '#src/services/project.service';
 import { createProjectSync } from '#src/services/project-sync.service';
+import { createRecipients } from '#src/services/recipients.service';
 import { createTokenService } from '#src/services/token.service';
 import { createUploadService } from '#src/services/upload.service';
 import { testKeys } from './auth-fixtures';
@@ -26,7 +35,19 @@ const db = testDb();
 const tokens = createTokenService(testKeys());
 const documentRepo = createDocumentRepository(db);
 const projectRepo = createProjectRepository(db);
-const projectSync = createProjectSync({ projects: projectRepo });
+/** Semesters whose leaderboard a scanned task file asked to recompute. */
+const recomputed: string[] = [];
+const projectSync = createProjectSync({
+  projects: projectRepo,
+  leaderboard: {
+    forEventDates: (...dates) => {
+      recomputed.push(
+        ...dates.map((d) => (typeof d === 'string' ? d : d.toISOString().slice(0, 10))),
+      );
+      return Promise.resolve();
+    },
+  },
+});
 
 /** Storage stand-in: an upload "exists" once its intent exists, as declared. */
 const storage: Storage = {
@@ -92,10 +113,18 @@ beforeAll(async () => {
     audit,
     cache: memoryCache(),
   });
+  const financialFigures = createFinancialFiguresService({
+    figures: createFinancialFiguresRepository(db),
+    projects: projectRepo,
+    recipients: createRecipients({ accounts, organizations }),
+    notifications: { notify: () => Promise.resolve() },
+    audit,
+  });
   app = buildTestApp({
     tokens,
     uploads,
     documents,
+    financialFigures,
     access: createAccessService({
       accounts,
       organizations,
@@ -111,6 +140,7 @@ beforeAll(async () => {
       documentTypes,
       uploads,
       viewers,
+      figures: financialFigures,
       audit,
     }),
   });
@@ -143,6 +173,8 @@ async function newProject(overrides: object = {}): Promise<ProjectDetail> {
 }
 
 const PDF = { filename: 'file.pdf', contentType: 'application/pdf', sizeBytes: 1000 };
+/** ₱12,345.50 in, ₱2,000.00 out. */
+const FIGURES = { incomeCentavos: 1_234_550, expensesCentavos: 200_000 };
 
 /** Uploads a PDF for the task as `who` (the browser PUT is assumed done), then files it. */
 async function fileTask(
@@ -158,6 +190,7 @@ async function fileTask(
     uploadKey,
     visibility,
     actingAs: 'Juan Dela Cruz',
+    ...(type === 'FINANCIAL_REPORT' && { figures: FIGURES }),
   });
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return res.body as ProjectDetail;
@@ -174,7 +207,6 @@ async function scanClean(documentId: string) {
     {
       storageKey: `files/test/${doc.versions[0]!.id}`,
       sha256: 'a'.repeat(64),
-      thumbnailKey: null,
       contentText: null,
     },
     new Date(),
@@ -275,6 +307,7 @@ describe('POST /organizations/:slug/projects', () => {
     expect(project.tasks.map((t) => [t.type, t.status])).toEqual([
       ['PROPOSAL', 'open'],
       ['NOM', 'locked'],
+      ['OTHER_PRE_EVENT', 'locked'],
       ['ACR', 'locked'],
       ['FINANCIAL_REPORT', 'locked'],
     ]);
@@ -289,7 +322,7 @@ describe('POST /organizations/:slug/projects', () => {
     expect(
       await db.auditLog.count({ where: { action: 'project_create', entityId: project.id } }),
     ).toBe(1);
-    expect(await db.projectTask.count({ where: { projectId: project.id } })).toBe(4);
+    expect(await db.projectTask.count({ where: { projectId: project.id } })).toBe(5);
   });
 
   it('requires all five fields and a target date that is not in the past', async () => {
@@ -343,7 +376,10 @@ describe('submitting tasks through the document pipeline', () => {
     expect(asCsc.tasks[0]).toMatchObject({ status: 'open', document: null });
     expect(statusOf(asCsc, 'NOM')).toBe('locked');
 
+    recomputed.length = 0;
     await scanClean(proposal.document!.id);
+    // A submitted task may move the standings of its event's semester.
+    expect(recomputed).toEqual([project.targetDate]);
 
     const after = (await call('get', `/projects/${project.id}`, 'governor').expect(200))
       .body as ProjectDetail;
@@ -414,6 +450,264 @@ describe('submitting tasks through the document pipeline', () => {
     const second = await fileTask(project.id, 'PROPOSAL');
     expect(second.tasks[0]).toMatchObject({ status: 'submitted', document: { id: docId } });
     expect(await db.documentVersion.count({ where: { documentId: docId } })).toBe(2);
+  });
+});
+
+describe('pre-event documents (spec 2B, 2026-10-21)', () => {
+  /** Uploads a PDF for a multi-file task with this label, or as a new version of `documentId`. */
+  async function fileLabelled(
+    projectId: string,
+    type: ProjectTaskType,
+    file: { label?: string; documentId?: string },
+    visibility = 'private',
+  ) {
+    const url = await call(
+      'post',
+      `/projects/${projectId}/tasks/${type}/upload-url`,
+      'officer',
+      PDF,
+    );
+    expect(url.status, JSON.stringify(url.body)).toBe(201);
+    const { uploadKey } = url.body as { uploadKey: string };
+    return call('post', `/projects/${projectId}/tasks/${type}/documents`, 'officer', {
+      uploadKey,
+      visibility,
+      actingAs: 'Juan Dela Cruz',
+      ...file,
+    });
+  }
+  const taskOf = (detail: ProjectDetail, type: ProjectTaskType) =>
+    detail.tasks.find((t) => t.type === type)!;
+
+  it('ticks letters and attendance on creation, dated on the event day and with the ACR', async () => {
+    const project = await newProject({
+      communicationLetterRequired: true,
+      attendanceSheetRequired: true,
+    });
+    expect(project).toMatchObject({
+      communicationLetterRequired: true,
+      attendanceSheetRequired: true,
+    });
+    expect(project.tasks.map((t) => t.type)).toEqual([
+      'PROPOSAL',
+      'COMMUNICATION_LETTER',
+      'ATTENDANCE_SHEET',
+      'OTHER_PRE_EVENT',
+      'ACR',
+      'FINANCIAL_REPORT',
+    ]);
+    expect(taskOf(project, 'COMMUNICATION_LETTER')).toMatchObject({
+      status: 'locked',
+      required: true,
+      dueAt: endOfManilaDay(project.targetDate).toISOString(),
+    });
+    expect(taskOf(project, 'ATTENDANCE_SHEET').dueAt).toBe(project.postEventDueAt);
+    expect(taskOf(project, 'OTHER_PRE_EVENT')).toMatchObject({ required: false, dueAt: null });
+  });
+
+  it('files several labelled letters; the task is submitted once one passes the scan', async () => {
+    const project = await newProject({ communicationLetterRequired: true });
+    const proposal = await fileTask(project.id, 'PROPOSAL');
+    await scanClean(proposal.tasks[0]!.document!.id);
+
+    const dean = await fileLabelled(project.id, 'COMMUNICATION_LETTER', {
+      label: 'Letter to the Dean',
+    });
+    expect(dean.status, JSON.stringify(dean.body)).toBe(201);
+    const guidance = await fileLabelled(project.id, 'COMMUNICATION_LETTER', {
+      label: 'Letter to the Guidance Office',
+    });
+    const letters = taskOf(guidance.body as ProjectDetail, 'COMMUNICATION_LETTER');
+    expect(letters.status).toBe('open');
+    expect(letters.files.map((f) => f.label)).toEqual([
+      'Letter to the Dean',
+      'Letter to the Guidance Office',
+    ]);
+
+    recomputed.length = 0;
+    await scanClean(letters.files[0]!.document.id);
+    expect(recomputed).toEqual([project.targetDate]);
+    const after = (await call('get', `/projects/${project.id}`, 'officer').expect(200))
+      .body as ProjectDetail;
+    expect(taskOf(after, 'COMMUNICATION_LETTER')).toMatchObject({ status: 'submitted' });
+    expect(taskOf(after, 'COMMUNICATION_LETTER').submittedAt).not.toBeNull();
+
+    // Each letter is its own private Paperworks document; the CSC sees neither file.
+    const doc = await db.document.findUniqueOrThrow({
+      where: { id: letters.files[0]!.document.id },
+    });
+    expect(doc).toMatchObject({
+      visibility: 'private',
+      title: `Communication Letter: Letter to the Dean (${project.name})`,
+    });
+    const asCsc = (await call('get', `/projects/${project.id}`, 'governor').expect(200))
+      .body as ProjectDetail;
+    expect(taskOf(asCsc, 'COMMUNICATION_LETTER')).toMatchObject({ status: 'submitted', files: [] });
+  });
+
+  it('uploads a new version of one letter, keeping its label', async () => {
+    const project = await newProject({ communicationLetterRequired: true });
+    await scanClean((await fileTask(project.id, 'PROPOSAL')).tasks[0]!.document!.id);
+    const first = (
+      await fileLabelled(project.id, 'COMMUNICATION_LETTER', { label: 'Letter to the Dean' })
+    ).body as ProjectDetail;
+    const id = taskOf(first, 'COMMUNICATION_LETTER').files[0]!.document.id;
+    await scanClean(id);
+    const again = await fileLabelled(project.id, 'COMMUNICATION_LETTER', { documentId: id });
+    expect(again.status, JSON.stringify(again.body)).toBe(201);
+    expect(taskOf(again.body as ProjectDetail, 'COMMUNICATION_LETTER').files).toHaveLength(1);
+    expect(await db.documentVersion.count({ where: { documentId: id } })).toBe(2);
+  });
+
+  it('400s a letter without a label, and a label on a one-file task', async () => {
+    const project = await newProject({ communicationLetterRequired: true });
+    await scanClean((await fileTask(project.id, 'PROPOSAL')).tasks[0]!.document!.id);
+    await fileLabelled(project.id, 'COMMUNICATION_LETTER', {}).then((r) =>
+      expect(r.status).toBe(400),
+    );
+    await fileLabelled(project.id, 'COMMUNICATION_LETTER', { label: 'x' }).then((r) =>
+      expect(r.status).toBe(400),
+    );
+    await fileLabelled(project.id, 'PROPOSAL', { label: 'Proposal copy' }).then((r) =>
+      expect(r.status).toBe(400),
+    );
+  });
+
+  it('files other pre-event documents on any project, and completes without them', async () => {
+    const project = await newProject({ targetDate: today });
+    await scanClean((await fileTask(project.id, 'PROPOSAL')).tasks[0]!.document!.id);
+    const other = await fileLabelled(project.id, 'OTHER_PRE_EVENT', { label: 'Venue reservation' });
+    expect(other.status, JSON.stringify(other.body)).toBe(201);
+    let latest = other.body as ProjectDetail;
+    for (const type of ['ACR', 'FINANCIAL_REPORT'] as const) {
+      const filed = await fileTask(project.id, type);
+      await scanClean(taskOf(filed, type).document!.id);
+      latest = (await call('get', `/projects/${project.id}`, 'officer').expect(200))
+        .body as ProjectDetail;
+    }
+    // The other document is still scanning: optional, so the project completes anyway.
+    expect(latest.status).toBe('completed');
+  });
+
+  it('refuses a letter the project did not tick (404), and before the proposal (409)', async () => {
+    const plain = await newProject();
+    await call(
+      'post',
+      `/projects/${plain.id}/tasks/COMMUNICATION_LETTER/upload-url`,
+      'officer',
+      PDF,
+    ).expect(404);
+    const ticked = await newProject({ attendanceSheetRequired: true });
+    await call(
+      'post',
+      `/projects/${ticked.id}/tasks/ATTENDANCE_SHEET/upload-url`,
+      'officer',
+      PDF,
+    ).expect(409);
+  });
+
+  it('keeps a tick that has a file (409) and lets the others change', async () => {
+    const project = await newProject({ communicationLetterRequired: true });
+    await scanClean((await fileTask(project.id, 'PROPOSAL')).tasks[0]!.document!.id);
+    await fileLabelled(project.id, 'COMMUNICATION_LETTER', { label: 'Letter to the Dean' });
+    await call('patch', `/projects/${project.id}`, 'officer', {
+      communicationLetterRequired: false,
+    }).expect(409);
+    const ticked = (
+      await call('patch', `/projects/${project.id}`, 'officer', {
+        attendanceSheetRequired: true,
+      }).expect(200)
+    ).body as ProjectDetail;
+    expect(taskOf(ticked, 'ATTENDANCE_SHEET').status).toBe('open');
+    const unticked = (
+      await call('patch', `/projects/${project.id}`, 'officer', {
+        attendanceSheetRequired: false,
+      }).expect(200)
+    ).body as ProjectDetail;
+    expect(unticked.tasks.map((t) => t.type)).not.toContain('ATTENDANCE_SHEET');
+  });
+
+  it('lets only the organization’s own account file a letter (401/403)', async () => {
+    const project = await newProject({ communicationLetterRequired: true });
+    const path = `/projects/${project.id}/tasks/COMMUNICATION_LETTER/documents`;
+    const body = {
+      uploadKey: 'uploads/x/y',
+      visibility: 'private',
+      actingAs: 'Juan',
+      label: 'Dean',
+    };
+    await call('post', path, undefined, body).expect(401);
+    await call('post', path, 'governor', body).expect(403);
+    await call('post', path, 'psmeOfficer', body).expect(403);
+  });
+});
+
+describe('Financial Report figures', () => {
+  it('requires the totals with a Financial Report file, and audits the first entry', async () => {
+    const project = await newProject({ targetDate: today });
+    const url = await call(
+      'post',
+      `/projects/${project.id}/tasks/FINANCIAL_REPORT/upload-url`,
+      'officer',
+      PDF,
+    ).expect(201);
+    const { uploadKey } = url.body as { uploadKey: string };
+    const path = `/projects/${project.id}/tasks/FINANCIAL_REPORT/documents`;
+    const file = { uploadKey, visibility: 'private', actingAs: 'Juan Dela Cruz' };
+    await call('post', path, 'officer', file).expect(400);
+    await call('post', path, 'officer', {
+      ...file,
+      figures: { incomeCentavos: -1, expensesCentavos: 0 },
+    }).expect(400);
+
+    const res = await call('post', path, 'officer', { ...file, figures: FIGURES }).expect(201);
+    expect((res.body as ProjectDetail).financialFigures).toMatchObject({
+      ...FIGURES,
+      netCentavos: 1_034_550,
+      underReview: null,
+    });
+    const audit = await db.auditLog.findFirstOrThrow({
+      where: { action: 'financial_figures_change', entityId: project.id },
+    });
+    expect(audit).toMatchObject({
+      actorId: userIds.officer,
+      actingAs: 'Juan Dela Cruz',
+      metadata: { before: null, after: FIGURES },
+    });
+    // Its governing body reads the figures with the project.
+    const read = await call('get', `/projects/${project.id}`, 'governor').expect(200);
+    expect((read.body as ProjectDetail).financialFigures?.netCentavos).toBe(1_034_550);
+  });
+
+  it('lets only the organization’s own account correct them, audited with before and after', async () => {
+    const project = await newProject({ targetDate: today });
+    const path = `/projects/${project.id}/financial-figures`;
+    const body = { incomeCentavos: 100, expensesCentavos: 300, actingAs: 'Maria Santos' };
+
+    await call('patch', path, undefined, body).expect(401);
+    await call('patch', path, 'governor', body).expect(403);
+    await call('patch', path, 'psmeOfficer', body).expect(403);
+    await call('patch', path, 'admin', body).expect(403);
+    // Nothing to correct before the report is uploaded with its totals.
+    await call('patch', path, 'officer', body).expect(409);
+
+    await fileTask(project.id, 'FINANCIAL_REPORT', 'officer', 'private');
+    await call('patch', path, 'officer', { incomeCentavos: 100, expensesCentavos: 300 }).expect(
+      400,
+    );
+    const res = await call('patch', path, 'officer', body).expect(200);
+    expect(res.body).toMatchObject({
+      incomeCentavos: 100,
+      expensesCentavos: 300,
+      netCentavos: -200,
+    });
+    const audit = await db.auditLog.findFirstOrThrow({
+      where: { action: 'financial_figures_change', entityId: project.id, actingAs: 'Maria Santos' },
+    });
+    expect(audit.metadata).toEqual({
+      before: FIGURES,
+      after: { incomeCentavos: 100, expensesCentavos: 300 },
+    });
   });
 });
 

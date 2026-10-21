@@ -2,8 +2,17 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import type { OrganizationDetail } from '@orghive/shared';
+import type { HomeLeaderboardModel } from '@/features/leaderboard/presenters/use-leaderboard-views';
 import type { HomeData } from '../presenters/use-home-data';
 import { HomeView } from './home-view';
+
+const LEADERBOARD: HomeLeaderboardModel = {
+  live: 'live',
+  semester: '1st semester 2026–2027',
+  boards: { SBO: { status: 'loading' }, CSC: { status: 'loading' } },
+  shown: 'SBO',
+  show: vi.fn(),
+};
 
 // jsdom has no WebGL; the background's own logic is tested in use-animated-hero.test.ts.
 vi.mock('../hooks/use-animated-hero', () => ({ useAnimatedHero: () => false }));
@@ -19,6 +28,13 @@ const ISSC: OrganizationDetail = {
   logoSrcSet: null,
   parent: null,
   college: null,
+  mission: null,
+  vision: null,
+  contactEmail: null,
+  links: [],
+  officers: [],
+  coverUrl: null,
+  coverSrcSet: null,
 };
 
 function props(overrides: Partial<HomeData> = {}): HomeData {
@@ -46,7 +62,7 @@ function props(overrides: Partial<HomeData> = {}): HomeData {
 function renderView(data: HomeData) {
   return render(
     <MemoryRouter>
-      <HomeView {...data} />
+      <HomeView {...data} leaderboard={LEADERBOARD} handbook={{ status: 'none' }} />
     </MemoryRouter>,
   );
 }
@@ -65,6 +81,32 @@ describe('HomeView', () => {
     expect(screen.getByRole('heading', { name: 'About Us' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /NwSSU-ISSC/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Contact us:' })).toBeInTheDocument();
+  });
+
+  it('shows the current Student Handbook between About Us and the ISSC', () => {
+    render(
+      <MemoryRouter>
+        <HomeView
+          {...props()}
+          leaderboard={LEADERBOARD}
+          handbook={{
+            status: 'ready',
+            edition: {
+              academicYear: '2026-2027',
+              yearLabel: '2026–2027',
+              isCurrent: true,
+              pageCount: 40,
+              coverUrl: null,
+              href: '/handbook',
+            },
+          }}
+        />
+      </MemoryRouter>,
+    );
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(headings.indexOf('Student Handbook')).toBe(headings.indexOf('About Us') + 1);
+    expect(screen.getByText('2026–2027', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Read the Handbook' })).toHaveAttribute('href', '/handbook');
   });
 
   it('links each college hexagon to its college page', () => {

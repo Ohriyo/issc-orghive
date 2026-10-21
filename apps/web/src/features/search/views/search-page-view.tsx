@@ -3,8 +3,10 @@ import { Search } from 'lucide-react';
 import { Container } from '@/components/container';
 import { DocumentCard, DocumentCardSkeleton } from '@/components/document-card';
 import { FilterFields, FilterSheet, type FilterSelectSpec } from '@/components/filter-bar';
+import { HighlightedText } from '@/components/highlighted-text';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
+import { OriginLink } from '@/navigation/origin-link';
 import type {
   SearchFilterModel,
   SearchPageResults,
@@ -144,6 +146,12 @@ function Results({ results, hasFilters }: { results: SearchPageResults; hasFilte
           <p role="status" className="mb-5 text-small text-ink-muted">
             Best matches for &ldquo;{results.query}&rdquo;
           </p>
+          {results.handbook ? <HandbookMatches handbook={results.handbook} /> : null}
+          {results.items.length === 0 ? (
+            <p className="max-w-prose text-body-lg text-ink">
+              No Paperworks match &ldquo;{results.query}&rdquo;.
+            </p>
+          ) : null}
           <ul className={GRID}>
             {results.items.map(({ id, ...card }) => (
               <li key={id}>
@@ -167,4 +175,31 @@ function Results({ results, hasFilters }: { results: SearchPageResults; hasFilte
         </>
       );
   }
+}
+
+/** The current Student Handbook's matching pages, each opening the handbook at that page. */
+function HandbookMatches({ handbook }: { handbook: NonNullable<SearchPageResults['handbook']> }) {
+  return (
+    <section aria-labelledby="handbook-matches-heading" className="mb-10">
+      <h2 id="handbook-matches-heading" className="text-h3 font-bold text-ink">
+        In the Student Handbook
+        <span className="ml-2 text-body font-normal text-ink-muted">{handbook.yearLabel}</span>
+      </h2>
+      <ol className="mt-4 grid gap-3 md:grid-cols-3">
+        {handbook.matches.map((match) => (
+          <li key={match.page}>
+            <OriginLink
+              to={match.href}
+              className="group flex h-full flex-col gap-2 rounded-2xl bg-white p-4 shadow-pool ring-1 ring-ink/10 transition-shadow duration-300 hover:shadow-pool-lift focus-visible:shadow-pool-lift"
+            >
+              <span className="text-small font-semibold text-ink underline decoration-transparent decoration-1 underline-offset-4 transition-colors duration-300 group-hover:decoration-leaf group-focus-visible:decoration-leaf">
+                Page {match.page}
+              </span>
+              <HighlightedText parts={match.snippet} className="line-clamp-3 text-small text-ink" />
+            </OriginLink>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
 }

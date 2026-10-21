@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import type { Config } from '#src/config';
+import type { LeaderboardStream } from '#src/lib/leaderboard-stream';
 import type { Logger } from '#src/logger';
 import { createErrorHandler, notFoundHandler } from '#src/middleware/error-handler';
 import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
@@ -16,8 +17,11 @@ import { authRouter } from '#src/routes/auth.routes';
 import { collegesRouter } from '#src/routes/colleges.routes';
 import { documentsRouter } from '#src/routes/documents.routes';
 import { healthRouter } from '#src/routes/health.routes';
+import { leaderboardRouter } from '#src/routes/leaderboard.routes';
 import { meRouter } from '#src/routes/me.routes';
 import { organizationsRouter } from '#src/routes/organizations.routes';
+import { profileRouter } from '#src/routes/profile.routes';
+import { handbookRouter } from '#src/routes/handbook.routes';
 import { projectsRouter } from '#src/routes/projects.routes';
 import { reportsRouter } from '#src/routes/reports.routes';
 import { searchRouter } from '#src/routes/search.routes';
@@ -30,20 +34,28 @@ import type { AccountRequestService } from '#src/services/account-request.servic
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { AnnouncementService } from '#src/services/announcement.service';
 import type { ComplianceOverviewService } from '#src/services/compliance-overview.service';
+import type { ConstitutionService } from '#src/services/constitution.service';
 import type { AppealService } from '#src/services/appeal.service';
 import type { AuthService } from '#src/services/auth.service';
 import type { CollegeService } from '#src/services/college.service';
 import type { DashboardService } from '#src/services/dashboard.service';
+import type { DocumentPreviewService } from '#src/services/document-preview.service';
 import type { DocumentService } from '#src/services/document.service';
+import type { FinancialFiguresService } from '#src/services/financial-figures.service';
 import type { NotificationService } from '#src/services/notification.service';
 import type { OrganizationService } from '#src/services/organization.service';
+import type { MyStandingService } from '#src/services/my-standing.service';
+import type { ProfileService } from '#src/services/profile.service';
+import type { HandbookService } from '#src/services/handbook.service';
 import type { ProjectService } from '#src/services/project.service';
+import type { PublicLeaderboardService } from '#src/services/public-leaderboard.service';
 import type { ReportService } from '#src/services/report.service';
 import type { RevealService } from '#src/services/reveal.service';
 import type { SearchService } from '#src/services/search.service';
 import type { SuperAdminService } from '#src/services/super-admin.service';
 import type { SupportService } from '#src/services/support.service';
 import type { SystemService } from '#src/services/system.service';
+import type { SystemSettingsService } from '#src/services/system-settings.service';
 import type { UploadService } from '#src/services/upload.service';
 
 export interface AppServices {
@@ -52,7 +64,15 @@ export interface AppServices {
   tokens: AccessVerifier;
   colleges: CollegeService;
   organizations: OrganizationService;
+  /** /dashboard/profile: the organization's own profile, logo and cover. */
+  profiles: ProfileService;
+  /** Each organization's Constitution & By-laws. */
+  constitutions: ConstitutionService;
+  /** The Student Handbook: public reads (/handbook) and the ISSC's uploads (/admin). */
+  handbook: HandbookService;
   documents: DocumentService;
+  /** The view-only viewer: page lists, page tokens and watermarked page images. */
+  documentPreviews: DocumentPreviewService;
   uploads: UploadService;
   access: AccessService;
   dashboard: DashboardService;
@@ -76,6 +96,16 @@ export interface AppServices {
   accountRequests: AccountRequestService;
   /** /system CSV imports: bulk creation and the end of term. */
   accountImports: AccountImportService;
+  /** Financial Report figures: corrections (/projects) and the ISSC's review (/admin). */
+  financialFigures: FinancialFiguresService;
+  /** /system/settings, such as the leaderboard's late value. */
+  systemSettings: SystemSettingsService;
+  /** GET /leaderboard: the public boards (spec section 5). */
+  leaderboard: PublicLeaderboardService;
+  /** GET /leaderboard/stream: the open SSE streams of this instance. */
+  leaderboardStream: Pick<LeaderboardStream, 'open'>;
+  /** GET /me/leaderboard: the signed-in organization's own standing. */
+  myStanding: Pick<MyStandingService, 'forUser'>;
 }
 
 export interface AppDeps {
@@ -124,11 +154,25 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     }),
   );
   v1.use('/colleges', collegesRouter(services.colleges));
+  v1.use(
+    profileRouter({
+      profiles: services.profiles,
+      constitutions: services.constitutions,
+      access: services.access,
+      tokens: services.tokens,
+    }),
+  );
   v1.use('/organizations', organizationsRouter(services.organizations));
+  v1.use('/handbook', handbookRouter(services.handbook));
+  v1.use(
+    '/leaderboard',
+    leaderboardRouter({ leaderboard: services.leaderboard, stream: services.leaderboardStream }),
+  );
   v1.use(
     '/me',
     meRouter({
       dashboard: services.dashboard,
+      standing: services.myStanding,
       notifications: services.notifications,
       reveals: services.reveals,
       tokens: services.tokens,
@@ -150,6 +194,8 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     adminRouter({
       organizations: services.adminOrganizations,
       accountRequests: services.accountRequests,
+      figures: services.financialFigures,
+      handbook: services.handbook,
       access: services.access,
       tokens: services.tokens,
     }),
@@ -164,20 +210,24 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       support: services.support,
       requests: services.accountRequests,
       imports: services.accountImports,
+      settings: services.systemSettings,
       tokens: services.tokens,
     }),
   );
   v1.use(
     documentsRouter({
       documents: services.documents,
+      previews: services.documentPreviews,
       uploads: services.uploads,
       access: services.access,
       tokens: services.tokens,
+      rateLimitStore,
     }),
   );
   v1.use(
     projectsRouter({
       projects: services.projects,
+      figures: services.financialFigures,
       access: services.access,
       tokens: services.tokens,
     }),

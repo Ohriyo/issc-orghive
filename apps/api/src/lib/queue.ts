@@ -1,5 +1,6 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
+import type { SemesterKey } from '@orghive/shared';
 
 /** BullMQ queue the API fills and the worker (src/worker.ts) drains. */
 export const DOCUMENT_QUEUE = 'document-processing';
@@ -7,6 +8,13 @@ export const DOCUMENT_QUEUE = 'document-processing';
 export const NOTIFICATION_QUEUE = 'notifications';
 /** Semestral End Reports: long, CPU-heavy jobs, one at a time, apart from the scans. */
 export const REPORT_QUEUE = 'reports';
+/**
+ * View-only previews: watermarked page images of each clean version. CPU-heavy (up to 500
+ * pages each), so apart from the scans, which must never wait behind them.
+ */
+export const PREVIEW_QUEUE = 'previews';
+/** Leaderboard recomputes (docs/PROJECT_WORKFLOW_SPEC.md, section 5), one at a time. */
+export const LEADERBOARD_QUEUE = 'leaderboard';
 
 export type DocumentJob =
   /** Check, scan and process one uploaded version. */
@@ -23,6 +31,8 @@ export type DocumentJob =
    */
   | { name: 'check-compliance'; data: Record<string, never> };
 
+export type PreviewJob = { name: 'render-preview'; data: { versionId: string } };
+
 export type NotificationJob = { name: 'send-email'; data: { notificationId: string } };
 
 /** Notification emails are queued this many per addBulk call. */
@@ -32,6 +42,22 @@ export const EMAILS_PER_SECOND = 10;
 
 export type ReportJob = { name: 'generate-report'; data: { reportId: string } };
 
+export type LeaderboardJob =
+  /** Rank one semester again, write its snapshot and tell the API instances if it changed. */
+  | { name: 'recompute'; data: SemesterKey }
+  /**
+   * Daily at Manila midnight: the current and the previous semester. Covers event days
+   * passing, the semester rollover and the daily snapshot.
+   */
+  | { name: 'daily'; data: Record<string, never> };
+
+/** A semester is recomputed at most once per this window, however many changes arrive. */
+export const LEADERBOARD_DEBOUNCE_MS = 5_000;
+
+export interface LeaderboardQueue {
+  enqueueRecompute(semester: SemesterKey): Promise<void>;
+}
+
 export interface ReportQueue {
   enqueueReport(reportId: string): Promise<void>;
 }
@@ -39,6 +65,11 @@ export interface ReportQueue {
 /** What the API needs from the queue; tests pass a fake. */
 export interface JobQueue {
   enqueueProcessing(versionId: string): Promise<void>;
+}
+
+/** Who queues a version's page images: the scan (worker) and the report service. */
+export interface PreviewQueue {
+  enqueuePreview(versionId: string): Promise<void>;
 }
 
 /** Appeal attachments are scanned by the same worker as documents. */
@@ -84,6 +115,21 @@ export function createBullQueue(connection: Redis): JobQueue & AttachmentQueue &
   };
 }
 
+export function createBullPreviewQueue(connection: Redis): PreviewQueue & { queue: Queue } {
+  const queue = new Queue(PREVIEW_QUEUE, { connection });
+  return {
+    queue,
+    async enqueuePreview(versionId) {
+      // One job per version: the backfill and the sweep may ask again while it waits.
+      await queue.add(
+        'render-preview',
+        { versionId },
+        { jobId: `preview-${versionId}`, ...RETRIES },
+      );
+    },
+  };
+}
+
 export function createBullNotificationQueue(
   connection: Redis,
 ): NotificationQueue & { queue: Queue } {
@@ -117,6 +163,33 @@ export function createBullReportQueue(connection: Redis): ReportQueue & { queue:
         'generate-report',
         { reportId },
         { jobId: `report-${reportId}`, attempts: 1, removeOnComplete: 200, removeOnFail: 500 },
+      );
+    },
+  };
+}
+
+export function createBullLeaderboardQueue(connection: Redis): LeaderboardQueue & { queue: Queue } {
+  const queue = new Queue(LEADERBOARD_QUEUE, { connection });
+  return {
+    queue,
+    async enqueueRecompute({ academicYear, semester }) {
+      // One delayed job per semester: changes within the next 5 s join it. keepLastIfActive
+      // queues exactly one more run for a change that arrives while it runs, since the run
+      // may already have read the data before that change.
+      await queue.add(
+        'recompute',
+        { academicYear, semester },
+        {
+          delay: LEADERBOARD_DEBOUNCE_MS,
+          deduplication: {
+            id: `leaderboard-${academicYear}-${semester}`,
+            keepLastIfActive: true,
+          },
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5_000 },
+          removeOnComplete: 100,
+          removeOnFail: 500,
+        },
       );
     },
   };

@@ -1,8 +1,13 @@
-import { SNIPPET_MATCH_END, SNIPPET_MATCH_START } from '@orghive/shared';
+import {
+  SNIPPET_MATCH_END,
+  SNIPPET_MATCH_START,
+  type HandbookOutlineItem,
+} from '@orghive/shared';
 import {
   Prisma,
   type DocumentStatus,
   type DocumentVisibility,
+  type PreviewStatus,
   type ScanStatus,
   type Semester,
 } from '#src/generated/prisma/client';
@@ -35,6 +40,9 @@ export const documentSelect = {
       sizeBytes: true,
       scanStatus: true,
       thumbnailKey: true,
+      previewStatus: true,
+      previewPages: true,
+      pageCount: true,
       createdAt: true,
     },
   },
@@ -49,6 +57,9 @@ const versionSelect = {
   scanStatus: true,
   storageKey: true,
   actingAs: true,
+  previewStatus: true,
+  amendedOn: true,
+  note: true,
   createdAt: true,
 } satisfies Prisma.DocumentVersionSelect;
 
@@ -91,6 +102,24 @@ export type ProcessingRecord = Prisma.DocumentVersionGetPayload<{
 
 export type DocumentRecord = Prisma.DocumentGetPayload<{ select: typeof documentSelect }>;
 
+/** What the worker needs to render one version's view-only pages. */
+const previewSelect = {
+  id: true,
+  storageKey: true,
+  originalFilename: true,
+  mimeType: true,
+  scanStatus: true,
+  previewStatus: true,
+  document: {
+    select: { id: true, organization: { select: { slug: true } }, type: { select: { slug: true } } },
+  },
+} satisfies Prisma.DocumentVersionSelect;
+
+export type PreviewRecord = Prisma.DocumentVersionGetPayload<{ select: typeof previewSelect }>;
+
+/** A rendered page's size, as stored in `preview_pages`: `[width, height]`. */
+export type PageSize = [number, number];
+
 /** Enough of a document to link to it. */
 export interface DocumentBrief {
   id: string;
@@ -119,6 +148,8 @@ export interface DocumentSearchFilters {
   collegeSlug?: string;
   organizationSlug?: string;
   typeSlug?: string;
+  /** Left out of the results, e.g. the Student Handbook (it has its own block). */
+  excludeTypeSlug?: string;
   academicYear?: string;
   offset: number;
   limit: number;
@@ -137,10 +168,12 @@ export interface NewVersion {
   uploadedById: string;
   /** The officer who uploaded it for the account; none for files Orghive made. */
   actingAs?: string | null;
-  scanStatus?: ScanStatus;
   /** Server-generated files (the Semestral End Report) arrive already processed. */
-  thumbnailKey?: string | null;
+  scanStatus?: ScanStatus;
   processedAt?: Date;
+  /** Constitution & By-laws only: the date adopted or amended, and what changed. */
+  amendedOn?: Date;
+  note?: string | null;
 }
 
 export interface NewDocument {
@@ -195,6 +228,7 @@ interface CandidateFilters {
   collegeSlug?: string;
   organizationSlug?: string;
   typeSlug?: string;
+  excludeTypeSlug?: string;
 }
 
 function candidateConditions(filters: CandidateFilters): Prisma.Sql[] {
@@ -226,6 +260,11 @@ function candidateConditions(filters: CandidateFilters): Prisma.Sql[] {
       Prisma.sql`d.type_id IN (SELECT id FROM document_types WHERE slug = ${filters.typeSlug})`,
     );
   }
+  if (filters.excludeTypeSlug) {
+    conditions.push(
+      Prisma.sql`d.type_id NOT IN (SELECT id FROM document_types WHERE slug = ${filters.excludeTypeSlug})`,
+    );
+  }
   return conditions;
 }
 
@@ -234,6 +273,15 @@ function candidateConditions(filters: CandidateFilters): Prisma.Sql[] {
  * `visibleDocumentsWhere`, so no caller can forget the visibility filter. Creating a
  * document is authorized by the service before it gets here.
  */
+/** `preview_pages` as stored; anything else (null, a damaged value) is no pages. */
+export function pageSizesOf(value: Prisma.JsonValue | null): PageSize[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (p): p is PageSize =>
+      Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === 'number' && n > 0),
+  );
+}
+
 export function createDocumentRepository(db: Db) {
   function visible(viewer: DocumentViewer, ...extra: Prisma.DocumentWhereInput[]) {
     return { AND: [visibleDocumentsWhere(viewer), ...extra] };
@@ -405,6 +453,36 @@ export function createDocumentRepository(db: Db) {
     },
 
     /**
+     * Creates an organization's Constitution & By-laws (version 1) and links it to the
+     * organization in one transaction. Null when the organization already has one (two
+     * first uploads raced): nothing is created then.
+     */
+    async createConstitution(input: NewDocument): Promise<DocumentRecord | null> {
+      const { firstVersion, ...document } = input;
+      if (!firstVersion) throw new Error('A constitution is always created with its file');
+      return db.$transaction(async (tx) => {
+        const created = await tx.document.create({ data: document, select: { id: true } });
+        const { count } = await tx.organization.updateMany({
+          where: { id: input.organizationId, constitutionDocumentId: null },
+          data: { constitutionDocumentId: created.id },
+        });
+        if (count !== 1) {
+          await tx.document.delete({ where: { id: created.id } });
+          return null;
+        }
+        const version = await tx.documentVersion.create({
+          data: { ...firstVersion, documentId: created.id, version: 1 },
+          select: { id: true },
+        });
+        return tx.document.update({
+          where: { id: created.id },
+          data: { currentVersionId: version.id },
+          select: documentSelect,
+        });
+      });
+    },
+
+    /**
      * Adds the next version, not yet current: a re-upload replaces what readers see only
      * once the worker has found it clean (markClean). Files are never overwritten. Null when
      * the document is missing, not visible to the viewer or archived.
@@ -480,6 +558,35 @@ export function createDocumentRepository(db: Db) {
       });
     },
 
+    /** One version's preview, only if the viewer may see it and its document. */
+    findVersionPreview(
+      viewer: DocumentViewer,
+      documentId: string,
+      versionId: string,
+    ): Promise<{
+      id: string;
+      scanStatus: ScanStatus;
+      previewStatus: PreviewStatus;
+      previewPages: Prisma.JsonValue;
+      pageCount: number | null;
+    } | null> {
+      return db.documentVersion.findFirst({
+        where: {
+          AND: [
+            { id: versionId, documentId, document: visibleDocumentsWhere(viewer) },
+            visibleVersionsWhere(viewer),
+          ],
+        },
+        select: {
+          id: true,
+          scanStatus: true,
+          previewStatus: true,
+          previewPages: true,
+          pageCount: true,
+        },
+      });
+    },
+
     /** Versions still pending since before `before`: their job was lost or never queued. */
     async findStalePending(before: Date, limit = 100): Promise<string[]> {
       const rows = await db.documentVersion.findMany({
@@ -489,6 +596,102 @@ export function createDocumentRepository(db: Db) {
         select: { id: true },
       });
       return rows.map((row) => row.id);
+    },
+
+    /**
+     * Clean versions still waiting for their page images, oldest first: for the backfill
+     * (every one) and the worker's sweep (`before`: those whose job was lost).
+     */
+    async findPendingPreviews(
+      options: { before?: Date; afterId?: string; limit?: number } = {},
+    ): Promise<string[]> {
+      const rows = await db.documentVersion.findMany({
+        where: {
+          scanStatus: 'clean',
+          previewStatus: 'pending',
+          ...(options.before && { createdAt: { lt: options.before } }),
+          ...(options.afterId && { id: { gt: options.afterId } }),
+        },
+        orderBy: { id: 'asc' },
+        take: options.limit ?? 100,
+        select: { id: true },
+      });
+      return rows.map((row) => row.id);
+    },
+
+    /** For the worker: a version to render, without a viewer (system access). */
+    findForPreview(versionId: string): Promise<PreviewRecord | null> {
+      return db.documentVersion.findUnique({ where: { id: versionId }, select: previewSelect });
+    },
+
+    /** The page images and the watermarked thumbnail are stored: the preview is ready. */
+    /**
+     * The preview is rendered. A Student Handbook version also brings its bookmarks, whether
+     * page thumbnails were made, and each page's text (replaced whole, so a retried job
+     * never leaves duplicates).
+     */
+    async markPreviewReady(
+      versionId: string,
+      result: {
+        pages: PageSize[];
+        pageCount: number;
+        thumbnailKey: string;
+        handbook?: { outline: HandbookOutlineItem[] | null; pageTexts: string[] };
+      },
+    ): Promise<void> {
+      await db.$transaction(async (tx) => {
+        if (result.handbook) {
+          await tx.documentPageText.deleteMany({ where: { versionId } });
+          await tx.documentPageText.createMany({
+            data: result.handbook.pageTexts.map((text, i) => ({ versionId, page: i + 1, text })),
+          });
+        }
+        await tx.documentVersion.update({
+          where: { id: versionId },
+          data: {
+            previewStatus: 'ready',
+            previewPages: result.pages,
+            pageCount: result.pageCount,
+            thumbnailKey: result.thumbnailKey,
+            ...(result.handbook && {
+              outline: (result.handbook.outline as unknown as Prisma.InputJsonValue) ?? Prisma.DbNull,
+              pageThumbnails: true,
+            }),
+          },
+        });
+      });
+    },
+
+    /** The file cannot be rendered (damaged, encrypted, or refused by LibreOffice). */
+    async markPreviewFailed(versionId: string): Promise<void> {
+      await db.documentVersion.update({
+        where: { id: versionId },
+        data: { previewStatus: 'failed', previewPages: Prisma.DbNull, pageCount: null },
+      });
+    },
+
+    /**
+     * For a page request already authorized by its signed token (issued after the visibility
+     * check): the version's rendered pages, or null once its document is deleted or the
+     * version is not that document's.
+     */
+    async findRenderedPages(
+      documentId: string,
+      versionId: string,
+      { thumbnails = false }: { thumbnails?: boolean } = {},
+    ): Promise<number | null> {
+      const version = await db.documentVersion.findFirst({
+        where: {
+          id: versionId,
+          documentId,
+          previewStatus: 'ready',
+          // Page thumbnails exist only for versions the worker made them for (the handbook).
+          ...(thumbnails && { pageThumbnails: true }),
+          document: { deletedAt: null, organization: { deletedAt: null } },
+        },
+        select: { previewPages: true },
+      });
+      return version ? pageSizesOf(version.previewPages).length : null;
     },
 
     /** For the worker: the version and its document, without a viewer (system access). */
@@ -507,7 +710,6 @@ export function createDocumentRepository(db: Db) {
         /** The scanned copy (files/…), which no upload URL can overwrite. */
         storageKey: string;
         sha256: string;
-        thumbnailKey: string | null;
         contentText: string | null;
       },
       now: Date,
@@ -519,7 +721,6 @@ export function createDocumentRepository(db: Db) {
             storageKey: result.storageKey,
             scanStatus: 'clean',
             sha256: result.sha256,
-            thumbnailKey: result.thumbnailKey,
             processedAt: now,
             failureReason: null,
           },

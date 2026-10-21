@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { addDays, manilaDate, type Appeal } from '@orghive/shared';
+import { addDays, manilaDate, semesterKeyOf, type Appeal } from '@orghive/shared';
 import { createDocumentRepository } from '#src/repositories/document.repository';
 import { createAccountRepository } from '#src/repositories/account.repository';
 import { createOrganizationRepository } from '#src/repositories/organization.repository';
@@ -146,9 +146,15 @@ describe('POST /organizations/:slug/appeals and the decision', () => {
       newDueDate: today,
     }).expect(400);
 
+    s.queued.recomputes.length = 0;
     const decided = await call('post', `/appeals/${appeal.id}/decision`, 'governor', decision);
     expect(decided.status, JSON.stringify(decided.body)).toBe(200);
     expect(decided.body).toMatchObject({ status: 'approved' });
+    // An approval never makes a task on time, but the project's semester is recomputed.
+    const blocked = await db.project.findUniqueOrThrow({ where: { id: blockedId } });
+    expect(s.queued.recomputes).toContainEqual(
+      semesterKeyOf(blocked.targetDate.toISOString().slice(0, 10)),
+    );
 
     const history = await call('get', `/projects/${blockedId}/appeals`, 'governor').expect(200);
     expect((history.body as { items: Appeal[] }).items).toEqual([

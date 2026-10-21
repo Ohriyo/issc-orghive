@@ -48,11 +48,14 @@ const EMPTY: CreateProjectRequest = {
   description: '',
   nomRequired: false,
   momRequired: false,
+  communicationLetterRequired: false,
+  attendanceSheetRequired: false,
 };
 
 /**
  * /dashboard/projects/new?org=: the five required fields (spec 2A), validated with the
- * shared schema, plus whether the project needs a Notice / Minutes of Meeting. On success
+ * shared schema, plus which optional pre-event documents the project needs (NOM, MOM,
+ * Communication Letter, Attendance Sheet; spec 2B). On success
  * it opens the new project, where the officer uploads the proposal.
  */
 export function useNewProject(): NewProjectModel {

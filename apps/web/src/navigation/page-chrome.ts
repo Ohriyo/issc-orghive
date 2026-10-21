@@ -8,7 +8,7 @@ export interface Crumb {
 }
 
 /** The header section to highlight. */
-export type NavSection = 'home' | 'colleges' | 'issc' | 'dashboard';
+export type NavSection = 'home' | 'colleges' | 'leaderboard' | 'handbook' | 'issc' | 'dashboard';
 
 /**
  * What a page tells the AppShell about itself: where it sits (trail), its logical parent

@@ -1,3 +1,4 @@
+import { Link, useLocation } from 'react-router';
 import { OriginLink } from '@/navigation/origin-link';
 import { Container } from '@/components/container';
 import { SectionError } from '@/components/section-error';
@@ -7,17 +8,25 @@ import { VISIBILITY_LABEL } from '@/components/visibility';
 import { VisibilitySelect } from '@/components/visibility-select';
 import type { DocumentPageState } from '../presenters/use-document';
 import type { DocumentFilesModel } from '../presenters/use-document-files';
+import type { DocumentPagesModel } from '../presenters/use-document-pages';
 import { DocumentFiles } from './document-files';
+import { PageViewer } from './page-viewer';
 
 export type DocumentViewProps = Exclude<DocumentPageState, { status: 'not-found' }> & {
   files: DocumentFilesModel;
+  pages: DocumentPagesModel;
+  /** The viewer shows an earlier version (?version=), not the current one. */
+  earlierVersion?: boolean;
 };
+
+const LINK =
+  'tap-area font-medium text-ink underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf';
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { dateStyle: 'long' });
 
 /**
- * /documents/:id: the document's details and its files (every version, downloadable once
- * clean; officers can upload a new version).
+ * /documents/:id: the document's details, its view-only preview, and its files (the owning
+ * organization downloads the originals and uploads new versions).
  */
 export function DocumentView(props: DocumentViewProps) {
   return (
@@ -69,7 +78,11 @@ export function DocumentView(props: DocumentViewProps) {
                 {props.visibility.canChange ? null : (
                   <div>
                     <dt className="text-small text-ink-muted">Who can see it</dt>
-                    <dd className="text-ink">{VISIBILITY_LABEL[props.page.visibility]}</dd>
+                    <dd className="text-ink">
+                      {props.page.isConstitution
+                        ? 'Everyone, always (view only)'
+                        : VISIBILITY_LABEL[props.page.visibility]}
+                    </dd>
                   </div>
                 )}
               </dl>
@@ -82,7 +95,30 @@ export function DocumentView(props: DocumentViewProps) {
                   onChange={props.visibility.change}
                 />
               ) : null}
+              {props.earlierVersion ? (
+                <p
+                  role="status"
+                  className="mt-8 rounded-2xl bg-caution-surface px-5 py-4 text-body text-caution"
+                >
+                  You are viewing an earlier version.{' '}
+                  <CurrentVersionLink documentId={props.page.id} />
+                </p>
+              ) : null}
+              <PageViewer
+                pages={props.pages}
+                isOwner={props.files.canDownload}
+                title={props.page.title}
+              />
               <DocumentFiles files={props.files} />
+              {props.page.isConstitution && props.files.canDownload ? (
+                <p className="mt-6 max-w-prose text-body text-ink-muted">
+                  To amend it, upload the new text from{' '}
+                  <OriginLink to="/dashboard/profile#constitution" className={LINK}>
+                    your organization profile
+                  </OriginLink>
+                  , with what changed and the date it was amended.
+                </p>
+              ) : null}
             </article>
           </>
         ) : props.status === 'error' ? (
@@ -101,5 +137,15 @@ export function DocumentView(props: DocumentViewProps) {
         )}
       </Container>
     </div>
+  );
+}
+
+/** Back to the current version in place, keeping where the reader came from (for Back). */
+function CurrentVersionLink({ documentId }: { documentId: string }) {
+  const location = useLocation();
+  return (
+    <Link to={`/documents/${documentId}`} replace state={location.state as unknown} className={LINK}>
+      View the current version
+    </Link>
   );
 }

@@ -10,12 +10,16 @@ import { SectionError } from '@/components/section-error';
 import { Seo } from '@/components/seo';
 import { Skeleton } from '@/components/skeleton';
 import { WaveDivider } from '@/components/wave-divider';
+import type { ConstitutionModel } from '../presenters/use-constitution';
 import type {
   OrganizationPageModel,
   OrganizationPageState,
 } from '../presenters/use-organization-page';
+import { OrganizationRecord } from './organization-record';
 
-export type OrganizationViewProps = Exclude<OrganizationPageState, { status: 'not-found' }>;
+export type OrganizationViewProps = Exclude<OrganizationPageState, { status: 'not-found' }> & {
+  constitution: ConstitutionModel;
+};
 
 const HEX = 'mx-auto w-full max-w-[14rem] sm:max-w-[20rem] lg:max-w-[35rem]';
 /** Below lg the logo leads and the text is centred under it. */
@@ -26,16 +30,29 @@ const ACRONYM = 'text-display font-bold text-ink';
  * /orgs/:slug, from design/sbo-jpice.png (and jiiee, uapsa): the organization's logo in a
  * large framed hexagon, then its acronym, full name, description and Paperworks pill.
  * Side by side from lg; below it the logo sits on top and the text is centred. The
- * prototype's wave bands frame the page top and bottom; they settle in once on arrival.
+ * prototype's wave bands frame the hero top and bottom; they settle in once on arrival.
+ * Below the hero, the organization's own profile (organization-record.tsx).
  */
 export function OrganizationView(props: OrganizationViewProps) {
   return (
-    <div className="bg-surface-sweep relative isolate flex min-h-page flex-col overflow-hidden">
+    <div className="bg-surface-sweep">
       {props.status === 'ready' ? (
         <Seo seo={props.page.seo} />
       ) : (
         <title>Organization | Orghive</title>
       )}
+      <OrganizationHero {...props} />
+      {props.status === 'ready' ? (
+        <OrganizationRecord page={props.page} constitution={props.constitution} />
+      ) : null}
+    </div>
+  );
+}
+
+/** The prototype's hero. `preview` (the profile editor) skips the arrival motion and LCP hints. */
+export function OrganizationHero(props: OrganizationViewProps & { preview?: boolean }) {
+  return (
+    <div className="relative isolate flex min-h-page flex-col overflow-hidden">
       <WaveDivider className="pointer-events-none absolute inset-x-0 top-0 -z-10 -translate-y-[38%]" />
       <WaveDivider className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 translate-y-[48%] rotate-180" />
 
@@ -44,7 +61,7 @@ export function OrganizationView(props: OrganizationViewProps) {
         className="grid flex-1 content-center items-center gap-10 pt-[calc(14vw+2rem)] pb-[calc(11vw+3rem)] lg:grid-cols-2 lg:gap-16"
       >
         {props.status === 'ready' ? (
-          <OrganizationProfile page={props.page} />
+          <OrganizationProfile page={props.page} preview={props.preview} />
         ) : props.status === 'error' ? (
           <div className="lg:col-start-2">
             <h1 className={ACRONYM}>Organization</h1>
@@ -62,10 +79,11 @@ export function OrganizationView(props: OrganizationViewProps) {
   );
 }
 
-function OrganizationProfile({ page }: { page: OrganizationPageModel }) {
+function OrganizationProfile({ page, preview }: { page: OrganizationPageModel; preview?: boolean }) {
+  const Block = preview ? 'div' : Reveal;
   return (
     <>
-      <Reveal className={TEXT_COLUMN}>
+      <Block className={TEXT_COLUMN}>
         <h1 className={ACRONYM}>
           <span className="block">{page.acronym}</span>{' '}
           <span className="mt-3 block max-w-[30rem] text-lead font-normal tracking-normal text-pretty max-lg:mx-auto">
@@ -91,8 +109,8 @@ function OrganizationProfile({ page }: { page: OrganizationPageModel }) {
             </OriginLink>
           </p>
         ) : null}
-      </Reveal>
-      <Reveal>
+      </Block>
+      <Block>
         <HexFrame className={HEX}>
           <OrgLogo
             name={page.name}
@@ -101,11 +119,11 @@ function OrganizationProfile({ page }: { page: OrganizationPageModel }) {
             sizes={LOGO_SIZES.feature}
             alt=""
             fallbackText={page.acronym}
-            priority
+            priority={!preview}
             className="size-full"
           />
         </HexFrame>
-      </Reveal>
+      </Block>
     </>
   );
 }

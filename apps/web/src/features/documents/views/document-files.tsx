@@ -24,7 +24,10 @@ const SCAN_LABEL: Record<DocumentVersion['scanStatus'], string> = {
   invalid: 'Blocked: not the file type it claimed',
 };
 
-/** Every version of the document, newest first; clean ones can be downloaded. */
+/**
+ * Every version of the document, newest first. The owning organization downloads clean ones;
+ * nobody else is offered the original (they view the watermarked pages above).
+ */
 export function DocumentFiles({ files }: { files: DocumentFilesModel }) {
   const [downloadError, setDownloadError] = useState<string>();
 
@@ -84,7 +87,7 @@ export function DocumentFiles({ files }: { files: DocumentFilesModel }) {
                   {SCAN_LABEL[version.scanStatus]}
                 </p>
               </div>
-              {version.scanStatus === 'clean' ? (
+              {files.canDownload && version.scanStatus === 'clean' ? (
                 <button
                   type="button"
                   onClick={() => void files.download(version.id).then(setDownloadError)}

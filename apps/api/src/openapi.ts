@@ -3,6 +3,16 @@ import {
   apiErrorBodySchema,
   collegeDetailSchema,
   collegeListResponseSchema,
+  constitutionResponseSchema,
+  handbookEditionListSchema,
+  handbookResponseSchema,
+  handbookSearchQuerySchema,
+  handbookSearchResponseSchema,
+  handbookYearParamsSchema,
+  leaderboardEventSchema,
+  leaderboardQuerySchema,
+  leaderboardResponseSchema,
+  leaderboardStreamQuerySchema,
   organizationDetailSchema,
   searchQuerySchema,
   searchResponseSchema,
@@ -80,6 +90,83 @@ export function createOpenApiDocument(): ReturnType<typeof createDocument> {
           },
         },
       },
+      '/organizations/{slug}/constitution': {
+        get: {
+          summary: 'An organization’s Constitution & By-laws and its amendment history',
+          description:
+            'Always public and view-only: open a version in the watermarked viewer (GET /documents/{id}/viewer?versionId=). Null until one has passed the virus scan.',
+          tags: ['Public'],
+          requestParams: { path: slugParamsSchema },
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(constitutionResponseSchema),
+            },
+            '304': { description: 'Not modified (ETag matched)' },
+            ...errors,
+          },
+        },
+      },
+      '/handbook': {
+        get: {
+          summary: 'The current Student Handbook edition (null before one is published)',
+          description:
+            'Always public and view-only: read its pages in the watermarked viewer (GET /documents/{documentId}/viewer).',
+          tags: ['Public'],
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(handbookResponseSchema),
+            },
+          },
+        },
+      },
+      '/handbook/editions': {
+        get: {
+          summary: 'Every published Student Handbook edition, newest year first',
+          tags: ['Public'],
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(handbookEditionListSchema),
+            },
+          },
+        },
+      },
+      '/handbook/{year}': {
+        get: {
+          summary: 'One academic year’s Student Handbook edition',
+          tags: ['Public'],
+          requestParams: { path: handbookYearParamsSchema },
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(handbookResponseSchema),
+            },
+            '404': { description: 'No edition for that year', content: json(apiErrorBodySchema) },
+          },
+        },
+      },
+      '/handbook/{year}/search': {
+        get: {
+          summary: 'Pages of an edition matching the words (by prefix), best first',
+          description: 'GET /handbook/search searches the current edition the same way.',
+          tags: ['Public'],
+          requestParams: { path: handbookYearParamsSchema, query: handbookSearchQuerySchema },
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(handbookSearchResponseSchema),
+            },
+            '404': { description: 'No edition for that year', content: json(apiErrorBodySchema) },
+          },
+        },
+      },
       '/search': {
         get: {
           summary: 'Full-text search of every Paperworks document the caller may see',
@@ -95,6 +182,47 @@ export function createOpenApiDocument(): ReturnType<typeof createDocument> {
             },
             '304': { description: 'Not modified (ETag matched)' },
             '400': { description: 'Invalid query', content: json(apiErrorBodySchema) },
+          },
+        },
+      },
+      '/leaderboard': {
+        get: {
+          summary: 'One leaderboard (SBO or CSC) of a semester',
+          description:
+            'Ranked by points, then net profit, then the earliest last completion (spec 5E). Without academicYear and semester, the current semester in Manila. Public fields only (spec 5F).',
+          tags: ['Public'],
+          requestParams: { query: leaderboardQuerySchema },
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: {
+                ...publicCacheHeaders,
+                'Cache-Control': {
+                  description: 'public, max-age=15',
+                  schema: { type: 'string' as const },
+                },
+              },
+              content: json(leaderboardResponseSchema),
+            },
+            '304': { description: 'Not modified (ETag matched)' },
+            '400': { description: 'Invalid query', content: json(apiErrorBodySchema) },
+          },
+        },
+      },
+      '/leaderboard/stream': {
+        get: {
+          summary: 'Both leaderboards of a semester, live (Server-Sent Events)',
+          description:
+            'Sends a `standings` event with both boards on connect and whenever they change, and a comment every 25 s. Refused with 429 past the connection limits; poll GET /leaderboard instead.',
+          tags: ['Public'],
+          requestParams: { query: leaderboardStreamQuerySchema },
+          responses: {
+            '200': {
+              description: 'An event stream; each `standings` event carries this JSON',
+              content: { 'text/event-stream': { schema: leaderboardEventSchema } },
+            },
+            '400': { description: 'Invalid query', content: json(apiErrorBodySchema) },
+            '429': { description: 'Too many open streams', content: json(apiErrorBodySchema) },
           },
         },
       },

@@ -36,7 +36,7 @@ interface SetupOptions {
   body?: Buffer;
   scan?: ScanResult;
   detected?: string;
-  thumbnailFails?: boolean;
+  textFails?: boolean;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -45,7 +45,7 @@ function setup(options: SetupOptions = {}) {
     body = BODY,
     scan = { clean: true },
     detected = 'application/pdf',
-    thumbnailFails = false,
+    textFails = false,
   } = options;
   const documents = {
     findForProcessing: vi.fn(() => Promise.resolve(record)),
@@ -58,7 +58,6 @@ function setup(options: SetupOptions = {}) {
   };
   const storage = {
     read: vi.fn(() => Promise.resolve(body)),
-    put: vi.fn(() => Promise.resolve()),
     copy: vi.fn(() => Promise.resolve()),
     move: vi.fn(() => Promise.resolve()),
     delete: vi.fn(() => Promise.resolve()),
@@ -67,14 +66,11 @@ function setup(options: SetupOptions = {}) {
   const tools = {
     detectMimeType: vi.fn(() => Promise.resolve(detected)),
     sha256Hex: vi.fn(() => 'f'.repeat(64)),
-    pdfThumbnail: vi.fn(() =>
-      thumbnailFails
-        ? Promise.reject(new Error('broken PDF'))
-        : Promise.resolve(Buffer.from('webp')),
+    pdfText: vi.fn(() =>
+      textFails ? Promise.reject(new Error('broken PDF')) : Promise.resolve('truss lattice'),
     ),
-    pdfText: vi.fn(() => Promise.resolve('truss lattice')),
-    imageThumbnail: vi.fn(() => Promise.resolve(Buffer.from('webp'))),
   };
+  const previews = { enqueuePreview: vi.fn(() => Promise.resolve()) };
   const audit = { record: vi.fn(() => Promise.resolve()) };
   const cache = {
     deleteMatching: vi.fn(() => Promise.resolve()),
@@ -89,6 +85,7 @@ function setup(options: SetupOptions = {}) {
     storage,
     scanner,
     tools,
+    previews,
     audit,
     cache,
     logger,
@@ -103,6 +100,7 @@ function setup(options: SetupOptions = {}) {
     storage,
     scanner,
     tools,
+    previews,
     audit,
     cache,
     onDocumentScanned,
@@ -235,25 +233,17 @@ describe('processingService: telling the uploader', () => {
 });
 
 describe('processingService.processVersion', () => {
-  it('scans, checks the type, previews, extracts text and marks a clean PDF', async () => {
-    const { service, documents, storage, scanner, cache } = setup();
+  it('scans, checks the type, extracts text, marks a clean PDF and queues its preview', async () => {
+    const { service, documents, scanner, cache, previews } = setup();
     expect(await service.processVersion('v1')).toBe('clean');
     expect(scanner.scan).toHaveBeenCalledWith(BODY);
-    expect(storage.put).toHaveBeenCalledWith(
-      'thumbnails/d1/v1.webp',
-      Buffer.from('webp'),
-      'image/webp',
-    );
     expect(documents.markClean).toHaveBeenCalledWith(
       'v1',
-      {
-        storageKey: 'files/org-1/k1',
-        sha256: 'f'.repeat(64),
-        thumbnailKey: 'thumbnails/d1/v1.webp',
-        contentText: 'truss lattice',
-      },
+      { storageKey: 'files/org-1/k1', sha256: 'f'.repeat(64), contentText: 'truss lattice' },
       NOW,
     );
+    // The watermarked pages and thumbnail are their own job, after the file is clean.
+    expect(previews.enqueuePreview).toHaveBeenCalledWith('v1');
     expect(cache.deleteMatching).toHaveBeenCalledWith('org:jpice:docs:*');
     expect(cache.bump).toHaveBeenCalledWith('search:gen');
   });
@@ -284,7 +274,6 @@ describe('processingService.processVersion', () => {
       intents: { listAbandoned: () => Promise.resolve([]), deleteMany: () => Promise.resolve() },
       storage: {
         read: (key) => Promise.resolve(bucket.get(key)!),
-        put: () => Promise.resolve(),
         copy: (from, to) => Promise.resolve(void bucket.set(to, bucket.get(from)!)),
         move: () => Promise.resolve(),
         delete: (key) => Promise.resolve(void bucket.delete(key)),
@@ -293,10 +282,9 @@ describe('processingService.processVersion', () => {
       tools: {
         detectMimeType: () => Promise.resolve('application/pdf'),
         sha256Hex: () => 'f'.repeat(64),
-        pdfThumbnail: () => Promise.resolve(Buffer.from('webp')),
         pdfText: () => Promise.resolve(''),
-        imageThumbnail: () => Promise.resolve(Buffer.from('webp')),
       },
+      previews: { enqueuePreview: () => Promise.resolve() },
       audit: { record: () => Promise.resolve() },
       cache: { deleteMatching: () => Promise.resolve(), bump: () => Promise.resolve() },
       logger: { warn: vi.fn(), info: vi.fn() },
@@ -362,24 +350,29 @@ describe('processingService.processVersion', () => {
     expect(scanner.scan).not.toHaveBeenCalled();
   });
 
-  it('still marks a clean file whose preview fails', async () => {
-    const { service, documents, storage } = setup({ thumbnailFails: true });
+  it('still marks a clean file whose text cannot be extracted', async () => {
+    const { service, documents, previews } = setup({ textFails: true });
     expect(await service.processVersion('v1')).toBe('clean');
-    expect(storage.put).not.toHaveBeenCalled();
     expect(documents.markClean).toHaveBeenCalledWith(
       'v1',
-      expect.objectContaining({ thumbnailKey: null, contentText: 'truss lattice' }),
+      expect.objectContaining({ contentText: null }),
       NOW,
     );
+    expect(previews.enqueuePreview).toHaveBeenCalledWith('v1');
   });
 
-  it('previews images without extracting text', async () => {
+  it('does not queue a preview for a refused file', async () => {
+    const { service, previews } = setup({ scan: { clean: false, signature: 'Eicar' } });
+    await service.processVersion('v1');
+    expect(previews.enqueuePreview).not.toHaveBeenCalled();
+  });
+
+  it('extracts no text from images', async () => {
     const { service, documents, tools } = setup({
       record: rec({ mimeType: 'image/png' }),
       detected: 'image/png',
     });
     expect(await service.processVersion('v1')).toBe('clean');
-    expect(tools.imageThumbnail).toHaveBeenCalled();
     expect(tools.pdfText).not.toHaveBeenCalled();
     expect(documents.markClean).toHaveBeenCalledWith(
       'v1',

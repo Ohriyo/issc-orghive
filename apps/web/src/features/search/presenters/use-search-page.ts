@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import {
+  HANDBOOK_DOCUMENT_TYPE,
   collegeDetailSchema,
   collegeListResponseSchema,
   documentTypeListResponseSchema,
@@ -18,6 +19,7 @@ import {
   yearOptions,
   type PaperworksCard,
 } from '@/features/paperworks/presenters/use-paperworks';
+import { yearLabel } from '@/features/handbook/presenters/use-handbook';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -59,6 +61,11 @@ export interface SearchPageResults {
   isLoadingMore: boolean;
   loadMore: () => void;
   retry: () => void;
+  /** Matching pages of the current Student Handbook, above the documents; null when none. */
+  handbook: {
+    yearLabel: string;
+    matches: { page: number; snippet: SearchSnippet; href: string }[];
+  } | null;
 }
 
 export interface SearchPageState {
@@ -186,13 +193,23 @@ export function useSearchPage(): SearchPageState {
   }
 
   const items = search.data?.pages.flatMap((page) => page.items.map(toSearchHitCard)) ?? [];
+  const handbookHits = search.data?.pages[0]?.handbook ?? null;
+  const handbook = handbookHits
+    ? {
+        yearLabel: yearLabel(handbookHits.academicYear),
+        matches: handbookHits.matches.map((m) => ({
+          ...m,
+          href: `/handbook?page=${m.page}&q=${encodeURIComponent(values.q)}`,
+        })),
+      }
+    : null;
   const status: SearchPageResults['status'] = !enabled
     ? 'idle'
     : search.isError
       ? 'error'
       : !search.data
         ? 'loading'
-        : items.length === 0
+        : items.length === 0 && !handbook
           ? 'empty'
           : 'ready';
 
@@ -211,7 +228,10 @@ export function useSearchPage(): SearchPageState {
       options: {
         colleges: (colleges.data?.colleges ?? []).map((c) => ({ value: c.slug, label: c.code })),
         orgs,
-        types: (types.data?.types ?? []).map((t) => ({ value: t.slug, label: t.name })),
+        // The handbook has its own block above the results; it is never a filter.
+        types: (types.data?.types ?? [])
+          .filter((t) => t.slug !== HANDBOOK_DOCUMENT_TYPE.slug)
+          .map((t) => ({ value: t.slug, label: t.name })),
         years: yearOptions(new Date()),
       },
     },
@@ -223,6 +243,7 @@ export function useSearchPage(): SearchPageState {
       isLoadingMore: search.isFetchingNextPage,
       loadMore: () => void search.fetchNextPage(),
       retry: () => void search.refetch(),
+      handbook,
     },
   };
 }

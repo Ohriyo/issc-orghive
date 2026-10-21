@@ -86,6 +86,12 @@ const envSchema = z
     CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
 
     /**
+     * Gotenberg (headless LibreOffice), which the worker sends DOCX, XLSX and PPTX files to
+     * for their view-only page images (docker-compose `gotenberg`).
+     */
+    GOTENBERG_URL: z.url().default('http://localhost:3100'),
+
+    /**
      * Chromium for the Semestral End Report's pages (worker only). Unset: the browser
      * `pnpm exec playwright install chromium` downloaded. Set it in images that ship their own.
      */

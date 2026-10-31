@@ -72,6 +72,11 @@ export interface PreviewQueue {
   enqueuePreview(versionId: string): Promise<void>;
 }
 
+/** The ISSC account's "Retry rendering": a failed version's pages, queued again. */
+export interface PreviewRetryQueue {
+  retryPreview(versionId: string): Promise<void>;
+}
+
 /** Appeal attachments are scanned by the same worker as documents. */
 export interface AttachmentQueue {
   enqueueAttachmentScan(attachmentId: string): Promise<void>;
@@ -115,17 +120,22 @@ export function createBullQueue(connection: Redis): JobQueue & AttachmentQueue &
   };
 }
 
-export function createBullPreviewQueue(connection: Redis): PreviewQueue & { queue: Queue } {
+export function createBullPreviewQueue(
+  connection: Redis,
+): PreviewQueue & PreviewRetryQueue & { queue: Queue } {
   const queue = new Queue(PREVIEW_QUEUE, { connection });
+  const jobId = (versionId: string) => `preview-${versionId}`;
+  async function enqueuePreview(versionId: string) {
+    // One job per version: the backfill and the sweep may ask again while it waits.
+    await queue.add('render-preview', { versionId }, { jobId: jobId(versionId), ...RETRIES });
+  }
   return {
     queue,
-    async enqueuePreview(versionId) {
-      // One job per version: the backfill and the sweep may ask again while it waits.
-      await queue.add(
-        'render-preview',
-        { versionId },
-        { jobId: `preview-${versionId}`, ...RETRIES },
-      );
+    enqueuePreview,
+    async retryPreview(versionId) {
+      // The finished job keeps its id for a while, and adding that id again does nothing.
+      await queue.remove(jobId(versionId));
+      await enqueuePreview(versionId);
     },
   };
 }

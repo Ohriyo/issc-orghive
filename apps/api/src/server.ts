@@ -12,6 +12,7 @@ import { createLeaderboardStream } from '#src/lib/leaderboard-stream';
 import {
   createBullLeaderboardQueue,
   createBullNotificationQueue,
+  createBullPreviewQueue,
   createBullQueue,
   createBullReportQueue,
   createQueueConnection,
@@ -222,6 +223,8 @@ const documentPreviews = createDocumentPreviewService({
   }),
   storage,
 });
+// The worker renders page images; the API only queues the ISSC account's "Retry rendering".
+const previewQueue = createBullPreviewQueue(queueConnection);
 const handbook = createHandbookService({
   handbooks: createHandbookRepository(db),
   documents,
@@ -230,6 +233,7 @@ const handbook = createHandbookService({
   viewers,
   uploads,
   queue: jobs,
+  previews: previewQueue,
   storage,
   audit,
   cache,
@@ -519,6 +523,7 @@ function shutdown(signal: string) {
       db.$disconnect(),
       redis.quit(),
       jobs.queue.close(),
+      previewQueue.queue.close(),
       notificationQueue.queue.close(),
       reportQueue.queue.close(),
       leaderboardQueue.queue.close(),

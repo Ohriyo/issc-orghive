@@ -65,6 +65,14 @@ const queue = {
   },
 };
 
+const retried: string[] = [];
+const previews = {
+  retryPreview: (versionId: string) => {
+    retried.push(versionId);
+    return Promise.resolve();
+  },
+};
+
 type Person = 'issc' | 'jpice' | 'governor';
 let world: World;
 let app: ReturnType<typeof buildTestApp>;
@@ -98,6 +106,7 @@ beforeAll(async () => {
     viewers,
     uploads,
     queue,
+    previews,
     storage,
     audit,
     cache,
@@ -192,6 +201,7 @@ describe('the Student Handbook routes: who may call them', () => {
       (await call('put', '/admin/handbook/2026-2027/current', undefined, { actingAs: 'Ana' }))
         .status,
     ).toBe(401);
+    expect((await call('post', '/admin/handbook/2026-2027/preview/retry')).status).toBe(401);
   });
 
   it('403s every account but the ISSC', async () => {
@@ -209,6 +219,7 @@ describe('the Student Handbook routes: who may call them', () => {
       expect(
         (await call('put', '/admin/handbook/2026-2027/current', who, { actingAs: 'Ana' })).status,
       ).toBe(403);
+      expect((await call('post', '/admin/handbook/2026-2027/preview/retry', who)).status).toBe(403);
     }
   });
 
@@ -359,5 +370,60 @@ describe('the Student Handbook, end to end', () => {
     );
     expect(thumb.status).toBe(200);
     expect((thumb.body as Buffer).toString()).toContain('/thumbs/1.webp');
+  });
+
+  it('lets a visitor load the watermarked page images', async () => {
+    const edition = ((await call('get', '/handbook')).body as HandbookResponse).edition!;
+    const viewer = await call('get', `/documents/${edition.documentId}/viewer`);
+    expect(viewer.status).toBe(200);
+    const token = (viewer.body as { token: string }).token;
+    const page = await call(
+      'get',
+      `/documents/${edition.documentId}/pages/1?token=${encodeURIComponent(token)}`,
+    );
+    expect(page.status).toBe(200);
+    expect(page.headers['content-type']).toBe('image/webp');
+  });
+
+  it('shows the latest readable edition when the marked one cannot be read', async () => {
+    const marked = await db.handbookEdition.findUniqueOrThrow({ where: { academicYear: '2027-2028' } });
+    await db.document.update({ where: { id: marked.documentId }, data: { status: 'quarantined' } });
+    await invalidateDocuments(cache, 'issc');
+    try {
+      const current = (await call('get', '/handbook')).body as HandbookResponse;
+      expect(current.edition).toMatchObject({ academicYear: '2026-2027', isCurrent: true });
+      const editions = (await call('get', '/handbook/editions')).body as HandbookEditionList;
+      expect(editions.editions.map((e) => [e.academicYear, e.isCurrent])).toEqual([
+        ['2026-2027', true],
+      ]);
+      // The ISSC account still sees which one it marked.
+      const admin = (await call('get', '/admin/handbook', 'issc')).body as AdminHandbookResponse;
+      expect(admin.editions.find((e) => e.isCurrent)?.academicYear).toBe('2027-2028');
+    } finally {
+      await db.document.update({ where: { id: marked.documentId }, data: { status: 'available' } });
+      await invalidateDocuments(cache, 'issc');
+    }
+  });
+
+  it('renders failed pages again for the ISSC account, once', async () => {
+    const edition = ((await call('get', '/handbook/2027-2028')).body as HandbookResponse).edition!;
+    expect((await call('post', '/admin/handbook/2027-2028/preview/retry', 'issc')).status).toBe(409);
+
+    await documents.markPreviewFailed(edition.versionId);
+    await invalidateDocuments(cache, 'issc');
+    expect(((await call('get', '/handbook/2027-2028')).body as HandbookResponse).edition).toMatchObject({
+      previewStatus: 'failed',
+    });
+
+    const retry = await call('post', '/admin/handbook/2027-2028/preview/retry', 'issc');
+    expect(retry.status).toBe(200);
+    expect(retried).toEqual([edition.versionId]);
+    expect(versionsOf(retry.body, '2027-2028')[0]).toMatchObject({ previewStatus: 'pending' });
+    // Readers see it preparing again, not the old failure.
+    expect(((await call('get', '/handbook/2027-2028')).body as HandbookResponse).edition).toMatchObject({
+      previewStatus: 'pending',
+    });
+    expect((await call('post', '/admin/handbook/2027-2028/preview/retry', 'issc')).status).toBe(409);
+    expect((await call('post', '/admin/handbook/2031-2032/preview/retry', 'issc')).status).toBe(404);
   });
 });

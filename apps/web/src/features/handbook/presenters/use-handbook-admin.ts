@@ -186,7 +186,7 @@ export function useHandbookAdmin(): HandbookAdminModel {
       isCurrent: e.isCurrent,
       readable: e.readable,
       versions: e.versions.map((v) => ({ ...v, state: versionState(v) })),
-      readHref: e.isCurrent ? '/handbook' : `/handbook/${e.academicYear}`,
+      readHref: `/handbook/${e.academicYear}`,
     })),
     years: [1, 0, -1, -2].map((by) => {
       const value = shiftYear(thisYear, by);

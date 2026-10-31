@@ -40,6 +40,10 @@ export interface PageViewerProps {
   jumpTo?: { page: number; nonce: number } | null;
   /** Told the page the reader is on, as they scroll. */
   onPageChange?: (page: number) => void;
+  /** What the notice says while the worker renders the pages. */
+  preparingTitle?: string;
+  /** Shown under "No preview for this file" (the handbook's "Retry rendering"). */
+  unavailableAction?: React.ReactNode;
   className?: string;
 }
 
@@ -54,6 +58,8 @@ export function PageViewer({
   heading = 'Preview',
   jumpTo = null,
   onPageChange,
+  preparingTitle = 'Preparing preview…',
+  unavailableAction = null,
   className = 'mt-10',
 }: PageViewerProps) {
   return (
@@ -81,7 +87,7 @@ export function PageViewer({
               aria-hidden="true"
               className="size-6 animate-spin text-forest-500 motion-reduce:animate-none"
             />
-            <p className="font-semibold text-ink">Preparing preview…</p>
+            <p className="font-semibold text-ink">{preparingTitle}</p>
             <p className="max-w-prose text-small text-ink-muted">
               The pages are being made ready to view. This page updates by itself; a long file can
               take a minute.
@@ -95,6 +101,7 @@ export function PageViewer({
                 ? 'It could not be turned into pages (it may be damaged or password-protected). Download the original below, or upload a new version.'
                 : 'It could not be turned into pages to view here.'}
             </p>
+            {unavailableAction}
           </Notice>
         ) : (
           <div aria-busy="true">

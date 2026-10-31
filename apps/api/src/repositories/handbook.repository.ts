@@ -8,6 +8,7 @@ import type { Db } from './prisma';
 const editionSelect = {
   academicYear: true,
   isCurrent: true,
+  createdAt: true,
   document: {
     select: {
       id: true,
@@ -79,21 +80,10 @@ export function prefixQuery(text: string): string | null {
 /** The Student Handbook's editions. Public reads only ever see readable ones. */
 export function createHandbookRepository(db: Db) {
   return {
-    findCurrent(): Promise<EditionRecord | null> {
-      return db.handbookEdition.findFirst({
-        where: { isCurrent: true, ...readable },
-        select: editionSelect,
-      });
-    },
-
-    findByYear(academicYear: string): Promise<EditionRecord | null> {
-      return db.handbookEdition.findFirst({
-        where: { academicYear, ...readable },
-        select: editionSelect,
-      });
-    },
-
-    /** Every readable edition, newest year first (years sort as text: "2026-2027"). */
+    /**
+     * Every readable edition, newest year first (years sort as text: "2026-2027"). The public
+     * reads (current, by year, the list, search) all come from this one list.
+     */
     listReadable(): Promise<EditionRecord[]> {
       return db.handbookEdition.findMany({
         where: readable,

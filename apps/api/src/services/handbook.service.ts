@@ -17,7 +17,7 @@ import {
 } from '@orghive/shared';
 import { AppError } from '#src/errors/app-error';
 import { type Cache, invalidateDocuments, PUBLIC_READ_TTL_SECONDS } from '#src/lib/cache';
-import type { JobQueue } from '#src/lib/queue';
+import type { JobQueue, PreviewRetryQueue } from '#src/lib/queue';
 import type { Storage } from '#src/lib/storage';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import type { DocumentRepository } from '#src/repositories/document.repository';
@@ -27,17 +27,24 @@ import type { OrganizationRepository } from '#src/repositories/organization.repo
 import type { DocumentViewerService } from '#src/services/document-viewer.service';
 import type { Actor } from '#src/services/document.service';
 import { THUMBNAIL_URL_TTL_SECONDS } from '#src/services/document.service';
-import { handbookFileRefusal, makeCurrentRefusal, uploadPlan } from '#src/services/handbook-rules';
+import {
+  handbookFileRefusal,
+  makeCurrentRefusal,
+  readersCurrentYear,
+  retryPreviewRefusal,
+  uploadPlan,
+} from '#src/services/handbook-rules';
 import type { UploadService } from '#src/services/upload.service';
 
 export interface HandbookServiceDeps {
   handbooks: HandbookRepository;
-  documents: Pick<DocumentRepository, 'addVersion'>;
+  documents: Pick<DocumentRepository, 'addVersion' | 'resetFailedPreview'>;
   documentTypes: Pick<DocumentTypeRepository, 'findBySlug'>;
   organizations: Pick<OrganizationRepository, 'listByType'>;
   viewers: Pick<DocumentViewerService, 'forUser'>;
   uploads: Pick<UploadService, 'claim'>;
   queue: JobQueue;
+  previews: PreviewRetryQueue;
   storage: Pick<Storage, 'presignGet' | 'delete'>;
   audit: Pick<AuditLogRepository, 'record'>;
   cache: Cache;
@@ -53,20 +60,19 @@ const invalid = (message: string) => new AppError(400, ErrorCode.VALIDATION_ERRO
  * worker (scan, previews) already clear: a new version shows up without extra plumbing.
  */
 const keys = (isscSlug: string) => ({
-  current: `org:${isscSlug}:docs:handbook:current`,
   editions: `org:${isscSlug}:docs:handbook:editions`,
-  year: (year: string) => `org:${isscSlug}:docs:handbook:year:${year}`,
   search: (year: string, q: string) =>
     `org:${isscSlug}:docs:handbook:search:${year}:${createHash('sha256').update(q).digest('hex').slice(0, 24)}`,
 });
 
-function toStored(rec: EditionRecord): StoredEdition | null {
+/** `isCurrent`: it is the edition readers see as current (readersCurrentYear). */
+function toStored(rec: EditionRecord, isCurrent: boolean): StoredEdition | null {
   const v = rec.document.currentVersion;
   if (!v) return null;
   const outline = Array.isArray(v.outline) ? (v.outline as unknown as HandbookOutlineItem[]) : null;
   return {
     academicYear: rec.academicYear,
-    isCurrent: rec.isCurrent,
+    isCurrent,
     pageCount: v.previewStatus === 'ready' ? v.pageCount : null,
     documentId: rec.document.id,
     versionId: v.id,
@@ -93,6 +99,7 @@ export function createHandbookService({
   viewers,
   uploads,
   queue,
+  previews,
   storage,
   audit,
   cache,
@@ -118,10 +125,27 @@ export function createHandbookService({
     return { edition: { ...edition, coverUrl: await sign(coverKey) } };
   }
 
+  /**
+   * Every edition readers can open, newest year first, with the one they see as current
+   * marked. One cached list answers /handbook, /handbook/:year, the editions and search, so
+   * they never disagree about which edition is current.
+   */
+  async function readable(): Promise<StoredEdition[]> {
+    const k = keys((await issc()).slug);
+    const stored = await cache.getOrSet(k.editions, PUBLIC_READ_TTL_SECONDS, async () => {
+      const recs = (await handbooks.listReadable()).filter((rec) => rec.document.currentVersion);
+      const currentYear = readersCurrentYear(recs);
+      return recs
+        .map((rec) => toStored(rec, rec.academicYear === currentYear))
+        .filter((e) => e !== null);
+    });
+    return stored ?? [];
+  }
+
   /** A readable edition by year, or the current one (null); 404 when there is none. */
   async function readableVersion(year: string | null): Promise<StoredEdition> {
-    const rec = year === null ? await handbooks.findCurrent() : await handbooks.findByYear(year);
-    const stored = rec ? toStored(rec) : null;
+    const editions = await readable();
+    const stored = editions.find((e) => (year === null ? e.isCurrent : e.academicYear === year));
     if (!stored) throw AppError.notFound('There is no Student Handbook for that year');
     return stored;
   }
@@ -136,36 +160,24 @@ export function createHandbookService({
   }
 
   return {
-    /** The current edition, or null before one is readable. Cached; the cover signed per call. */
+    /**
+     * The edition readers see as current (the marked one, else the latest readable), or null
+     * before any edition is readable. Cached; the cover signed per call.
+     */
     async current(): Promise<HandbookResponse> {
-      const k = keys((await issc()).slug);
-      const stored = await cache.getOrSet(k.current, PUBLIC_READ_TTL_SECONDS, async () => {
-        const rec = await handbooks.findCurrent();
-        return { stored: rec ? toStored(rec) : null };
-      });
-      return present(stored?.stored ?? null);
+      return present((await readable()).find((e) => e.isCurrent) ?? null);
     },
 
     /** One academic year's edition. 404 when it has none readers can open. */
     async byYear(year: string): Promise<HandbookResponse> {
-      const k = keys((await issc()).slug);
-      const stored = await cache.getOrSet(k.year(year), PUBLIC_READ_TTL_SECONDS, async () => {
-        const rec = await handbooks.findByYear(year);
-        return rec ? toStored(rec) : null;
-      });
-      if (!stored) throw AppError.notFound('There is no Student Handbook for that year');
-      return present(stored);
+      return present(await readableVersion(year));
     },
 
     /** Every edition readers can open, newest year first. */
     async editions(): Promise<HandbookEditionList> {
-      const k = keys((await issc()).slug);
-      const stored = await cache.getOrSet(k.editions, PUBLIC_READ_TTL_SECONDS, async () =>
-        (await handbooks.listReadable()).map(toStored).filter((e) => e !== null),
-      );
       return {
         editions: await Promise.all(
-          (stored ?? []).map(async (e) => ({
+          (await readable()).map(async (e) => ({
             academicYear: e.academicYear,
             isCurrent: e.isCurrent,
             pageCount: e.pageCount,
@@ -195,8 +207,7 @@ export function createHandbookService({
       q: string,
       limit: number,
     ): Promise<{ academicYear: string; matches: HandbookPageMatch[] } | null> {
-      const rec = await handbooks.findCurrent();
-      const stored = rec ? toStored(rec) : null;
+      const stored = (await readable()).find((e) => e.isCurrent);
       if (!stored) return null;
       const matches = await matchesIn(stored, q, limit);
       return matches.length > 0 ? { academicYear: stored.academicYear, matches } : null;
@@ -284,6 +295,23 @@ export function createHandbookService({
       });
       await queue.enqueueProcessing(versionId);
       await invalidateDocuments(cache, org.slug);
+      return this.adminList();
+    },
+
+    /**
+     * "Retry rendering": the edition's pages, whose render failed, are queued again. The
+     * viewer shows "Preparing" until the worker is done.
+     */
+    async retryPreview(year: string): Promise<AdminHandbookResponse> {
+      const org = await issc();
+      const row = await handbooks.findAdminByYear(year);
+      const version = row?.document.versions.find((v) => v.id === row.document.currentVersionId);
+      const refusal = retryPreviewRefusal(version ?? null);
+      if (refusal) throw version ? AppError.conflict(refusal) : AppError.notFound(refusal);
+      if (await documents.resetFailedPreview(version!.id)) {
+        await previews.retryPreview(version!.id);
+        await invalidateDocuments(cache, org.slug);
+      }
       return this.adminList();
     },
 

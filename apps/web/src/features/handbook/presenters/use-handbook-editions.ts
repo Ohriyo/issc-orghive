@@ -6,7 +6,7 @@ import {
 } from '@orghive/shared';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
-import { yearLabel } from './use-handbook';
+import { pollWhileNothing, REVALIDATE, yearLabel } from './use-handbook';
 
 const FIVE_MINUTES = 5 * 60_000;
 
@@ -16,7 +16,7 @@ export interface EditionCard {
   isCurrent: boolean;
   pageCount: number | null;
   coverUrl: string | null;
-  /** The current edition reads at /handbook; past ones at /handbook/:year. */
+  /** Every edition reads at /handbook/:year, the current one too. */
   href: string;
 }
 
@@ -27,7 +27,7 @@ export function toEditionCard(edition: HandbookEditionSummary): EditionCard {
     isCurrent: edition.isCurrent,
     pageCount: edition.pageCount,
     coverUrl: edition.coverUrl,
-    href: edition.isCurrent ? '/handbook' : `/handbook/${edition.academicYear}`,
+    href: `/handbook/${edition.academicYear}`,
   };
 }
 
@@ -40,7 +40,7 @@ export type EditionsModel =
 export function useHandbookEditions(): EditionsModel {
   const query = useQuery({
     queryKey: queryKeys.handbook.editions,
-    queryFn: () => api.get('/handbook/editions', { schema: handbookEditionListSchema }),
+    queryFn: () => api.get('/handbook/editions', { schema: handbookEditionListSchema, ...REVALIDATE }),
     staleTime: FIVE_MINUTES,
   });
   if (query.isPending) return { status: 'loading' };
@@ -58,11 +58,14 @@ export type HandbookCardModel =
 export function useHandbookCard(): HandbookCardModel {
   const query = useQuery({
     queryKey: queryKeys.handbook.edition(null),
-    queryFn: () => api.get('/handbook', { schema: handbookResponseSchema }),
+    queryFn: () => api.get('/handbook', { schema: handbookResponseSchema, ...REVALIDATE }),
     staleTime: FIVE_MINUTES,
+    refetchInterval: pollWhileNothing,
   });
   if (query.isPending) return { status: 'loading' };
   if (query.isError) return { status: 'error', retry: () => void query.refetch() };
   const edition = query.data.edition;
-  return edition ? { status: 'ready', edition: toEditionCard(edition) } : { status: 'none' };
+  return edition
+    ? { status: 'ready', edition: { ...toEditionCard(edition), href: '/handbook' } }
+    : { status: 'none' };
 }

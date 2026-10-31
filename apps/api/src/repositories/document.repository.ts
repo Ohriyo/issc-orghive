@@ -662,6 +662,18 @@ export function createDocumentRepository(db: Db) {
       });
     },
 
+    /**
+     * A version whose pages failed goes back to waiting for them, so the render job runs
+     * again. False when it had not failed (a concurrent retry got there first).
+     */
+    async resetFailedPreview(versionId: string): Promise<boolean> {
+      const { count } = await db.documentVersion.updateMany({
+        where: { id: versionId, scanStatus: 'clean', previewStatus: 'failed' },
+        data: { previewStatus: 'pending' },
+      });
+      return count === 1;
+    },
+
     /** The file cannot be rendered (damaged, encrypted, or refused by LibreOffice). */
     async markPreviewFailed(versionId: string): Promise<void> {
       await db.documentVersion.update({

@@ -212,6 +212,12 @@ function dashboardRoutes(): RouteObject[] {
       }),
     },
     {
+      path: 'projects/:id/files/upload',
+      lazy: async () => ({
+        Component: (await import('@/features/uploads/upload-page')).ProjectFilesUploadPage,
+      }),
+    },
+    {
       path: 'admin',
       lazy: async () => ({
         Component: (await import('@/features/admin/admin-pages')).AdminIndexPage,

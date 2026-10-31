@@ -509,6 +509,8 @@ export const SIGNED_IN_ROUTES = [
   '/dashboard/projects?org=jpice',
   '/dashboard/projects/new?org=jpice',
   '/projects/0195f3c0-0000-7000-8000-0000000000c1',
+  // Adding a project's extra files (spec 2C).
+  '/projects/0195f3c0-0000-7000-8000-0000000000c1/files/upload',
   // After the event: the Financial Report's totals, a loss, under the ISSC's review.
   '/projects/0195f3c0-0000-7000-8000-0000000000c3',
   '/dashboard/appeals',
@@ -1105,6 +1107,17 @@ const PROJECT: ProjectDetail = {
       submittedAt: null,
       document: null,
       files: [],
+    },
+  ],
+  // An extra file outside the checklist (spec 2C).
+  files: [
+    {
+      document: {
+        id: '0195f3c0-0000-7000-8000-0000000000d7',
+        title: 'Site visit photos of the CEA Building',
+        status: 'available',
+        visibility: 'governing',
+      },
     },
   ],
   financialFigures: null,

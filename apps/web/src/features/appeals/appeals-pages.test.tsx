@@ -125,6 +125,7 @@ function blockedProject(): ProjectDetail {
         files: [],
       },
     ],
+    files: [],
     financialFigures: null,
   };
 }

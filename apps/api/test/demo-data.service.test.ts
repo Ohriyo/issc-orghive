@@ -208,8 +208,23 @@ describe('remove', () => {
       `pages/${(await db.document.findFirstOrThrow({ where: { isDemo: true } })).id}/v/1.webp`,
       Buffer.from('x'),
     );
+    // An extra file someone added to a demo project (spec 2C): unflagged, it goes with it.
+    const extra = await db.document.create({
+      data: {
+        organizationId: project.organizationId,
+        typeId: (await db.documentType.findFirstOrThrow()).id,
+        title: 'Extra file of a demo project',
+        academicYear: '2026-2027',
+        status: 'available',
+        visibility: 'private',
+        createdById: project.createdById,
+      },
+    });
+    await db.projectFile.create({ data: { projectId: project.id, documentId: extra.id } });
 
     const result = await service.remove(null, null);
+    expect(await db.projectFile.count()).toBe(0);
+    expect(await db.document.findUnique({ where: { id: extra.id } })).toBeNull();
     expect(result.removed.projects).toBeGreaterThan(0);
     expect(result.files).toBeGreaterThan(0);
     expect(await createDemoDataRepository(db).counts()).toEqual(

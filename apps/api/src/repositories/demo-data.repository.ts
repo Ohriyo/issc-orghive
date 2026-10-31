@@ -383,9 +383,15 @@ export function createDemoDataRepository(db: Db) {
           where: { OR: [flagged, { taskId: { in: taskIds } }] },
           select: { documentId: true },
         });
+        // Extra files of a demo project (spec 2C), outside its checklist.
+        const projectFiles = await tx.projectFile.findMany({
+          where: { OR: [flagged, { projectId: { in: projectIds } }] },
+          select: { documentId: true },
+        });
         const taskDocIds = [
           ...tasks.flatMap((t) => (t.documentId ? [t.documentId] : [])),
           ...taskFiles.map((f) => f.documentId),
+          ...projectFiles.map((f) => f.documentId),
         ];
 
         // Standings computed while demo data existed include it: those of the demo
@@ -478,6 +484,11 @@ export function createDemoDataRepository(db: Db) {
         });
         await tx.projectTaskFile.deleteMany({
           where: { OR: [flagged, { taskId: { in: taskIds } }] },
+        });
+        await tx.projectFile.deleteMany({
+          where: {
+            OR: [flagged, { projectId: { in: projectIds } }, { documentId: { in: documentIds } }],
+          },
         });
         await tx.projectTask.deleteMany({ where: { id: { in: taskIds } } });
         await tx.semestralReport.deleteMany({ where: { id: { in: ids(reports) } } });

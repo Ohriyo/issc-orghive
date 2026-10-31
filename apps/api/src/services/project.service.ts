@@ -6,6 +6,7 @@ import {
   PROJECT_TASK_DOCUMENT_TYPES,
   PROJECT_TASK_LABELS,
   type CreateFinancialReportDocumentRequest,
+  type CreateProjectFileRequest,
   type CreateProjectRequest,
   type CreateTaskDocumentRequest,
   type ProjectDetail,
@@ -38,7 +39,13 @@ import type { UploadService } from '#src/services/upload.service';
 export interface ProjectServiceDeps {
   projects: Pick<
     ProjectRepository,
-    'create' | 'findById' | 'listByOrganization' | 'update' | 'linkDocument' | 'addTaskFile'
+    | 'create'
+    | 'findById'
+    | 'listByOrganization'
+    | 'update'
+    | 'linkDocument'
+    | 'addTaskFile'
+    | 'addProjectFile'
   >;
   sync: Pick<ProjectSync, 'sync' | 'syncOrganization'>;
   freezes: Pick<OrgFreezeRepository, 'listOpen'>;
@@ -122,10 +129,13 @@ export function createProjectService({
   async function toDetail(viewer: DocumentViewer, record: ProjectRecord): Promise<ProjectDetail> {
     const plan = planProject(factsOf(record), now());
     const rows = new Map(record.tasks.map((t) => [t.type, t]));
-    const ids = record.tasks.flatMap((t) => [
-      ...(t.documentId ? [t.documentId] : []),
-      ...t.files.map((f) => f.documentId),
-    ]);
+    const ids = [
+      ...record.tasks.flatMap((t) => [
+        ...(t.documentId ? [t.documentId] : []),
+        ...t.files.map((f) => f.documentId),
+      ]),
+      ...record.extraFiles.map((f) => f.documentId),
+    ];
     const briefs: Map<string, DocumentBrief> = await documentReads.findVisibleBriefs(viewer, ids);
     return {
       ...toSummary(record, plan),
@@ -146,6 +156,11 @@ export function createProjectService({
             return file ? [{ label: f.label, document: file }] : [];
           }),
         };
+      }),
+      // Extra files outside the checklist, only those this viewer may see.
+      files: record.extraFiles.flatMap((f) => {
+        const document = briefs.get(f.documentId);
+        return document ? [{ document }] : [];
       }),
       financialFigures: toFiguresView(record),
     };
@@ -355,6 +370,35 @@ export function createProjectService({
         await leaderboard?.forEventDates(record.targetDate, updated.targetDate);
       }
       return toDetail(await viewers.forUser(actor.userId), updated);
+    },
+
+    /** A pre-signed PUT for an extra file of the project (spec 2C). */
+    async fileUploadUrl(
+      actor: Actor,
+      org: OrgRef,
+      id: string,
+      file: UploadUrlRequest,
+    ): Promise<UploadUrlResponse> {
+      await loadInOrg(org, id);
+      return uploads.issueUrl(actor.userId, org, file);
+    },
+
+    /**
+     * An extra file outside the checklist (spec 2C): a normal Paperworks document with the
+     * details the officer gave, through the document pipeline (scanning first, audited, the
+     * caches cleared), then linked to the project. No deadline and no unlock rule, so it is
+     * allowed whatever the checklist's state, a blocked project or a frozen organization too.
+     */
+    async addFile(
+      actor: Actor,
+      org: OrgRef,
+      id: string,
+      input: CreateProjectFileRequest,
+    ): Promise<ProjectDetail> {
+      await loadInOrg(org, id);
+      const created = await documents.create(actor, org, input);
+      await projects.addProjectFile(id, created.id);
+      return toDetail(await viewers.forUser(actor.userId), await synced(id));
     },
 
     /** A pre-signed PUT for a task's file: the task must be open (or submitted, to replace it). */

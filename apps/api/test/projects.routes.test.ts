@@ -643,6 +643,102 @@ describe('pre-event documents (spec 2B, 2026-10-21)', () => {
   });
 });
 
+describe('extra project files (spec 2C)', () => {
+  /** Full Paperworks details, as the upload form sends them. */
+  const details = (visibility: string) => ({
+    typeId: world.types.report.id,
+    title: 'Site visit photos',
+    description: 'Photos of the venue before the event.',
+    academicYear: '2026-2027',
+    semester: 'first',
+    visibility,
+    tags: ['venue', 'photos'],
+    actingAs: 'Juan Dela Cruz',
+  });
+
+  async function addFile(projectId: string, visibility: string) {
+    const url = await call('post', `/projects/${projectId}/files/upload-url`, 'officer', PDF);
+    expect(url.status, JSON.stringify(url.body)).toBe(201);
+    const { uploadKey } = url.body as { uploadKey: string };
+    const res = await call('post', `/projects/${projectId}/files`, 'officer', {
+      ...details(visibility),
+      uploadKey,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    return res.body as ProjectDetail;
+  }
+
+  it('lets only the organization’s own account add one (401/403)', async () => {
+    const project = await newProject();
+    for (const path of [`/projects/${project.id}/files/upload-url`, `/projects/${project.id}/files`]) {
+      const body = path.endsWith('upload-url') ? PDF : { ...details('private'), uploadKey: 'uploads/x/y' };
+      await call('post', path, undefined, body).expect(401);
+      for (const who of ['student', 'governor', 'psmeOfficer', 'admin'] as const) {
+        await call('post', path, who, body).expect(403);
+      }
+    }
+  });
+
+  it('files a Paperworks document with every detail; governing bodies see it once scanned', async () => {
+    const project = await newProject();
+    const added = await addFile(project.id, 'governing');
+    expect(added.files).toHaveLength(1);
+    const file = added.files[0]!.document;
+    expect(file).toMatchObject({ title: 'Site visit photos', status: 'scanning', visibility: 'governing' });
+    const stored = await db.document.findUniqueOrThrow({ where: { id: file.id } });
+    expect(stored).toMatchObject({
+      organizationId: world.orgs.jpice.id,
+      typeId: world.types.report.id,
+      description: 'Photos of the venue before the event.',
+      semester: 'first',
+      tags: ['venue', 'photos'],
+    });
+    // The checklist is untouched: the proposal is still open.
+    expect(statusOf(added, 'PROPOSAL')).toBe('open');
+
+    // While it is scanned only JPICE's account sees it; its CSC once it is clean.
+    const before = (await call('get', `/projects/${project.id}`, 'governor')).body as ProjectDetail;
+    expect(before.files).toEqual([]);
+    await scanClean(file.id);
+    const after = (await call('get', `/projects/${project.id}`, 'governor')).body as ProjectDetail;
+    expect(after.files.map((f) => f.document.title)).toEqual(['Site visit photos']);
+  });
+
+  it('never shows a private one to a governing body', async () => {
+    const project = await newProject();
+    const added = await addFile(project.id, 'private');
+    await scanClean(added.files[0]!.document.id);
+    const council = (await call('get', `/projects/${project.id}`, 'governor')).body as ProjectDetail;
+    expect(council.files).toEqual([]);
+    const own = (await call('get', `/projects/${project.id}`, 'officer')).body as ProjectDetail;
+    expect(own.files).toHaveLength(1);
+  });
+
+  it('takes extra files on a blocked project, whose checklist stays locked', async () => {
+    const project = await newProject();
+    // Created 20 days ago: the proposal deadline passed, so the check on read blocks it.
+    await db.project.update({
+      where: { id: project.id },
+      data: { createdAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000) },
+    });
+    const read = (await call('get', `/projects/${project.id}`, 'officer')).body as ProjectDetail;
+    expect(read.status).toBe('blocked');
+    const added = await addFile(project.id, 'private');
+    expect(added.files).toHaveLength(1);
+    await call('post', `/projects/${project.id}/tasks/PROPOSAL/upload-url`, 'officer', PDF).expect(409);
+  });
+
+  it('validates the details like any Paperworks upload', async () => {
+    const project = await newProject();
+    const res = await call('post', `/projects/${project.id}/files`, 'officer', {
+      ...details('private'),
+      title: '',
+      uploadKey: 'uploads/x/y',
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('Financial Report figures', () => {
   it('requires the totals with a Financial Report file, and audits the first entry', async () => {
     const project = await newProject({ targetDate: today });

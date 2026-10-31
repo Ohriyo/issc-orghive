@@ -115,6 +115,31 @@ describe('the Semestral End Report', () => {
     expect(contents).toMatch(/Financial Report\s+8/);
   });
 
+  it('adds a project’s extra files after its Financial Report, named by their titles', async () => {
+    await seedReportProject(db, {
+      organizationId: world.orgs.jpice.id,
+      createdById: world.users.officer.id,
+      name: 'Bridge Design Competition',
+      targetDate: '2026-09-10',
+      files: { PROPOSAL: 'proposal', FINANCIAL_REPORT: 'financial' },
+      extra: [
+        { title: 'Site visit photos', file: 'photo' },
+        { title: 'Budget breakdown', file: 'nom' },
+      ],
+    });
+    const { pdf } = await generate();
+    const pages = await pageTexts(pdf!);
+    // cover 1, contents 2, divider 3, proposal 4, ACR missing 5, financial 6-7, photos 8,
+    // budget 9.
+    expect(pages).toHaveLength(9);
+    expect(pages[5]).toContain('FIXTURE-FINANCIAL page 1 of 2');
+    expect(pages[8]).toContain('FIXTURE-NOM page 1 of 1');
+    const contents = pages[1]!;
+    expect(contents).toMatch(/Financial Report\s+6/);
+    expect(contents).toMatch(/Project file: Site visit photos\s+8/);
+    expect(contents).toMatch(/Project file: Budget breakdown\s+9/);
+  });
+
   it('places labelled letters and the attendance sheet between the MOM and the ACR', async () => {
     await seedReportProject(db, {
       organizationId: world.orgs.jpice.id,

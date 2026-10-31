@@ -5,7 +5,6 @@ import {
   SEMESTER_LABELS,
   semesterRange,
   type GenerateReportRequest,
-  type ProjectTaskType,
   type SemestralReport,
   type SemestralReportListResponse,
 } from '@orghive/shared';
@@ -44,6 +43,7 @@ import {
   type ReportFile,
   type ReportPart,
   type ReportProject,
+  type ReportTask,
 } from './report-rules';
 
 export interface ReportServiceDeps {
@@ -127,6 +127,9 @@ function toReportProject(p: ReportProjectRecord): ReportProject {
     communicationLetterRequired: p.communicationLetterRequired,
     attendanceSheetRequired: p.attendanceSheetRequired,
     files,
+    extraFiles: p.extraFiles
+      .map((f) => reportFileOf(f.document.currentVersion, f.document.title))
+      .filter((f): f is ReportFile => f !== null),
   };
 }
 
@@ -174,7 +177,7 @@ export function createReportService({
     };
     const placeholder = (
       project: ReportProject,
-      task: ProjectTaskType,
+      task: ReportTask,
       reason: 'missing' | 'unreadable',
       file?: ReportFile,
     ) =>

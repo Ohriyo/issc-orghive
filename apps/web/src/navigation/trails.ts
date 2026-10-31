@@ -240,6 +240,20 @@ export const chrome = {
     };
   },
 
+  /** /projects/:id/files/upload → parent the project. */
+  projectFilesUpload(
+    org: { slug: string; acronym: string } | null,
+    project: { id: string; name: string } | null,
+  ): PageChrome {
+    const list = projectsCrumb(org);
+    const projectCrumb = project && { label: project.name, href: `/projects/${project.id}` };
+    return {
+      section: 'dashboard',
+      trail: [DASHBOARD, list, ...(projectCrumb ? [projectCrumb] : []), here('Add files')],
+      parent: toDestination(projectCrumb ?? list),
+    };
+  },
+
   /** /dashboard/notifications: every notification, parent the Dashboard. */
   notifications(): PageChrome {
     return {

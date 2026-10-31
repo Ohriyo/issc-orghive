@@ -521,6 +521,8 @@ model Document {
   /// Set when this document is a project task's file.
   projectTask     ProjectTask?
   taskFile        ProjectTaskFile?
+  /// Set when this document is an extra file of a project, outside its checklist.
+  projectFile     ProjectFile?
   /// Set when this document is a generated Semestral End Report.
   report          SemestralReport?
   /// Set when this document is an organization's Constitution & By-laws.
@@ -730,6 +732,8 @@ model Project {
   organization Organization      @relation(fields: [organizationId], references: [id])
   createdBy    User              @relation(fields: [createdById], references: [id])
   tasks        ProjectTask[]
+  /// Extra files outside the checklist (spec 2C).
+  extraFiles   ProjectFile[]
   freezes      OrgFreeze[]
   appeals      Appeal[]
   figures      FinancialFigures?
@@ -784,6 +788,24 @@ model ProjectTaskFile {
 
   @@index([taskId, createdAt])
   @@map("project_task_files")
+}
+
+/// An extra file of a project, outside its checklist (docs/PROJECT_WORKFLOW_SPEC.md, 2C):
+/// any Paperworks document of the organization, with the details of a normal upload. No
+/// deadline, no unlock rule; the Semestral End Report lists it after the Financial Report.
+model ProjectFile {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo     Boolean  @default(false) @map("is_demo")
+  projectId  String   @map("project_id") @db.Uuid
+  documentId String   @unique @map("document_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project  Project  @relation(fields: [projectId], references: [id])
+  document Document @relation(fields: [documentId], references: [id])
+
+  @@index([projectId, createdAt])
+  @@map("project_files")
 }
 
 /// An organization frozen because one project's ACR or Financial Report is overdue (spec

@@ -55,6 +55,7 @@ function record(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
     updatedAt: CREATED,
     organization: { id: 'jpice', slug: 'jpice', acronym: 'JPICE', name: 'JPICE', type: 'SBO' },
     tasks: [task('PROPOSAL', { status: 'open' }), task('ACR'), task('FINANCIAL_REPORT')],
+    extraFiles: [],
     figures: null,
     ...overrides,
   };
@@ -93,6 +94,7 @@ function setup(found: ProjectRecord | null = record()) {
     update: vi.fn(() => Promise.resolve()),
     linkDocument: vi.fn(() => Promise.resolve()),
     addTaskFile: vi.fn(() => Promise.resolve()),
+    addProjectFile: vi.fn(() => Promise.resolve()),
   };
   const sync = {
     sync: vi.fn(() => Promise.resolve(found)),
@@ -718,5 +720,65 @@ describe('projectService.submitTaskFile', () => {
       }),
     ).rejects.toMatchObject({ status: 409 });
     expect(documents.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('projectService: extra project files (spec 2C)', () => {
+  const FILE = {
+    typeId: '0195f3c0-0000-7000-8000-0000000000e2',
+    title: 'Site visit photos',
+    description: 'Photos of the venue before the event.',
+    academicYear: '2026-2027',
+    semester: 'first' as const,
+    visibility: 'governing' as const,
+    tags: ['venue'],
+    uploadKey: 'uploads/jpice/k9',
+    actingAs: 'Juan Dela Cruz',
+  };
+  // Created Sep 20: the proposal was due Oct 4, before NOW (Oct 10), so it is blocked.
+  const blocked = () => record({ createdAt: new Date('2026-09-20T02:00:00Z') });
+
+  it('files the upload as a Paperworks document with the details given, linked to the project', async () => {
+    const { service, documents, projects } = setup();
+    await service.addFile(ACTOR, JPICE, 'p1', FILE);
+    expect(documents.create).toHaveBeenCalledWith(ACTOR, JPICE, FILE);
+    expect(projects.addProjectFile).toHaveBeenCalledWith('p1', 'new-doc');
+  });
+
+  it('takes extra files and issues their upload URLs on a blocked project too', async () => {
+    const { service, uploads, projects } = setup(blocked());
+    await service.fileUploadUrl(ACTOR, JPICE, 'p1', PDF);
+    expect(uploads.issueUrl).toHaveBeenCalledWith(ACTOR.userId, JPICE, PDF);
+    await service.addFile(ACTOR, JPICE, 'p1', FILE);
+    expect(projects.addProjectFile).toHaveBeenCalledWith('p1', 'new-doc');
+  });
+
+  it('404s a project of another organization, filing nothing', async () => {
+    const { service, documents, uploads } = setup(record({ organizationId: 'psme' }));
+    await expect(service.addFile(ACTOR, JPICE, 'p1', FILE)).rejects.toMatchObject({ status: 404 });
+    await expect(service.fileUploadUrl(ACTOR, JPICE, 'p1', PDF)).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(documents.create).not.toHaveBeenCalled();
+    expect(uploads.issueUrl).not.toHaveBeenCalled();
+  });
+
+  it('lists only the extra files the viewer may see, oldest first', async () => {
+    const { service, documentReads } = setup(
+      record({ extraFiles: [{ documentId: 'extra-1' }, { documentId: 'extra-2' }] }),
+    );
+    documentReads.findVisibleBriefs.mockResolvedValueOnce(
+      new Map([
+        [
+          'extra-2',
+          { id: 'extra-2', title: 'Budget', status: 'available' as const, visibility: 'governing' as const },
+        ],
+      ]),
+    );
+    const detail = await service.get(ACTOR, JPICE, 'p1');
+    expect(documentReads.findVisibleBriefs).toHaveBeenCalledWith(VIEWER, ['extra-1', 'extra-2']);
+    expect(detail.files).toEqual([
+      { document: { id: 'extra-2', title: 'Budget', status: 'available', visibility: 'governing' } },
+    ]);
   });
 });

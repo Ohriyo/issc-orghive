@@ -5,6 +5,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { z } from 'zod';
 import {
   CONSTITUTION_DOCUMENT_TYPE,
+  academicYearOf as academicYearOfDate,
   actingAsSchema,
   contentTypeForFilename,
   documentMetadataSchema,
@@ -12,6 +13,8 @@ import {
   documentTypeListResponseSchema,
   MAX_UPLOAD_BYTES,
   organizationDetailSchema,
+  projectDetailSchema,
+  semesterOf,
   uploadUrlResponseSchema,
   type DocumentMetadata,
   type UploadContentType,
@@ -93,6 +96,12 @@ export const textToTags = (text: string) =>
     .map((tag) => tag.trim())
     .filter(Boolean);
 
+/** The year options, with `year` first when they lack it (a project next academic year). */
+function withYear(options: FilterOption[], year: string | null): FilterOption[] {
+  if (!year || options.some((o) => o.value === year)) return options;
+  return [{ value: year, label: year }, ...options];
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError && (error.status === 0 || error.status < 500)) return error.message;
   return 'Something went wrong on our side. Try again in a moment.';
@@ -105,8 +114,18 @@ export type UploadPageState =
   | { status: 'forbidden'; org: { acronym: string } }
   | ({ status: 'ready' } & UploadModel);
 
+/** Uploading a project's extra files (spec 2C) instead of plain Paperworks. */
+export interface UploadProject {
+  id: string;
+  name: string;
+  /** `YYYY-MM-DD`: the academic year and semester each file starts with. */
+  targetDate: string;
+}
+
 export interface UploadModel {
   org: { acronym: string; name: string; paperworksHref: string };
+  /** Set when the files are a project's extra files. */
+  project: { name: string } | null;
   options: { types: FilterOption[]; years: FilterOption[]; semesters: FilterOption[] };
   form: ReturnType<typeof useForm<UploadFormInput, unknown, UploadFormOutput>>;
   items: UploadItem[];
@@ -123,11 +142,16 @@ export interface UploadModel {
 }
 
 /**
- * Presenter for /orgs/:slug/paperworks/upload. For each file: an upload URL from the API,
- * the bytes PUT straight to storage (with progress), then the document is created with
- * its details. Files upload one after another so a slow connection is not split.
+ * Presenter for /orgs/:slug/paperworks/upload, and with `project` for a project's extra files
+ * (/projects/:id/files/upload, spec 2C). For each file: an upload URL from the API, the bytes
+ * PUT straight to storage (with progress), then the document is created with its details (and
+ * linked to the project). Files upload one after another so a slow connection is not split.
  */
-export function useUploadDocuments(slug: string, parent: Destination | null): UploadPageState {
+export function useUploadDocuments(
+  slug: string,
+  parent: Destination | null,
+  project: UploadProject | null = null,
+): UploadPageState {
   const queryClient = useQueryClient();
   const back = useBackNavigation(parent);
   const { user } = useAuth();
@@ -170,7 +194,9 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
   const addFiles = (files: File[]) => {
     const accepted: UploadItem[] = [];
     const refused: RejectedFile[] = [];
-    const year = academicYearOf(new Date());
+    // A project's files start in its event's academic year and semester.
+    const year = project ? academicYearOfDate(project.targetDate) : academicYearOf(new Date());
+    const semester = project ? semesterOf(project.targetDate) : undefined;
     for (const file of files) {
       const check = checkFile(file);
       if ('reason' in check) {
@@ -183,7 +209,7 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
         title: titleFromFilename(file.name),
         description: '',
         academicYear: year,
-        semester: undefined,
+        semester,
         visibility: 'private',
         tags: [],
       } satisfies DocumentMetadata);
@@ -209,7 +235,9 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
     try {
       update(index, { status: 'uploading', progress: 0, error: undefined });
       const target = await api.post(
-        `/organizations/${slug}/documents/upload-url`,
+        project
+          ? `/projects/${project.id}/files/upload-url`
+          : `/organizations/${slug}/documents/upload-url`,
         { filename: item.file.name, contentType: item.contentType, sizeBytes: item.file.size },
         { schema: uploadUrlResponseSchema },
       );
@@ -217,12 +245,19 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
         update(index, { progress: Math.round(fraction * 100) }),
       );
       update(index, { status: 'saving' });
-      const doc = await api.post(
-        `/organizations/${slug}/documents`,
-        { ...metadata, uploadKey: target.uploadKey, actingAs },
-        { schema: documentSummarySchema },
-      );
-      update(index, { status: 'done', progress: 100, documentHref: `/documents/${doc.id}` });
+      const body = { ...metadata, uploadKey: target.uploadKey, actingAs };
+      const documentId = project
+        ? // The project's files, oldest first: the newest is this one.
+          (
+            await api.post(`/projects/${project.id}/files`, body, { schema: projectDetailSchema })
+          ).files.at(-1)?.document.id
+        : (await api.post(`/organizations/${slug}/documents`, body, { schema: documentSummarySchema }))
+            .id;
+      update(index, {
+        status: 'done',
+        progress: 100,
+        documentHref: documentId ? `/documents/${documentId}` : undefined,
+      });
       return true;
     } catch (error) {
       update(index, { status: 'error', error: errorMessage(error) });
@@ -245,6 +280,7 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['documents'] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
+        ...(project ? [queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })] : []),
       ]);
     }
     // All saved: back where the user came from, replacing this form in the history. If
@@ -253,8 +289,8 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
       guard.allowNextNavigation();
       back.finish(
         saved === 1
-          ? 'Uploaded. Only you see it until the virus scan passes; then it is shared as you chose.'
-          : `${saved} documents uploaded. Each is shared as you chose once its virus scan passes.`,
+          ? `${project ? 'Added to the project' : 'Uploaded'}. Only you see it until the virus scan passes; then it is shared as you chose.`
+          : `${saved} ${project ? 'files added to the project' : 'documents uploaded'}. Each is shared as you chose once its virus scan passes.`,
       );
     }
   });
@@ -266,12 +302,13 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
       name: org.data.name,
       paperworksHref: `/orgs/${slug}/paperworks`,
     },
+    project: project && { name: project.name },
     options: {
       // The Constitution & By-laws is uploaded from the organization profile only.
       types: (types.data?.types ?? [])
         .filter((t) => t.slug !== CONSTITUTION_DOCUMENT_TYPE.slug)
         .map((t) => ({ value: t.id, label: t.name })),
-      years: yearOptions(new Date()),
+      years: withYear(yearOptions(new Date()), project && academicYearOfDate(project.targetDate)),
       semesters: Object.entries(SEMESTER_LABELS).map(([value, label]) => ({ value, label })),
     },
     form,
@@ -288,5 +325,31 @@ export function useUploadDocuments(slug: string, parent: Destination | null): Up
       stay: () => guard.blocker.reset?.(),
       go: () => guard.blocker.proceed?.(),
     },
+  };
+}
+
+export type UploadProjectState =
+  | { status: 'loading' }
+  | { status: 'not-found' }
+  | { status: 'error'; retry: () => void }
+  | { status: 'ready'; project: UploadProject; org: { slug: string; acronym: string } };
+
+/** /projects/:id/files/upload: the project the extra files go to (shares the project page's cache). */
+export function useUploadProject(id: string): UploadProjectState {
+  const query = useQuery({
+    queryKey: queryKeys.projects.detail(id),
+    queryFn: () => api.get(`/projects/${id}`, { schema: projectDetailSchema }),
+    staleTime: 30_000,
+  });
+  if (query.error instanceof ApiError && [400, 403, 404].includes(query.error.status)) {
+    return { status: 'not-found' };
+  }
+  if (query.isError) return { status: 'error', retry: () => void query.refetch() };
+  if (!query.data) return { status: 'loading' };
+  const { organization, name, targetDate } = query.data;
+  return {
+    status: 'ready',
+    project: { id, name, targetDate },
+    org: { slug: organization.slug, acronym: organization.acronym },
   };
 }

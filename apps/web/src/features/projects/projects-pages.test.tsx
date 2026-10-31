@@ -1,11 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  academicYearOf,
   addDays,
   deadlineAfter,
   manilaDate,
+  semesterOf,
   type AuthResponse,
   type DashboardResponse,
   type ProjectDetail,
@@ -18,6 +20,9 @@ import { deadlineLabel, lockedHint } from './presenters/project-format';
 const JPICE_ID = '0195f3c0-0000-7000-8000-0000000000a1';
 const PROJECT_ID = '0195f3c0-0000-7000-8000-0000000000c1';
 const DOC_ID = '0195f3c0-0000-7000-8000-0000000000d1';
+/** An extra project file (spec 2C). */
+const FILE_ID = '0195f3c0-0000-7000-8000-0000000000d7';
+const TYPE = { id: '0195f3c0-0000-7000-8000-0000000000e1', slug: 'activity-proposal', name: 'Activity proposal' };
 const UPLOAD_KEY = `uploads/${JPICE_ID}/0195f3c0-0000-7000-8000-0000000000e9`;
 const today = manilaDate(new Date());
 
@@ -121,6 +126,7 @@ function project(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
         files: [],
       },
     ],
+    files: [],
     financialFigures: null,
     ...overrides,
   };
@@ -186,6 +192,49 @@ beforeEach(() => {
       return json(stored[0]);
     }
     if (url.endsWith(`/projects/${PROJECT_ID}`)) return json(stored[0]);
+    if (url.endsWith('/organizations/jpice')) {
+      return json({
+        ...JPICE_ORG,
+        description: null,
+        logoUrl: null,
+        logoSrcSet: null,
+        parent: null,
+        college: null,
+        mission: null,
+        vision: null,
+        contactEmail: null,
+        links: [],
+        officers: [],
+        coverUrl: null,
+        coverSrcSet: null,
+      });
+    }
+    if (url.endsWith('/document-types')) return json({ types: [TYPE] });
+    if (url.endsWith(`/projects/${PROJECT_ID}/files/upload-url`)) {
+      return json(
+        {
+          uploadKey: UPLOAD_KEY,
+          url: 'https://storage.test/put',
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/pdf' },
+          expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        },
+        201,
+      );
+    }
+    if (url.endsWith(`/projects/${PROJECT_ID}/files`) && method === 'POST') {
+      const { title, visibility } = body as { title: string; visibility: 'private' };
+      stored = [
+        {
+          ...stored[0]!,
+          files: [
+            ...stored[0]!.files,
+            { document: { id: FILE_ID, title, status: 'scanning', visibility } },
+          ],
+        },
+      ];
+      return json(stored[0], 201);
+    }
     if (url.endsWith('/tasks/COMMUNICATION_LETTER/documents')) return json(stored[0], 201);
     if (/\/tasks\/\w+\/upload-url$/.test(url)) {
       return json(
@@ -927,4 +976,110 @@ describe('/projects/:id pre-event documents', () => {
       within(letters).queryByRole('button', { name: /Add|New version/ }),
     ).not.toBeInTheDocument();
   });
+});
+
+describe('/projects/:id: extra project files (spec 2C)', () => {
+  const withFile = () =>
+    project({
+      files: [
+        {
+          document: {
+            id: FILE_ID,
+            title: 'Site visit photos',
+            status: 'available',
+            visibility: 'governing',
+          },
+        },
+      ],
+    });
+
+  it('lists them for everyone who may see them; only the own account may add more', async () => {
+    stored = [withFile()];
+    renderAt(`/projects/${PROJECT_ID}`);
+    const files = await screen.findByRole('region', { name: 'Project files' }, { timeout: 5000 });
+    expect(within(files).getByRole('link', { name: 'Site visit photos' })).toHaveAttribute(
+      'href',
+      `/documents/${FILE_ID}`,
+    );
+    expect(within(files).getByRole('link', { name: 'Add files' })).toHaveAttribute(
+      'href',
+      `/projects/${PROJECT_ID}/files/upload`,
+    );
+    cleanup();
+
+    role = 'governing';
+    renderAt(`/projects/${PROJECT_ID}`);
+    const council = await screen.findByRole('region', { name: 'Project files' }, { timeout: 5000 });
+    expect(within(council).getByRole('link', { name: 'Site visit photos' })).toBeInTheDocument();
+    expect(within(council).queryByRole('link', { name: 'Add files' })).not.toBeInTheDocument();
+  });
+
+  it('says so when there are none yet', async () => {
+    renderAt(`/projects/${PROJECT_ID}`);
+    const files = await screen.findByRole('region', { name: 'Project files' }, { timeout: 5000 });
+    expect(within(files).getByText(/No project files yet/)).toBeInTheDocument();
+  });
+
+  it(
+    'adds files with every Paperworks detail, then goes back to the project',
+    { timeout: 15_000 },
+    async () => {
+      const router = renderAt(`/projects/${PROJECT_ID}`);
+      const files = await screen.findByRole('region', { name: 'Project files' }, { timeout: 5000 });
+      fireEvent.click(within(files).getByRole('link', { name: 'Add files' }));
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Add project files' }, { timeout: 5000 }),
+      ).toBeInTheDocument();
+      expect(screen.getByText(stored[0]!.name, { selector: 'p' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: `Back to ${stored[0]!.name}` })).toBeInTheDocument();
+
+      const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+      fireEvent.change(input, {
+        target: { files: [new File(['%PDF'], 'site_visit-photos.pdf', { type: 'application/pdf' })] },
+      });
+      const card = (await screen.findByText('site_visit-photos.pdf')).closest('li')!;
+      // The project's event decides the academic year and semester it starts with.
+      const targetDate = stored[0]!.targetDate;
+      expect(within(card).getByRole('combobox', { name: 'Academic year' })).toHaveValue(
+        academicYearOf(targetDate),
+      );
+      expect(within(card).getByRole('combobox', { name: 'Semester' })).toHaveValue(
+        semesterOf(targetDate),
+      );
+      await waitFor(() =>
+        expect(within(card).getByRole('option', { name: 'Activity proposal' })).toBeInTheDocument(),
+      );
+      fireEvent.change(within(card).getByRole('combobox', { name: 'Type' }), {
+        target: { value: TYPE.id },
+      });
+      fireEvent.change(within(card).getByRole('textbox', { name: 'Description' }), {
+        target: { value: 'Photos of the venue.' },
+      });
+      fireEvent.change(screen.getByRole('textbox', { name: 'Acting as' }), {
+        target: { value: 'Juan Dela Cruz' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
+
+      await waitFor(
+        () => expect(router.state.location.pathname).toBe(`/projects/${PROJECT_ID}`),
+        { timeout: 5000 },
+      );
+      expect(await screen.findByText(/Added to the project/)).toBeInTheDocument();
+      expect(puts).toEqual(['https://storage.test/put']);
+      const create = calls.find(
+        (c) => c.url.endsWith(`/projects/${PROJECT_ID}/files`) && c.method === 'POST',
+      )!;
+      expect(create.body).toMatchObject({
+        uploadKey: UPLOAD_KEY,
+        typeId: TYPE.id,
+        title: 'Site visit photos',
+        description: 'Photos of the venue.',
+        academicYear: academicYearOf(targetDate),
+        semester: semesterOf(targetDate),
+        visibility: 'private',
+        actingAs: 'Juan Dela Cruz',
+      });
+      expect(calls.some((c) => c.url.endsWith('/organizations/jpice/documents'))).toBe(false);
+    },
+  );
 });

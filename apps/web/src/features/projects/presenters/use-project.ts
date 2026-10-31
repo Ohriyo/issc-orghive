@@ -111,6 +111,10 @@ export interface ProjectPageModel {
   actingAs: ActingAsModel | null;
   /** Which optional pre-event documents the project needs; the organization's own account. */
   choices: PreEventChoicesModel | null;
+  /** Extra files outside the checklist (spec 2C) the viewer may see, oldest first. */
+  files: NonNullable<TaskItem['file']>[];
+  /** The organization's own account: where it adds extra files. */
+  addFilesHref: string | null;
   /** Files are still being scanned: the page refreshes on its own. */
   checking: boolean;
 }
@@ -233,7 +237,13 @@ export function toProjectPage(
       },
       { key: 'post_event', title: PHASE_TITLES.post_event, state: phaseState(post), tasks: post },
     ],
-    checking: project.tasks.some(isChecking),
+    files: project.files.map((f) => ({
+      href: `/documents/${f.document.id}`,
+      title: f.document.title,
+      state: f.document.status,
+    })),
+    addFilesHref: controls.canManage ? `/projects/${project.id}/files/upload` : null,
+    checking: isProjectChecking(project),
   };
 }
 
@@ -241,6 +251,13 @@ export function toProjectPage(
 function isChecking(task: ProjectTask): boolean {
   return (
     task.document?.status === 'scanning' || task.files.some((f) => f.document.status === 'scanning')
+  );
+}
+
+/** Any of the project's files (checklist or extra) still being scanned. */
+function isProjectChecking(project: ProjectDetail): boolean {
+  return (
+    project.tasks.some(isChecking) || project.files.some((f) => f.document.status === 'scanning')
   );
 }
 
@@ -262,7 +279,7 @@ export function useProject(id: string, now: () => Date = () => new Date()): Proj
     queryKey: queryKeys.projects.detail(id),
     queryFn: () => api.get(`/projects/${id}`, { schema: projectDetailSchema }),
     // While a task's file is being scanned, check again until it settles.
-    refetchInterval: (q) => (q.state.data?.tasks.some(isChecking) ? 3000 : false),
+    refetchInterval: (q) => (q.state.data && isProjectChecking(q.state.data) ? 3000 : false),
     staleTime: 30_000,
   });
   const choices = usePreEventChoices(query.data);

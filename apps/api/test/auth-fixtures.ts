@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
+import type { AppServices } from '#src/app';
 import argon2 from 'argon2';
 import { pino } from 'pino';
 import { memoryMailer } from '#src/lib/mailer';
@@ -159,10 +160,13 @@ export function buildAuthApp(
     trustProxy = false,
     now,
     emailDomains = [],
+    demoData,
   }: {
     keys?: ReturnType<typeof testKeys>;
     trustProxy?: boolean | number;
     now?: () => Date;
+    /** Demo data's /system routes, when a test exercises them. */
+    demoData?: AppServices['demoData'];
     /** ACCOUNT_EMAIL_DOMAINS for the /system account forms. */
     emailDomains?: string[];
   } = {},
@@ -314,6 +318,7 @@ export function buildAuthApp(
         settings: createSystemSettingRepository(db),
         audit,
       }),
+      ...(demoData && { demoData }),
     },
     { TRUST_PROXY: trustProxy },
     redisRateLimitStore(redis),

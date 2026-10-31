@@ -49,6 +49,13 @@ Added 2026-10-21 (client request): the Communication Letter, Attendance Sheet an
 
 A task counts as complete when its file is uploaded and has passed the virus scan. No approval is needed. Every task file is also a normal archived document with its own visibility setting (section 0.1).
 
+### C. Project files (outside the checklist)
+Added 2026-10-31 (client request). Besides the checklist, the organization's own account can add **any number of extra files** to a project, at any phase, from the project page ("Add files").
+- Each file is a normal Paperworks document with the same details as any upload: title, type, description, tags, academic year and semester (pre-filled from the event date), visibility and "Acting as". It goes through the virus scan and the view-only viewer like any other file, and appears in the organization's Paperworks.
+- They have no deadline and no unlock rule, so they never block a project, freeze an organization or count on the leaderboard. They can be added while a project is blocked or its organization frozen; a deleted project or an inactive organization refuses them.
+- Any document type except the managed ones (Constitution & By-laws, Student Handbook). No limit per project beyond the usual 25 MB per file.
+- Who sees each one is its visibility alone: governing bodies reading the project see it only if it is `governing` or `public`.
+
 ## 3. Compliance, blocking and appeals
 
 ### A. Proposal deadline missed
@@ -70,7 +77,7 @@ A task counts as complete when its file is uploaded and has passed the virus sca
 - The order is fixed:
   1. A cover page (organization, college, semester, academic year, generated date).
   2. A table of contents.
-  3. For each project, by target date: a divider page (project name, date, location, beneficiaries), then Proposal → NOM → MOM → Communication Letter(s) → Attendance Sheet → other pre-event documents → ACR → Financial Report. Each letter and each other document is its own entry, named by its label in the table of contents ("Communication Letter: Letter to the Dean"), in upload order.
+  3. For each project, by target date: a divider page (project name, date, location, beneficiaries), then Proposal → NOM → MOM → Communication Letter(s) → Attendance Sheet → other pre-event documents → ACR → Financial Report → the project's extra files (2C). Each letter and each other document is its own entry, named by its label in the table of contents ("Communication Letter: Letter to the Dean"), in upload order. Each extra file is its own entry named by its title ("Project file: Site visit photos"), in upload order; it never gets a "Not submitted" page.
 - Missing required documents get a placeholder page saying "Not submitted". NOM, MOM, Communication Letter and Attendance Sheet are listed only when ticked (or filed anyway); other pre-event documents only when there are some.
 - Cover and divider pages use one standard Orghive template, so every organization's report looks the same.
 - Generation runs as a background job. The officer is notified when it's ready to download. The result is archived as a document with `private` visibility by default.

@@ -3,6 +3,7 @@ import {
   paginate,
   partLabel,
   planReport,
+  PROJECT_FILE,
   reportTasks,
   TOC_ROWS_PER_PAGE,
   tocPageCount,
@@ -29,6 +30,7 @@ function project(overrides: Partial<ReportProject> = {}): ReportProject {
     communicationLetterRequired: false,
     attendanceSheetRequired: false,
     files: {},
+    extraFiles: [],
     ...overrides,
   };
 }
@@ -157,6 +159,37 @@ describe('planReport', () => {
     const { toc } = paginate(parts, () => 1);
     expect(toc.map((r) => r.label)).toContain('Communication Letter: Letter to the Dean');
     expect(partLabel('ATTENDANCE_SHEET')).toBe('Attendance Sheet');
+  });
+
+  it('puts a project’s extra files after its Financial Report, in order, never as missing', () => {
+    const { parts } = planReport([
+      project({
+        name: 'A',
+        targetDate: '2026-09-01',
+        files: { PROPOSAL: PDF, ACR: PDF, FINANCIAL_REPORT: PDF },
+        extraFiles: [letter('Site photos'), letter('Budget breakdown')],
+      }),
+      project({ name: 'B', targetDate: '2026-09-02', files: { PROPOSAL: PDF } }),
+    ]);
+    expect(parts.map(describePart)).toEqual([
+      'cover',
+      'toc',
+      'divider:A',
+      'file:A:PROPOSAL',
+      'file:A:ACR',
+      'file:A:FINANCIAL_REPORT',
+      `file:A:${PROJECT_FILE}`,
+      `file:A:${PROJECT_FILE}`,
+      'divider:B',
+      'file:B:PROPOSAL',
+      'missing:B:ACR',
+      'missing:B:FINANCIAL_REPORT',
+    ]);
+    const extras = parts.filter((p) => p.kind === 'file' && p.task === PROJECT_FILE);
+    expect(extras.map((p) => (p.kind === 'file' ? partLabel(p.task, p.file) : ''))).toEqual([
+      'Project file: Site photos',
+      'Project file: Budget breakdown',
+    ]);
   });
 
   it('is a cover and empty contents with no projects', () => {

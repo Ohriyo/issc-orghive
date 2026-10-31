@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { collegeListResponseSchema, type LeaderboardType, type SemesterKey } from '@orghive/shared';
+import { useDemoOrganizations } from '@/features/demo/presenters/use-demo-organizations';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -51,9 +52,15 @@ export type BoardState =
       note: string;
       /** Bumped on every live change to the Top 3: play the celebration. */
       bursts: number;
+      /** Someone on this board ranks with demo data: show the "Sample data" chip. */
+      sample: boolean;
     };
 
-function boardState(model: LeaderboardBoardModel, bursts: number): BoardState {
+function boardState(
+  model: LeaderboardBoardModel,
+  bursts: number,
+  demo: ReadonlySet<string>,
+): BoardState {
   if (model.status !== 'ready') return model;
   const { board } = model;
   return {
@@ -62,6 +69,7 @@ function boardState(model: LeaderboardBoardModel, bursts: number): BoardState {
     ...splitBoard(board.rows),
     note: scoringNote(board.latePoints),
     bursts,
+    sample: board.rows.some((row) => demo.has(row.organization.slug)),
   };
 }
 
@@ -76,11 +84,12 @@ function useBoardState(
   scope: string,
 ): BoardState {
   const model = useLeaderboardBoard(params, live);
+  const demo = useDemoOrganizations();
   const bursts = useTop3Celebrations(
     scope,
     model.status === 'ready' ? podiumSignature(model.board.rows) : null,
   );
-  return boardState(model, bursts);
+  return boardState(model, bursts, demo);
 }
 
 export interface HomeLeaderboardModel {

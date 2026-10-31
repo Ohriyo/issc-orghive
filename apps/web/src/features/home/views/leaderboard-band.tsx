@@ -1,11 +1,15 @@
 import { LEADERBOARD_TYPES, type LeaderboardType } from '@orghive/shared';
 import { Container } from '@/components/container';
 import { PillButton } from '@/components/pill-button';
+import { SampleDataChip } from '@/components/sample-data-chip';
 import { SectionError } from '@/components/section-error';
 import { OriginLink } from '@/navigation/origin-link';
 import { cn } from '@/lib/utils';
 import { BOARD_LABELS } from '@/features/leaderboard/presenters/leaderboard-model';
-import type { BoardState, HomeLeaderboardModel } from '@/features/leaderboard/presenters/use-leaderboard-views';
+import type {
+  BoardState,
+  HomeLeaderboardModel,
+} from '@/features/leaderboard/presenters/use-leaderboard-views';
 import { BoardEmpty, BoardSkeleton } from '@/features/leaderboard/views/board-states';
 import { Podium } from '@/features/leaderboard/views/podium';
 import { LiveIndicator } from '@/features/leaderboard/views/standing-marks';
@@ -61,7 +65,11 @@ export function LeaderboardBand({ model }: { model: HomeLeaderboardModel }) {
         {/* grid-cols-1: a shrinkable column, so the swipe row scrolls instead of widening it. */}
         <div className="mt-6 grid grid-cols-1 gap-x-12 lg:mt-12 lg:grid-cols-2">
           {LEADERBOARD_TYPES.map((type) => (
-            <div key={type} id={`top-${type}`} className={cn(model.shown !== type && 'max-lg:hidden')}>
+            <div
+              key={type}
+              id={`top-${type}`}
+              className={cn(model.shown !== type && 'max-lg:hidden')}
+            >
               <h3 className="text-center text-h3 font-semibold text-ink max-lg:sr-only">
                 {BOARD_LABELS[type].long}
               </h3>
@@ -93,11 +101,18 @@ function BandBoard({ type, board }: { type: LeaderboardType; board: BoardState }
   }
   if (board.podium.length === 0) return <BoardEmpty className="py-6" />;
   return (
-    <Podium
-      entries={board.podium}
-      label={`Top 3 ${BOARD_LABELS[type].long}`}
-      bursts={board.bursts}
-      className="mt-2"
-    />
+    <>
+      {board.sample ? (
+        <div className="mt-3 flex justify-center">
+          <SampleDataChip />
+        </div>
+      ) : null}
+      <Podium
+        entries={board.podium}
+        label={`Top 3 ${BOARD_LABELS[type].long}`}
+        bursts={board.bursts}
+        className="mt-2"
+      />
+    </>
   );
 }

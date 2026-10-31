@@ -49,5 +49,10 @@ export function createHandbookController(handbook: HandbookService) {
     res.json(await handbook.makeCurrent(actorOf(req, res), year, actingAs));
   };
 
-  return { current, editions, byYear, search, adminList, upload, makeCurrent };
+  const retryPreview: RequestHandler = async (req, res) => {
+    const { year } = handbookYearParamsSchema.parse(req.params);
+    res.json(await handbook.retryPreview(year));
+  };
+
+  return { current, editions, byYear, search, adminList, upload, makeCurrent, retryPreview };
 }

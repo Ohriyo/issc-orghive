@@ -143,7 +143,8 @@ const organizations: Record<string, OrganizationDetail> = {
     college: CEA_REF,
     mission:
       'To develop competent and socially responsible civil engineering students through academic enrichment, technical training and community engagement.',
-    vision: 'A community of future civil engineers who build safely, honestly and for the public good.',
+    vision:
+      'A community of future civil engineers who build safely, honestly and for the public good.',
     contactEmail: 'jpice@nwssu.edu.ph',
     links: [
       { url: 'https://www.facebook.com/jpice.nwssu', kind: 'facebook', label: 'Facebook' },
@@ -508,6 +509,8 @@ export const SIGNED_IN_ROUTES = [
   '/dashboard/projects?org=jpice',
   '/dashboard/projects/new?org=jpice',
   '/projects/0195f3c0-0000-7000-8000-0000000000c1',
+  // Adding a project's extra files (spec 2C).
+  '/projects/0195f3c0-0000-7000-8000-0000000000c1/files/upload',
   // After the event: the Financial Report's totals, a loss, under the ISSC's review.
   '/projects/0195f3c0-0000-7000-8000-0000000000c3',
   '/dashboard/appeals',
@@ -1106,6 +1109,17 @@ const PROJECT: ProjectDetail = {
       files: [],
     },
   ],
+  // An extra file outside the checklist (spec 2C).
+  files: [
+    {
+      document: {
+        id: '0195f3c0-0000-7000-8000-0000000000d7',
+        title: 'Site visit photos of the CEA Building',
+        status: 'available',
+        visibility: 'governing',
+      },
+    },
+  ],
   financialFigures: null,
 };
 
@@ -1475,6 +1489,8 @@ export async function stubApi(
         leaderboardOf(url.searchParams.get('type'), url.searchParams.get('college')),
       );
     }
+    // No demo data in the stubbed API: no "Sample data" chips.
+    if (path === '/demo-status') return json(route, { organizations: [] });
     if (path === '/leaderboard/stream') {
       return json(route, { error: { code: 'RATE_LIMITED', message: 'Polling instead' } }, 503);
     }
@@ -1534,7 +1550,13 @@ export async function stubApi(
               { text: ' on campus', match: false },
             ],
           },
-          { page: 3, snippet: [{ text: 'uniform', match: true }, { text: ' allowance', match: false }] },
+          {
+            page: 3,
+            snippet: [
+              { text: 'uniform', match: true },
+              { text: ' allowance', match: false },
+            ],
+          },
         ],
       } satisfies HandbookSearchResponse);
     }

@@ -1,12 +1,14 @@
 import type { Request, RequestHandler, Response } from 'express';
 import {
   correctFinancialFiguresRequestSchema,
+  createProjectFileRequestSchema,
   createProjectRequestSchema,
   projectIdParamsSchema,
   projectTaskParamsSchema,
   taskDocumentRequestSchemaFor,
   taskUploadUrlRequestSchema,
   updateProjectRequestSchema,
+  uploadUrlRequestSchema,
 } from '@orghive/shared';
 import { authOf, orgOf } from '#src/middleware/require-auth';
 import type { Actor } from '#src/services/document.service';
@@ -69,6 +71,21 @@ export function createProjectController(
       .json(await projects.submitTaskFile(actorOf(req, res), orgOf(res), projectId, type, body));
   };
 
+  /** Extra files outside the checklist (spec 2C). */
+  const fileUploadUrl: RequestHandler = async (req, res) => {
+    const { projectId } = projectIdParamsSchema.parse(req.params);
+    const body = uploadUrlRequestSchema.parse(req.body);
+    noStore(res);
+    res.status(201).json(await projects.fileUploadUrl(actorOf(req, res), orgOf(res), projectId, body));
+  };
+
+  const addFile: RequestHandler = async (req, res) => {
+    const { projectId } = projectIdParamsSchema.parse(req.params);
+    const body = createProjectFileRequestSchema.parse(req.body);
+    noStore(res);
+    res.status(201).json(await projects.addFile(actorOf(req, res), orgOf(res), projectId, body));
+  };
+
   const correctFigures: RequestHandler = async (req, res) => {
     const { projectId } = projectIdParamsSchema.parse(req.params);
     const body = correctFinancialFiguresRequestSchema.parse(req.body);
@@ -76,5 +93,15 @@ export function createProjectController(
     res.json(await figures.correct(actorOf(req, res), orgOf(res), projectId, body));
   };
 
-  return { list, create, get, update, taskUploadUrl, submitTaskFile, correctFigures };
+  return {
+    list,
+    create,
+    get,
+    update,
+    taskUploadUrl,
+    submitTaskFile,
+    fileUploadUrl,
+    addFile,
+    correctFigures,
+  };
 }

@@ -1,10 +1,18 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HandbookEditionList, HandbookResponse, HandbookSearchResponse } from '@orghive/shared';
 import { routes } from '@/app/router';
-import { activeEntryKey, flattenOutline, yearLabel } from './presenters/use-handbook';
+import { authStore } from '@/lib/auth-store';
+import { accountSession } from '@/test/accounts';
+import {
+  activeEntryKey,
+  flattenOutline,
+  NOTHING_YET_POLL_MS,
+  pollWhileNothing,
+  yearLabel,
+} from './presenters/use-handbook';
 import { toEditionCard } from './presenters/use-handbook-editions';
 
 const DOCUMENT_ID = '0195f3c0-0000-7000-8000-0000000000d1';
@@ -40,9 +48,15 @@ describe('handbook shaping', () => {
     expect(activeEntryKey(entries, 30)).toBe('1.0');
   });
 
-  it('opens the current edition at /handbook and past ones by year', () => {
-    expect(toEditionCard({ ...EDITION }).href).toBe('/handbook');
+  it('opens every edition by its year, the current one too', () => {
+    expect(toEditionCard({ ...EDITION }).href).toBe('/handbook/2026-2027');
     expect(toEditionCard({ ...EDITION, isCurrent: false }).href).toBe('/handbook/2026-2027');
+  });
+
+  it('looks again while no edition is readable, and stops once one is', () => {
+    expect(pollWhileNothing({ state: { data: { edition: null } } })).toBe(NOTHING_YET_POLL_MS);
+    expect(pollWhileNothing({ state: { data: { edition: EDITION } } })).toBe(false);
+    expect(pollWhileNothing({ state: {} })).toBe(false);
   });
 });
 
@@ -55,13 +69,27 @@ function json(body: unknown, status = 200) {
   );
 }
 
-function serve(edition: HandbookResponse['edition'] = EDITION) {
-  fetchMock.mockImplementation((input) => {
+const PAST: NonNullable<HandbookResponse['edition']> = {
+  ...EDITION,
+  academicYear: '2025-2026',
+  isCurrent: false,
+  outline: null,
+};
+
+function serve(
+  edition: HandbookResponse['edition'] = EDITION,
+  viewerStatus: 'pending' | 'failed' = 'pending',
+) {
+  fetchMock.mockImplementation((input, init) => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, 'http://localhost');
     const path = url.pathname.replace(/^\/api\/v1/, '');
-    asked.push(`${path}${url.search}`);
+    const method = init?.method ?? 'GET';
+    asked.push(`${method === 'GET' ? '' : `${method} `}${path}${url.search}`);
+    if (path === '/auth/refresh') return json(accountSession('issc'));
     if (path === '/handbook') return json({ edition } satisfies HandbookResponse);
+    if (path === '/handbook/2025-2026') return json({ edition: PAST } satisfies HandbookResponse);
+    if (path === '/admin/handbook/2026-2027/preview/retry') return json({ editions: [] });
     if (path === '/handbook/search') {
       return json({
         query: url.searchParams.get('q') ?? '',
@@ -79,7 +107,7 @@ function serve(edition: HandbookResponse['edition'] = EDITION) {
     if (path === `/documents/${DOCUMENT_ID}/viewer`) {
       return json({
         versionId: EDITION.versionId,
-        status: 'pending',
+        status: viewerStatus,
         pages: [],
         totalPages: 0,
         token: null,
@@ -108,6 +136,7 @@ beforeEach(() => {
 afterEach(() => {
   fetchMock.mockReset();
   vi.unstubAllGlobals();
+  authStore.reset();
 });
 
 describe('/handbook', () => {
@@ -152,10 +181,46 @@ describe('/handbook', () => {
     serve();
     renderAt('/handbook/editions');
     const current = await screen.findByRole('link', { name: /2026–2027\s*Current edition, 40 pages/ });
-    expect(current).toHaveAttribute('href', '/handbook');
+    expect(current).toHaveAttribute('href', '/handbook/2026-2027');
     expect(screen.getByRole('link', { name: /2025–2026\s*Past edition, 36 pages/ })).toHaveAttribute(
       'href',
       '/handbook/2025-2026',
     );
+  });
+
+  it('always asks the server, never the browser cache', async () => {
+    serve();
+    renderAt('/handbook');
+    await screen.findByRole('heading', { level: 1, name: 'Student Handbook' });
+    const handbookCall = fetchMock.mock.calls.find(
+      ([input]) => typeof input === 'string' && input.endsWith('/handbook'),
+    );
+    expect(handbookCall?.[1]).toMatchObject({ cache: 'no-cache' });
+  });
+
+  it('marks a past edition and links to the current one', async () => {
+    serve();
+    renderAt('/handbook/2025-2026');
+    expect(await screen.findByText('Past edition')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View current edition' })).toHaveAttribute('href', '/handbook');
+  });
+
+  it('says the pages are being prepared while the worker renders them', async () => {
+    serve();
+    renderAt('/handbook');
+    expect(await screen.findByText('Preparing pages…')).toBeInTheDocument();
+  });
+
+  it('lets only the ISSC account retry pages that could not be prepared', async () => {
+    serve(EDITION, 'failed');
+    renderAt('/handbook');
+    expect(await screen.findByText('No preview for this file')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry rendering' })).not.toBeInTheDocument();
+    cleanup();
+
+    authStore.setSession(accountSession('issc'));
+    renderAt('/handbook');
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry rendering' }));
+    await waitFor(() => expect(asked).toContain('POST /admin/handbook/2026-2027/preview/retry'));
   });
 });

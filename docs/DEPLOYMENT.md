@@ -3,6 +3,34 @@
 What a production host must set up beyond `docker compose` and the env files. See also
 `docs/SECURITY_HEADERS.md` ("Still to do at deployment").
 
+## Pre-deployment checklist
+
+1. **Remove demo data:** `pnpm --filter api db:unseed:demo`, then confirm the super admin
+   banner ("Demo data present — remove before deployment") is gone from `/system`.
+2. Work through `docs/SECURITY_HEADERS.md`, "Still to do at deployment".
+3. Set up the reverse proxy for the live leaderboard (below).
+
+## Demo data
+
+`pnpm --filter api db:seed:demo` fills empty features with sample activity on the seeded
+organizations, for development and demos: completed projects that rank ASIT, TAG and ISO
+#1 to #3 (through the real ranking rules), CEA SBOs and five CSCs below them, blocked and
+frozen projects with appeals, announcements and notifications. Dates follow the current
+semester. It is idempotent and needs the normal seed first. Its rules and data are in
+`apps/api/src/services/demo-rules.ts`.
+
+- Every demo row has `is_demo = true`; demo files are stored under `demo/` (generated PDFs
+  watermarked "SAMPLE — DEMO DATA", `apps/api/prisma/seed/demo-assets/`). The normal seed
+  never creates any.
+- Public pages showing it carry a small "Sample data" chip (`SHOW_DEMO_BADGE`, default true).
+- `pnpm --filter api db:unseed:demo`, or **Remove demo data** in the `/system` banner (a
+  preview, then a step-up code), deletes every demo row and file, plus what the app derived
+  from them (notifications and audit entries about demo projects, standings computed while
+  demo data existed, their page images). Real rows are never touched.
+- In production the API and worker **refuse to start** while any demo row exists, unless
+  `ALLOW_DEMO_DATA=true` is set explicitly. CI checks that the normal seed creates none
+  (`pnpm --filter api check:no-demo`).
+
 ## Live leaderboard (Server-Sent Events)
 
 `GET /api/v1/leaderboard/stream` keeps one HTTP response open per viewer and writes an event

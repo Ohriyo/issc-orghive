@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEMO_DATA_KINDS } from '@orghive/shared';
 import type {
   AccountRequestSummary,
   AdminOrganizationTree,
@@ -216,6 +217,13 @@ let delivery:
 const fetchMock = vi.fn<typeof fetch>();
 const calls: { method: string; path: string; body: unknown }[] = [];
 let stepUpDone = false;
+/** Demo data rows the console's banner reports (0: no banner). */
+let demoProjects = 0;
+const demoCounts = (projects: number) => ({
+  ...Object.fromEntries(DEMO_DATA_KINDS.map((kind) => [kind, 0])),
+  projects,
+  appeals: projects > 0 ? 4 : 0,
+});
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(
@@ -353,6 +361,16 @@ function serve(refresh: AuthResponse = session()) {
     if (path === '/system/test-data/delete') {
       return stepUpDone ? json({ deleted: 2 }) : stepUpRequired();
     }
+    if (path === '/system/demo-data') {
+      const counts = demoCounts(demoProjects);
+      return json({ total: Object.values(counts).reduce((a, b) => a + b, 0), counts });
+    }
+    if (path === '/system/demo-data/delete') {
+      if (!stepUpDone) return stepUpRequired();
+      const removed = demoCounts(demoProjects);
+      demoProjects = 0;
+      return json({ removed, files: 3 });
+    }
     if (path === '/system/step-up') {
       stepUpDone = true;
       return json({ stepUpExpiresAt: NOW });
@@ -387,6 +405,7 @@ function renderAt(url: string, signedIn: AuthResponse | null = session()) {
 beforeEach(() => {
   calls.length = 0;
   stepUpDone = false;
+  demoProjects = 0;
   delivery = { kind: 'reveal', expiresAt: '2026-10-26T08:00:00.000Z' };
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -691,6 +710,38 @@ describe('/system', () => {
         [{ expectedCount: 2 }, { expectedCount: 2 }],
       ),
     );
+  });
+
+  it('warns of demo data on every page, and removes it after a preview and a step-up', async () => {
+    demoProjects = 8;
+    serve();
+    renderAt('/system/overview');
+    const banner = await screen.findByRole('region', {
+      name: 'Demo data present — remove before deployment',
+    });
+    expect(within(banner).getByText(/12 demo rows: 8 projects, 4 appeals/)).toBeInTheDocument();
+    fireEvent.click(within(banner).getByRole('button', { name: 'Remove demo data' }));
+    const confirm = await screen.findByRole('alertdialog', { name: 'Remove 12 demo rows?' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Remove demo data' }));
+    await enterStepUp();
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path === '/system/demo-data/delete').map((c) => c.body)).toEqual(
+        [{ expectedTotal: 12 }, { expectedTotal: 12 }],
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('region', { name: 'Demo data present — remove before deployment' }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('shows no demo data banner when there is none', async () => {
+    serve();
+    renderAt('/system/overview');
+    expect(await screen.findByRole('heading', { name: 'Overview', level: 1 })).toBeInTheDocument();
+    await waitFor(() => expect(calls.some((c) => c.path === '/system/demo-data')).toBe(true));
+    expect(screen.queryByRole('region', { name: /Demo data present/ })).not.toBeInTheDocument();
   });
 
   it('lists audit events with their details', async () => {

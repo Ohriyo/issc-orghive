@@ -31,11 +31,16 @@ function formatSize(bytes: number): string {
     : `${sizeFormat.format(bytes / 1024 / 1024)} MB`;
 }
 
-/** /orgs/:slug/paperworks/upload: add one or more files to an organization's Paperworks. */
+/**
+ * /orgs/:slug/paperworks/upload: add one or more files to an organization's Paperworks; and
+ * /projects/:id/files/upload: the same, as a project's extra files (spec 2C).
+ */
 export function UploadView(props: UploadViewProps) {
+  const heading =
+    props.status === 'ready' && props.project ? 'Add project files' : 'Upload Paperworks';
   return (
     <div className="min-h-page">
-      <title>Upload Paperworks | Orghive</title>
+      <title>{`${heading} | Orghive`}</title>
       <Container as="main" className="max-w-4xl pt-4 pb-section lg:pt-6">
         {props.status === 'ready' ? (
           <UploadForm {...props} />
@@ -66,7 +71,7 @@ export function UploadView(props: UploadViewProps) {
 }
 
 function UploadForm(model: UploadModel) {
-  const { org, items, rejected, isUploading, allDone } = model;
+  const { org, project, items, rejected, isUploading, allDone } = model;
   const done = items.filter((item) => item.status === 'done').length;
   const failed = items.filter((item) => item.status === 'error').length;
   const rootError = model.form.formState.errors.documents?.root?.message;
@@ -81,11 +86,18 @@ function UploadForm(model: UploadModel) {
         description="The files you added have not been uploaded yet. If you leave now they will not be saved."
       />
       <header>
-        <h1 className="text-h1 font-bold text-ink">Upload Paperworks</h1>
-        <p className="mt-2 text-lead text-ink">{org.name}</p>
+        <h1 className="text-h1 font-bold text-ink">
+          {project ? 'Add project files' : 'Upload Paperworks'}
+        </h1>
+        <p className="mt-2 text-lead text-pretty break-words text-ink">
+          {project ? project.name : org.name}
+        </p>
         <p className="mt-4 max-w-prose text-body text-ink-muted">
-          Each file becomes its own document. Only you see it while its virus scan runs; then it is
-          shared with whoever you choose below. You can change that at any time.
+          {project
+            ? `Files for this project outside its checklist, such as photos, a budget breakdown or a venue reservation. Each becomes its own document in ${org.acronym}'s Paperworks and appears in the Semestral End Report after the project's Financial Report. `
+            : 'Each file becomes its own document. '}
+          Only you see it while its virus scan runs; then it is shared with whoever you choose
+          below. You can change that at any time.
         </p>
       </header>
 

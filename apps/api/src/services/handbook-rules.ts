@@ -29,3 +29,39 @@ export function makeCurrentRefusal(edition: EditionState | null): string | null 
 export function handbookFileRefusal(mimeType: string): string | null {
   return mimeType === 'application/pdf' ? null : 'uploadKey: The Student Handbook must be a PDF';
 }
+
+export interface ReadableEdition {
+  academicYear: string;
+  /** The ISSC account marked it current. */
+  isCurrent: boolean;
+  /** When the edition was first uploaded. */
+  createdAt: Date;
+}
+
+/**
+ * The edition readers see as current, among the readable ones: the one the ISSC account
+ * marked, else (the marked one is still being checked, or was refused) the most recently
+ * uploaded. Null only when no edition is readable at all.
+ */
+export function readersCurrentYear(readable: ReadableEdition[]): string | null {
+  const marked = readable.find((e) => e.isCurrent);
+  if (marked) return marked.academicYear;
+  const latest = [...readable].sort(
+    (a, b) =>
+      b.createdAt.getTime() - a.createdAt.getTime() || b.academicYear.localeCompare(a.academicYear),
+  )[0];
+  return latest?.academicYear ?? null;
+}
+
+/** Why an edition's pages cannot be rendered again, or null when they can (only after a failure). */
+export function retryPreviewRefusal(
+  version: { scanStatus: string; previewStatus: string } | null,
+): string | null {
+  if (!version) return 'There is no edition for that academic year';
+  if (version.scanStatus !== 'clean') {
+    return 'This edition is still being checked. Its pages are prepared once its file passes the virus scan.';
+  }
+  if (version.previewStatus === 'pending') return 'The pages are already being prepared';
+  if (version.previewStatus === 'ready') return 'The pages are already ready';
+  return null;
+}

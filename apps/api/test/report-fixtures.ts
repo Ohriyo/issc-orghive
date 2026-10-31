@@ -108,6 +108,8 @@ export async function seedReportProject(
     files?: Partial<Record<ProjectTaskType, FixtureName>>;
     /** Labelled files of multi-file tasks (letters, other pre-event documents), in order. */
     labelled?: { task: ProjectTaskType; label: string; file: FixtureName }[];
+    /** Extra files outside the checklist (spec 2C), in order. */
+    extra?: { title: string; file: FixtureName }[];
   },
 ) {
   const projects = createProjectRepository(db);
@@ -140,13 +142,17 @@ export async function seedReportProject(
   const project = await projects.create(fields, plan);
   const type = await db.documentType.findUniqueOrThrow({ where: { slug: 'project-proposal' } });
   /** A clean, available document holding the fixture. */
-  async function fixtureDocument(task: ProjectTaskType, name: FixtureName) {
+  async function fixtureDocument(
+    task: ProjectTaskType | 'extra',
+    name: FixtureName,
+    title?: string,
+  ) {
     const fixture = FIXTURE_FILES[name];
     const doc = await db.document.create({
       data: {
         organizationId: input.organizationId,
         typeId: type.id,
-        title: `${input.name} ${task}`,
+        title: title ?? `${input.name} ${task}`,
         academicYear: '2026-2027',
         status: 'available',
         visibility: 'private',
@@ -178,6 +184,10 @@ export async function seedReportProject(
   for (const { task, label, file } of input.labelled ?? []) {
     await projects.addTaskFile(project.id, task, await fixtureDocument(task, file), label);
     // Files added one after another keep their order (created_at has millisecond precision).
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  for (const { title, file } of input.extra ?? []) {
+    await projects.addProjectFile(project.id, await fixtureDocument('extra', file, title));
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   return project;

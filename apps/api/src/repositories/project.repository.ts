@@ -51,6 +51,14 @@ export const projectSelect = {
       },
     },
   },
+  /**
+   * Extra files outside the checklist (spec 2C), oldest first. What a viewer may see of
+   * them goes through the document repository's visibility filter.
+   */
+  extraFiles: {
+    orderBy: { createdAt: 'asc' },
+    select: { documentId: true },
+  },
   /** The Financial Report's totals (spec 5D). */
   figures: { select: figuresSelect },
 } satisfies Prisma.ProjectSelect;
@@ -234,6 +242,11 @@ export function createProjectRepository(db: Db) {
         create: { projectId, type, status: 'open', files: { create: { documentId, label } } },
         update: { files: { create: { documentId, label } } },
       });
+    },
+
+    /** Links a new Paperworks document to the project as an extra file (spec 2C). */
+    async addProjectFile(projectId: string, documentId: string): Promise<void> {
+      await db.projectFile.create({ data: { projectId, documentId } });
     },
 
     /** The project a document is a task file of (one-file or multi-file task), if any. */

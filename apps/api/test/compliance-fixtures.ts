@@ -102,6 +102,7 @@ export function fakeStorage(db: Db): Storage {
     copy: () => Promise.resolve(),
     move: () => Promise.resolve(),
     delete: () => Promise.resolve(),
+    list: () => Promise.resolve([]),
   };
 }
 

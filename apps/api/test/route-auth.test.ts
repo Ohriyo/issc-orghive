@@ -100,6 +100,8 @@ const PUBLIC: Record<string, string> = {
   'get /api/v1/announcements/:announcementId': 'updates are public (DOMAIN_RULES.md)',
   'get /api/v1/leaderboard': 'leaderboard is public (spec 5F); public fields only',
   'get /api/v1/leaderboard/stream': 'live leaderboard (SSE), public fields only; capped per IP',
+  'get /api/v1/demo-status':
+    'which public pages show demo data ("Sample data" chip); organization slugs only',
 };
 
 const UUID = '0199f0a0-0000-7000-8000-000000000001';

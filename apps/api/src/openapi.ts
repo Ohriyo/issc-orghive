@@ -1,5 +1,6 @@
 import { createDocument } from 'zod-openapi';
 import {
+  demoStatusSchema,
   apiErrorBodySchema,
   collegeDetailSchema,
   collegeListResponseSchema,
@@ -223,6 +224,20 @@ export function createOpenApiDocument(): ReturnType<typeof createDocument> {
             },
             '400': { description: 'Invalid query', content: json(apiErrorBodySchema) },
             '429': { description: 'Too many open streams', content: json(apiErrorBodySchema) },
+          },
+        },
+      },
+      '/demo-status': {
+        get: {
+          summary: 'Organizations whose public pages show demo data ("Sample data" chip)',
+          tags: ['Public'],
+          responses: {
+            '200': {
+              description: 'OK',
+              headers: publicCacheHeaders,
+              content: json(demoStatusSchema),
+            },
+            '304': { description: 'Not modified (ETag matched)' },
           },
         },
       },

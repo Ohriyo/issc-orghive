@@ -51,6 +51,15 @@ export function projectsRouter({ projects, figures, access, tokens }: ProjectsRo
     requireActiveOrg,
     controller.submitTaskFile,
   );
+  // Extra files outside the checklist (spec 2C): any phase, whatever the checklist's state.
+  router.post(
+    '/projects/:projectId/files/upload-url',
+    auth,
+    requireOwnOrg,
+    requireActiveOrg,
+    controller.fileUploadUrl,
+  );
+  router.post('/projects/:projectId/files', auth, requireOwnOrg, requireActiveOrg, controller.addFile);
   router.patch(
     '/projects/:projectId/financial-figures',
     auth,

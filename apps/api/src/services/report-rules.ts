@@ -3,7 +3,7 @@ import { PROJECT_TASK_LABELS, type ProjectTaskType } from '@orghive/shared';
 /**
  * The order every project's files appear in (docs/PROJECT_WORKFLOW_SPEC.md, section 4):
  * Proposal → NOM → MOM → Communication Letter(s) → Attendance Sheet → other pre-event
- * documents → ACR → Financial Report.
+ * documents → ACR → Financial Report, then the project's extra files (PROJECT_FILE).
  */
 export const REPORT_TASK_ORDER: readonly ProjectTaskType[] = [
   'PROPOSAL',
@@ -15,6 +15,10 @@ export const REPORT_TASK_ORDER: readonly ProjectTaskType[] = [
   'ACR',
   'FINANCIAL_REPORT',
 ];
+
+/** An extra file outside the checklist (spec 2C): a report part, not a task. */
+export const PROJECT_FILE = 'PROJECT_FILE';
+export type ReportTask = ProjectTaskType | typeof PROJECT_FILE;
 
 /** Table-of-contents rows per page; the template is laid out for exactly this many. */
 export const TOC_ROWS_PER_PAGE = 24;
@@ -43,6 +47,8 @@ export interface ReportProject {
    * Communication Letters and other pre-event documents.
    */
   files: Partial<Record<ProjectTaskType, ReportFile[]>>;
+  /** Clean, undeleted extra files (spec 2C), oldest first, each labelled with its title. */
+  extraFiles: ReportFile[];
 }
 
 /** One part of the report, in order. Generated parts come from the HTML template. */
@@ -50,7 +56,7 @@ export type ReportPart =
   | { kind: 'cover' }
   | { kind: 'toc' }
   | { kind: 'divider'; project: ReportProject }
-  | { kind: 'file'; project: ReportProject; task: ProjectTaskType; file: ReportFile }
+  | { kind: 'file'; project: ReportProject; task: ReportTask; file: ReportFile }
   | { kind: 'missing'; project: ReportProject; task: ProjectTaskType };
 
 /**
@@ -72,14 +78,16 @@ export function reportTasks(project: ReportProject): ProjectTaskType[] {
 }
 
 /** How a part is named in the contents and on its placeholder page. */
-export function partLabel(task: ProjectTaskType, file?: ReportFile): string {
+export function partLabel(task: ReportTask, file?: ReportFile): string {
+  if (task === PROJECT_FILE) return `Project file: ${file?.label ?? 'Untitled'}`;
   return file?.label ? `${PROJECT_TASK_LABELS[task]}: ${file.label}` : PROJECT_TASK_LABELS[task];
 }
 
 /**
  * The fixed order of section 4: a cover, the table of contents, then for each project by
  * target date (then name) a divider and its files in REPORT_TASK_ORDER (each letter on its
- * own), with a "Not submitted" placeholder for each missing required one.
+ * own), with a "Not submitted" placeholder for each missing required one, then its extra
+ * files (never missing: they are optional).
  */
 export function planReport(projects: readonly ReportProject[]): {
   projects: ReportProject[];
@@ -98,6 +106,9 @@ export function planReport(projects: readonly ReportProject[]): {
       const files = project.files[task] ?? [];
       if (files.length === 0) parts.push({ kind: 'missing', project, task });
       for (const file of files) parts.push({ kind: 'file', project, task, file });
+    }
+    for (const file of project.extraFiles) {
+      parts.push({ kind: 'file', project, task: PROJECT_FILE, file });
     }
   }
   return { projects: sorted, parts };

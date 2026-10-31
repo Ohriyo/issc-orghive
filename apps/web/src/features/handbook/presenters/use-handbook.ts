@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import {
+  adminHandbookResponseSchema,
   downloadUrlResponseSchema,
   HANDBOOK_SEARCH_MIN,
   handbookResponseSchema,
@@ -20,6 +21,19 @@ import { queryKeys } from '@/lib/query-keys';
 
 const FIVE_MINUTES = 5 * 60_000;
 const SEARCH_DELAY_MS = 250;
+/** While no edition is readable yet (the first one is in its virus scan), look again this often. */
+export const NOTHING_YET_POLL_MS = 15_000;
+
+/**
+ * Handbook reads always ask the server, which answers 304 when nothing changed. The browser's
+ * own HTTP cache (the public max-age) would otherwise hand back "no edition yet" for minutes
+ * after one is published, even on reload.
+ */
+export const REVALIDATE = { cache: 'no-cache' } as const satisfies RequestInit;
+
+/** Polls a "no edition yet" answer until an edition is readable. */
+export const pollWhileNothing = (q: { state: { data?: { edition: unknown } } }) =>
+  q.state.data?.edition === null ? NOTHING_YET_POLL_MS : false;
 
 /** "2026-2027" → "2026–2027", as the year is written for reading. */
 export function yearLabel(academicYear: string): string {
@@ -93,7 +107,15 @@ export type HandbookModel =
       /** The ISSC account only (the owner): saves the original PDF. Null for everyone else. */
       download: (() => void) | null;
       downloadError: string | undefined;
+      /** The ISSC account only, when the pages could not be prepared: queues them again. */
+      retryRendering: RetryRendering | null;
     };
+
+export interface RetryRendering {
+  run: () => void;
+  busy: boolean;
+  error: string | undefined;
+}
 
 /**
  * /handbook (the current edition) and /handbook/:year: the watermarked pages, the contents
@@ -109,6 +131,9 @@ export function useHandbook(year: string | null): HandbookModel {
   const [currentPage, setCurrentPage] = useState(1);
   const [query, setQuery] = useState(params.get('q') ?? '');
   const [downloadError, setDownloadError] = useState<string>();
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string>();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   // The handbook is the ISSC's document: its account is the one owner who may download it.
   const isOwner = user?.organization?.type === 'ISSC';
@@ -122,8 +147,12 @@ export function useHandbook(year: string | null): HandbookModel {
   const editionQuery = useQuery({
     queryKey: queryKeys.handbook.edition(year),
     queryFn: () =>
-      api.get(year ? `/handbook/${year}` : '/handbook', { schema: handbookResponseSchema }),
+      api.get(year ? `/handbook/${year}` : '/handbook', {
+        schema: handbookResponseSchema,
+        ...REVALIDATE,
+      }),
     staleTime: FIVE_MINUTES,
+    refetchInterval: pollWhileNothing,
   });
   const edition = editionQuery.data?.edition ?? null;
   const pages = useDocumentPages(edition?.documentId ?? '');
@@ -194,5 +223,34 @@ export function useHandbook(year: string | null): HandbookModel {
         }
       : null,
     downloadError,
+    retryRendering:
+      isOwner && pages.status === 'unavailable'
+        ? {
+            run: () => {
+              setRetrying(true);
+              setRetryError(undefined);
+              api
+                .post(`/admin/handbook/${edition.academicYear}/preview/retry`, undefined, {
+                  schema: adminHandbookResponseSchema,
+                })
+                .then(() =>
+                  Promise.all([
+                    queryClient.invalidateQueries({ queryKey: ['documents', 'viewer', edition.documentId] }),
+                    queryClient.invalidateQueries({ queryKey: queryKeys.handbook.all }),
+                  ]),
+                )
+                .catch((error: unknown) =>
+                  setRetryError(
+                    error instanceof ApiError && error.status === 409
+                      ? error.message
+                      : 'The pages could not be queued again. Try again in a moment.',
+                  ),
+                )
+                .finally(() => setRetrying(false));
+            },
+            busy: retrying,
+            error: retryError,
+          }
+        : null,
   };
 }

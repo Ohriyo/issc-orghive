@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Dialog } from 'radix-ui';
-import { Download, ListTree, X } from 'lucide-react';
+import { Download, ListTree, RotateCw, X } from 'lucide-react';
 import { Container } from '@/components/container';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
@@ -109,9 +109,9 @@ function Reader({ model }: { model: Ready }) {
           role="status"
           className="mt-6 max-w-prose rounded-2xl bg-caution-surface px-5 py-4 text-body text-caution"
         >
-          This is an earlier edition, kept for reference.{' '}
+          <strong className="font-semibold">Past edition</strong> — kept for reference.{' '}
           <OriginLink to="/handbook" className={LINK}>
-            Read the current edition
+            View current edition
           </OriginLink>
         </p>
       ) : null}
@@ -168,6 +168,10 @@ function Reader({ model }: { model: Ready }) {
           title={`the Student Handbook ${model.yearLabel}`}
           jumpTo={model.jump}
           onPageChange={model.onPageChange}
+          preparingTitle="Preparing pages…"
+          unavailableAction={
+            model.retryRendering ? <RetryRenderingButton retry={model.retryRendering} /> : null
+          }
         />
       </div>
       {model.download ? (
@@ -184,5 +188,22 @@ function Reader({ model }: { model: Ready }) {
         </div>
       ) : null}
     </>
+  );
+}
+
+/** The ISSC account's way out when the pages could not be prepared: queue them again. */
+function RetryRenderingButton({ retry }: { retry: NonNullable<Ready['retryRendering']> }) {
+  return (
+    <div className="mt-3 flex flex-col items-center gap-2">
+      <PillButton variant="light" onClick={retry.run} disabled={retry.busy}>
+        <RotateCw aria-hidden="true" className={retry.busy ? 'animate-spin motion-reduce:animate-none' : undefined} />
+        {retry.busy ? 'Queuing…' : 'Retry rendering'}
+      </PillButton>
+      {retry.error ? (
+        <p role="alert" className="text-small font-medium text-destructive">
+          {retry.error}
+        </p>
+      ) : null}
+    </div>
   );
 }

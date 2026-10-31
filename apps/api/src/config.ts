@@ -97,6 +97,14 @@ const envSchema = z
      */
     CHROMIUM_EXECUTABLE_PATH: z.string().min(1).optional(),
 
+    /** Demo data (db:seed:demo): public pages showing it carry a "Sample data" chip. */
+    SHOW_DEMO_BADGE: z.stringbool().default(true),
+    /**
+     * In production the API and worker refuse to start while demo data exists. Set true only
+     * to start anyway, on purpose (docs/DEPLOYMENT.md, "Demo data").
+     */
+    ALLOW_DEMO_DATA: z.stringbool().default(false),
+
     SMTP_HOST: z.string().min(1),
     SMTP_PORT: z.coerce.number().int().min(1).max(65535),
     SMTP_FROM: z.email(),

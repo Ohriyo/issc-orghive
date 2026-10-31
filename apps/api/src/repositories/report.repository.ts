@@ -58,6 +58,19 @@ const reportProjectSelect = {
       },
     },
   },
+  // Extra files outside the checklist (spec 2C), oldest first, after the Financial Report.
+  extraFiles: {
+    where: { document: filedDocument },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      document: {
+        select: {
+          title: true,
+          currentVersion: { select: { storageKey: true, mimeType: true, scanStatus: true } },
+        },
+      },
+    },
+  },
 } satisfies Prisma.ProjectSelect;
 
 export type ReportProjectRecord = Prisma.ProjectGetPayload<{ select: typeof reportProjectSelect }>;

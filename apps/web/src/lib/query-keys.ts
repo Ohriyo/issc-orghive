@@ -80,6 +80,7 @@ export const queryKeys = {
     organizations: ['system', 'organizations'] as const,
     supportDocuments: (slug: string) => ['system', 'support', slug] as const,
     testData: ['system', 'test-data'] as const,
+    demoData: ['system', 'demo-data'] as const,
   },
   /**
    * The public leaderboard (docs/PROJECT_WORKFLOW_SPEC.md, section 5). `semester` is
@@ -102,6 +103,8 @@ export const queryKeys = {
   notifications: ['me', 'notifications'] as const,
   notificationCenter: (show: 'all' | 'unread') => ['me', 'notifications', 'center', show] as const,
   notificationPreferences: ['me', 'notification-preferences'] as const,
+  /** GET /demo-status: organizations whose pages show demo data ("Sample data" chip). */
+  demoStatus: ['demo-status'] as const,
   /** GET /me/leaderboard: the dashboard's rank card. Under 'me', with the dashboard. */
   myStanding: ['me', 'leaderboard'] as const,
 };

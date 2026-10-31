@@ -125,6 +125,7 @@ const READY: Extract<BoardState, { status: 'ready' }> = {
   ...splitBoard([lbRow('iecep', 1), lbRow('psme', 2), lbRow('jpice', 3), lbRow('uapsa', 4)]),
   note: 'Ranked by points (1 per implemented project, 0.5 if any of its reports was late), then by net profit reported in submitted Financial Reports.',
   bursts: 0,
+  sample: false,
 };
 
 describe('LeaderboardView', () => {
@@ -139,6 +140,14 @@ describe('LeaderboardView', () => {
       screen.getByRole('list', { name: 'Student Body Organizations ranked 4 and below' }),
     ).toBeInTheDocument();
     expect(screen.getByText(READY.note)).toBeInTheDocument();
+  });
+
+  it('says "Sample data" only on a board with demo data', () => {
+    const { unmount } = inRouter(<LeaderboardView model={page({ ...READY, sample: true })} />);
+    expect(screen.getByText('Sample data')).toBeInTheDocument();
+    unmount();
+    inRouter(<LeaderboardView model={page(READY)} />);
+    expect(screen.queryByText('Sample data')).not.toBeInTheDocument();
   });
 
   it('switches boards with the SBO and CSC tabs (no combined board)', () => {
@@ -220,6 +229,14 @@ describe('LeaderboardBand', () => {
       'href',
       '/leaderboard',
     );
+    expect(screen.queryByText('Sample data')).not.toBeInTheDocument();
+  });
+
+  it('marks a podium of demo data with the "Sample data" chip', () => {
+    inRouter(
+      <LeaderboardBand model={band({ boards: { SBO: { ...READY, sample: true }, CSC: READY } })} />,
+    );
+    expect(screen.getAllByText('Sample data')).toHaveLength(1);
   });
 });
 

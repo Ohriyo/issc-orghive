@@ -4,6 +4,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   NotFound,
   PutObjectCommand,
   S3Client,
@@ -43,6 +44,8 @@ export interface Storage {
   /** Copies then deletes (S3 has no rename). */
   move(from: string, to: string): Promise<void>;
   delete(key: string): Promise<void>;
+  /** Every key under a prefix, e.g. `demo/`. Only the demo data's removal lists objects. */
+  list(prefix: string): Promise<string[]>;
 }
 
 type StorageConfig = Pick<
@@ -151,6 +154,19 @@ export function createS3Storage(config: StorageConfig): Storage {
 
     async delete(key) {
       await s3.send(new DeleteObjectCommand({ Bucket, Key: key }));
+    },
+
+    async list(prefix) {
+      const keys: string[] = [];
+      let token: string | undefined;
+      do {
+        const res = await s3.send(
+          new ListObjectsV2Command({ Bucket, Prefix: prefix, ContinuationToken: token }),
+        );
+        for (const object of res.Contents ?? []) if (object.Key) keys.push(object.Key);
+        token = res.IsTruncated ? res.NextContinuationToken : undefined;
+      } while (token);
+      return keys;
     },
   };
 }

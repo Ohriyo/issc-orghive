@@ -65,6 +65,7 @@ export function adminRouter({
   router.get('/handbook', handbookController.adminList);
   router.post('/handbook', handbookController.upload);
   router.put('/handbook/:year/current', handbookController.makeCurrent);
+  router.post('/handbook/:year/preview/retry', handbookController.retryPreview);
   router.get('/financial-figures', figuresController.list);
   router.put('/projects/:projectId/financial-figures/flag', figuresController.flag);
   router.delete('/projects/:projectId/financial-figures/flag', figuresController.clearFlag);

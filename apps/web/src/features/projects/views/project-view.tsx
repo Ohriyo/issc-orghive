@@ -5,6 +5,7 @@ import {
   Check,
   CheckCircle2,
   Circle,
+  FilePlus,
   FileUp,
   Lock,
   SearchCheck,
@@ -131,8 +132,54 @@ function ProjectDetails({
           />
         ))}
       </ol>
+      <ProjectFiles project={project} />
       {appeals}
     </article>
+  );
+}
+
+/**
+ * Extra files outside the checklist (spec 2C): any number, any phase, each a Paperworks
+ * document with its own details. The organization's own account adds them.
+ */
+function ProjectFiles({ project }: { project: ProjectPageModel }) {
+  return (
+    <section aria-labelledby="project-files-heading" className="mt-12">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0 max-w-prose">
+          <h2 id="project-files-heading" className="text-h2 font-bold text-ink">
+            Project files
+          </h2>
+          <p className="mt-1 text-small text-ink-muted">
+            Other files for this project, outside the checklist. They appear in the Semestral End
+            Report after the Financial Report.
+          </p>
+        </div>
+        {project.addFilesHref ? (
+          <PillButton asChild variant="light" className="max-sm:w-full">
+            <OriginLink to={project.addFilesHref}>
+              <FilePlus aria-hidden="true" />
+              Add files
+            </OriginLink>
+          </PillButton>
+        ) : null}
+      </div>
+      {project.files.length > 0 ? (
+        <ul className="mt-4 flex flex-col gap-3">
+          {project.files.map((file) => (
+            <li key={file.href} className="rounded-2xl bg-white px-4 py-2 ring-1 ring-ink/10 md:px-5">
+              <TaskFile file={file} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-4 rounded-2xl bg-white/60 px-4 py-3 text-body text-ink-muted ring-1 ring-ink/10 md:px-5">
+          {project.addFilesHref
+            ? 'No project files yet. Add photos, a budget breakdown or anything else this project needs.'
+            : 'No project files you can see.'}
+        </p>
+      )}
+    </section>
   );
 }
 

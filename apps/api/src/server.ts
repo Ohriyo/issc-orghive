@@ -12,6 +12,7 @@ import { createLeaderboardStream } from '#src/lib/leaderboard-stream';
 import {
   createBullLeaderboardQueue,
   createBullNotificationQueue,
+  createBullPreviewQueue,
   createBullQueue,
   createBullReportQueue,
   createQueueConnection,
@@ -96,6 +97,9 @@ import { createLeaderboardRecompute } from '#src/services/leaderboard-recompute'
 import { createLeaderboardService } from '#src/services/leaderboard.service';
 import { createPublicLeaderboardService } from '#src/services/public-leaderboard.service';
 import { createMyStandingService } from '#src/services/my-standing.service';
+import { createDemoDataRepository } from '#src/repositories/demo-data.repository';
+import { createDemoDataService } from '#src/services/demo-data.service';
+import { demoDataStartAllowed } from '#src/services/demo-guard';
 
 let config: Config;
 try {
@@ -110,6 +114,19 @@ try {
 
 const logger = createLogger(config);
 const db = createDb(config.DATABASE_URL);
+const demoReads = createDemoDataRepository(db);
+// Demo data must never go live (docs/DEPLOYMENT.md): production refuses to start with it.
+if (
+  !(await demoDataStartAllowed({
+    counts: () => demoReads.counts(),
+    nodeEnv: config.NODE_ENV,
+    allowDemoData: config.ALLOW_DEMO_DATA,
+    logger,
+  }))
+) {
+  await db.$disconnect();
+  process.exit(1);
+}
 const redis = createRedis(config.REDIS_URL);
 redis.on('error', (err) => logger.warn({ err }, 'Redis connection error'));
 
@@ -206,6 +223,8 @@ const documentPreviews = createDocumentPreviewService({
   }),
   storage,
 });
+// The worker renders page images; the API only queues the ISSC account's "Retry rendering".
+const previewQueue = createBullPreviewQueue(queueConnection);
 const handbook = createHandbookService({
   handbooks: createHandbookRepository(db),
   documents,
@@ -214,6 +233,7 @@ const handbook = createHandbookService({
   viewers,
   uploads,
   queue: jobs,
+  previews: previewQueue,
   storage,
   audit,
   cache,
@@ -298,6 +318,22 @@ const queues = [
   { name: 'reports', queue: reportQueue.queue },
   { name: 'leaderboard', queue: leaderboardQueue.queue },
 ];
+
+// The API only reports and removes demo data; db:seed:demo writes it.
+const demoData = createDemoDataService({
+  demo: demoReads,
+  standings: leaderboardReads,
+  settings: systemSettings,
+  store: createRedisLeaderboardStore(redis, logger),
+  storage,
+  cache,
+  audit,
+  standingsChanged: (dates) => recompute.forEventDates(...dates),
+  fileFor: () => {
+    throw new Error('Demo data is seeded with pnpm --filter api db:seed:demo only');
+  },
+  showBadge: config.SHOW_DEMO_BADGE,
+});
 
 const app = createApp({
   config,
@@ -465,6 +501,7 @@ const app = createApp({
       leaderboard: publicLeaderboard,
       projects: leaderboardReads,
     }),
+    demoData,
   },
 });
 
@@ -486,6 +523,7 @@ function shutdown(signal: string) {
       db.$disconnect(),
       redis.quit(),
       jobs.queue.close(),
+      previewQueue.queue.close(),
       notificationQueue.queue.close(),
       reportQueue.queue.close(),
       leaderboardQueue.queue.close(),

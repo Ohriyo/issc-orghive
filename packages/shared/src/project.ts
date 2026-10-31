@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { actingAsSchema } from './acting-as';
 import { documentStatusSchema } from './document-status';
-import { documentVisibilitySchema, type DocumentVisibility } from './document';
+import {
+  createDocumentRequestSchema,
+  documentVisibilitySchema,
+  type DocumentVisibility,
+} from './document';
 import { financialFiguresSchema, projectFinancialFiguresSchema } from './leaderboard';
 import { manilaDate } from './manila-time';
 import { organizationTypeSchema, slugSchema } from './organization';
@@ -263,6 +267,17 @@ export const projectTaskSchema = z.object({
 });
 export type ProjectTask = z.infer<typeof projectTaskSchema>;
 
+/**
+ * POST /projects/:projectId/files: an extra file of the project, outside its checklist, with
+ * the same details as any Paperworks upload. It is its own Paperworks document.
+ */
+export const createProjectFileRequestSchema = createDocumentRequestSchema;
+export type CreateProjectFileRequest = z.infer<typeof createProjectFileRequestSchema>;
+
+/** An extra file of the project the viewer may see (the visibility rule applies). */
+export const projectFileSchema = z.object({ document: taskDocumentBriefSchema });
+export type ProjectFile = z.infer<typeof projectFileSchema>;
+
 export const projectSummarySchema = z
   .object({
     id: z.uuid(),
@@ -295,6 +310,8 @@ export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 export const projectDetailSchema = projectSummarySchema
   .extend({
     tasks: z.array(projectTaskSchema),
+    /** Extra files outside the checklist the viewer may see, oldest first. */
+    files: z.array(projectFileSchema),
     /** The Financial Report's totals, once entered (spec 5D); public on the leaderboard. */
     financialFigures: projectFinancialFiguresSchema.nullable(),
   })

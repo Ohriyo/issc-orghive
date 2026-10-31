@@ -46,6 +46,8 @@ import { createOrganizationRepository } from '#src/repositories/organization.rep
 import { createDocumentTypeRepository } from '#src/repositories/document-type.repository';
 import { createLeaderboardRepository } from '#src/repositories/leaderboard.repository';
 import { createDb } from '#src/repositories/prisma';
+import { createDemoDataRepository } from '#src/repositories/demo-data.repository';
+import { demoDataStartAllowed } from '#src/services/demo-guard';
 import { createProjectRepository } from '#src/repositories/project.repository';
 import { createReportRepository } from '#src/repositories/report.repository';
 import { createSystemSettingRepository } from '#src/repositories/system-setting.repository';
@@ -109,6 +111,18 @@ try {
 
 const logger = createLogger(config).child({ process: 'worker' });
 const db = createDb(config.DATABASE_URL);
+// Like the API, production refuses to start with demo data (docs/DEPLOYMENT.md).
+if (
+  !(await demoDataStartAllowed({
+    counts: () => createDemoDataRepository(db).counts(),
+    nodeEnv: config.NODE_ENV,
+    allowDemoData: config.ALLOW_DEMO_DATA,
+    logger,
+  }))
+) {
+  await db.$disconnect();
+  process.exit(1);
+}
 const redis = createRedis(config.REDIS_URL);
 redis.on('error', (err) => logger.warn({ err }, 'Redis connection error'));
 const connection = createQueueConnection(config.REDIS_URL);

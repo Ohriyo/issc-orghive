@@ -4,6 +4,7 @@ import { LOGO_SIZES } from '@/components/logo-sizes';
 import { EmphasizedText } from '@/components/emphasized-text';
 import { HexFrame } from '@/components/hex-frame';
 import { OrgLogo } from '@/components/org-logo';
+import { SampleDataChip } from '@/components/sample-data-chip';
 import { PillButton } from '@/components/pill-button';
 import { Reveal } from '@/components/reveal';
 import { SectionError } from '@/components/section-error';
@@ -79,11 +80,18 @@ export function OrganizationHero(props: OrganizationViewProps & { preview?: bool
   );
 }
 
-function OrganizationProfile({ page, preview }: { page: OrganizationPageModel; preview?: boolean }) {
+function OrganizationProfile({
+  page,
+  preview,
+}: {
+  page: OrganizationPageModel;
+  preview?: boolean;
+}) {
   const Block = preview ? 'div' : Reveal;
   return (
     <>
       <Block className={TEXT_COLUMN}>
+        {page.sample ? <SampleDataChip className="mb-4" /> : null}
         <h1 className={ACRONYM}>
           <span className="block">{page.acronym}</span>{' '}
           <span className="mt-3 block max-w-[30rem] text-lead font-normal tracking-normal text-pretty max-lg:mx-auto">

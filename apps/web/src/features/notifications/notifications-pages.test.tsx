@@ -307,7 +307,10 @@ describe('/dashboard/notifications/settings', () => {
     ).toBeInTheDocument();
     expect(await screen.findByText('andrea@nwssu.test')).toBeInTheDocument();
     const updates = await screen.findByRole('switch', { name: 'Updates from your council' });
-    expect(screen.getAllByRole('switch')).toHaveLength(9);
+    expect(screen.getAllByRole('switch')).toHaveLength(12);
+    // Spec section 6: a task file's checks, and a governing body flagging it.
+    expect(screen.getByRole('switch', { name: 'Task file checks' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Task files flagged invalid' })).toBeChecked();
     expect(updates).toBeChecked();
     fireEvent.click(updates);
     await waitFor(() =>

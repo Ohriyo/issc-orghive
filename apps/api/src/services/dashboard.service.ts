@@ -1,23 +1,23 @@
 import {
-  academicYearOf,
-  manilaDate,
-  semesterOf,
-  semesterRange,
+  isCheckedTask,
   type DashboardOrganization,
   type DashboardResponse,
   type DocumentCounts,
+  type SemesterCalendar,
   type SemesterSummary,
 } from '@orghive/shared';
 import type { PublicUrl } from '#src/lib/public-url';
+import { USUAL_SEMESTER_READER, type SemesterReader } from '#src/services/semester-calendar.service';
 import type { Storage } from '#src/lib/storage';
 import type { DashboardRepository } from '#src/repositories/dashboard.repository';
 import type { DocumentRepository } from '#src/repositories/document.repository';
 import type { AccountRepository } from '#src/repositories/account.repository';
-import type { ProjectRepository } from '#src/repositories/project.repository';
+import type { ProjectRecord, ProjectRepository } from '#src/repositories/project.repository';
 import { toOrganizationSummary } from '#src/services/college.service';
 import { presentSummary, toStoredSummary } from '#src/services/document.service';
 import { complianceScopeOf, isCouncil, isIssc } from '#src/services/account-rules';
 import type { DocumentViewerService } from '#src/services/document-viewer.service';
+import { taskFileStatus } from '#src/services/integrity-rules';
 import { countByStatus, planAll, upcomingDeadlines } from '#src/services/project-figures';
 
 /** How many documents and activity entries each organization shows. */
@@ -35,6 +35,7 @@ export interface DashboardServiceDeps {
   projects: Pick<ProjectRepository, 'listByOrganization'>;
   storage: Pick<Storage, 'presignGet'>;
   publicUrl: PublicUrl;
+  semesters?: SemesterReader;
   now?: () => Date;
 }
 
@@ -52,6 +53,27 @@ function isoDay(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** The organization's task files still legacy, unverified (spec section 6E). */
+function legacyFilesOf(records: ProjectRecord[]): DashboardOrganization['legacyTaskFiles'] {
+  return records.flatMap((record) =>
+    record.tasks.flatMap((task) => {
+      if (!isCheckedTask(task.type)) return [];
+      const files = [
+        ...(task.document ? [{ label: null, document: task.document }] : []),
+        ...task.files.map((f) => ({ label: f.label, document: f.document })),
+      ];
+      return files
+        .filter((f) => taskFileStatus(f.document)?.state === 'legacy')
+        .map((f) => ({
+          projectId: record.id,
+          projectName: record.name,
+          task: task.type,
+          label: f.label,
+        }));
+    }),
+  );
+}
+
 /**
  * The signed-in workspace: the shared account's own organization only, so an account never
  * sees another organization's numbers; every document read still goes through the
@@ -65,6 +87,7 @@ export function createDashboardService({
   projects,
   storage,
   publicUrl,
+  semesters = USUAL_SEMESTER_READER,
   now = () => new Date(),
 }: DashboardServiceDeps) {
   /**
@@ -72,12 +95,14 @@ export function createDashboardService({
    * target date is in the current semester, by status, and the next three deadlines of any
    * of its projects (a December event's reports fall due in January).
    */
-  async function semesterSummary(organizationId: string, at: Date): Promise<SemesterSummary> {
-    const today = manilaDate(at);
-    const academicYear = academicYearOf(today);
-    const semester = semesterOf(today);
-    const { start, end } = semesterRange(academicYear, semester);
-    const planned = planAll(await projects.listByOrganization(organizationId), at);
+  function semesterSummary(
+    records: ProjectRecord[],
+    at: Date,
+    calendar: SemesterCalendar,
+  ): SemesterSummary {
+    const { academicYear, semester } = calendar.currentKey(at);
+    const { start, end } = calendar.spanOf({ academicYear, semester });
+    const planned = planAll(records, at);
     const inSemester = planned.filter((p) => {
       const day = isoDay(p.record.targetDate);
       return day >= start && day <= end;
@@ -116,12 +141,12 @@ export function createDashboardService({
       }
 
       const at = now();
-      const [counts, recent, quarantined, activity, semester] = await Promise.all([
+      const [counts, recent, quarantined, activity, records] = await Promise.all([
         dashboard.countForDashboard(viewer, [org.id]),
         documents.list(viewer, { organizationId: org.id, limit: DASHBOARD_RECENT_DOCUMENTS }),
         dashboard.listQuarantined(viewer, org.id, DASHBOARD_QUARANTINED),
         dashboard.listActivity(viewer, org.id, DASHBOARD_ACTIVITY),
-        semesterSummary(org.id, at),
+        projects.listByOrganization(org.id),
       ]);
       const organization: DashboardOrganization = {
         organization: { id: org.id, ...toOrganizationSummary(org, publicUrl) },
@@ -141,7 +166,8 @@ export function createDashboardService({
           document: entry.document,
           version: entry.version,
         })),
-        semester,
+        semester: semesterSummary(records, at, await semesters.load()),
+        legacyTaskFiles: legacyFilesOf(records),
       };
 
       return { term: termOut, organizations: [organization], ...flags };

@@ -1,8 +1,4 @@
-import {
-  SNIPPET_MATCH_END,
-  SNIPPET_MATCH_START,
-  type HandbookOutlineItem,
-} from '@orghive/shared';
+import { SNIPPET_MATCH_END, SNIPPET_MATCH_START, type HandbookOutlineItem } from '@orghive/shared';
 import {
   Prisma,
   type DocumentStatus,
@@ -92,6 +88,9 @@ const processingSelect = {
       currentVersionId: true,
       title: true,
       organization: { select: { id: true, slug: true } },
+      // A project task's file is checked after its scan (spec section 6).
+      projectTask: { select: { type: true } },
+      taskFile: { select: { task: { select: { type: true } } } },
     },
   },
 } satisfies Prisma.DocumentVersionSelect;
@@ -111,7 +110,11 @@ const previewSelect = {
   scanStatus: true,
   previewStatus: true,
   document: {
-    select: { id: true, organization: { select: { slug: true } }, type: { select: { slug: true } } },
+    select: {
+      id: true,
+      organization: { select: { slug: true } },
+      type: { select: { slug: true } },
+    },
   },
 } satisfies Prisma.DocumentVersionSelect;
 
@@ -654,7 +657,8 @@ export function createDocumentRepository(db: Db) {
             pageCount: result.pageCount,
             thumbnailKey: result.thumbnailKey,
             ...(result.handbook && {
-              outline: (result.handbook.outline as unknown as Prisma.InputJsonValue) ?? Prisma.DbNull,
+              outline:
+                (result.handbook.outline as unknown as Prisma.InputJsonValue) ?? Prisma.DbNull,
               pageThumbnails: true,
             }),
           },
@@ -766,6 +770,28 @@ export function createDocumentRepository(db: Db) {
     },
 
     /**
+     * A project task's file passed the virus scan; its integrity checks run next
+     * (docs/PROJECT_WORKFLOW_SPEC.md, section 6). The version points at its scanned copy, but
+     * the document stays as it was (scanning, or on its last checked version) until they pass.
+     */
+    async markChecking(
+      versionId: string,
+      result: { storageKey: string; sha256: string },
+      now: Date,
+    ): Promise<void> {
+      await db.documentVersion.update({
+        where: { id: versionId },
+        data: {
+          storageKey: result.storageKey,
+          scanStatus: 'checking',
+          sha256: result.sha256,
+          processedAt: now,
+          failureReason: null,
+        },
+      });
+    },
+
+    /**
      * The worker refused the file (virus, or not the type it claimed). The version now
      * points at its quarantined copy. A document without a clean current file becomes
      * quarantined; a refused re-upload of an available document leaves it on its last clean
@@ -773,7 +799,11 @@ export function createDocumentRepository(db: Db) {
      */
     async markRefused(
       versionId: string,
-      result: { scanStatus: 'infected' | 'invalid'; reason: string; quarantineKey: string },
+      result: {
+        scanStatus: 'infected' | 'invalid' | 'rejected';
+        reason: string;
+        quarantineKey: string;
+      },
       now: Date,
     ): Promise<{ quarantinedDocument: boolean }> {
       return db.$transaction(async (tx) => {

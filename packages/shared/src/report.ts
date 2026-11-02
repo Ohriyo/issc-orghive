@@ -5,9 +5,10 @@ import { academicYearSchema, semesterSchema, type Semester } from './academic-te
  * The Semestral End Report (docs/PROJECT_WORKFLOW_SPEC.md, section 4): every submitted task
  * file of an organization's projects in one semester, merged into one PDF.
  *
- * Semesters are fixed date ranges until an academic calendar exists (provisional,
- * docs/DOMAIN_RULES.md, 2026-10-17). The academic year starts in August, as academicYearOf.
- * A project belongs to the semester that contains its target date.
+ * These are a semester's usual dates. The ISSC account can set a semester's real dates at
+ * /admin/semesters; everything that decides what belongs to a semester reads them through
+ * semesterCalendar (semester-calendar.ts). The academic year starts in August, as
+ * academicYearOf. A project belongs to the semester that contains its target date.
  */
 export const SEMESTER_LABELS: Record<Semester, string> = {
   first: '1st semester',

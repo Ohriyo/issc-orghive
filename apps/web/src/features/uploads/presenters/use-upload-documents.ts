@@ -14,11 +14,11 @@ import {
   MAX_UPLOAD_BYTES,
   organizationDetailSchema,
   projectDetailSchema,
-  semesterOf,
   uploadUrlResponseSchema,
   type DocumentMetadata,
   type UploadContentType,
 } from '@orghive/shared';
+import { useSemesterCalendar } from '@/features/semesters/presenters/use-semester-calendar';
 import { readActingAs, rememberActingAs } from '@/features/auth/presenters/use-acting-as';
 import { isOwnOrganization, useAuth } from '@/features/auth/presenters/use-auth';
 import {
@@ -155,6 +155,7 @@ export function useUploadDocuments(
   const queryClient = useQueryClient();
   const back = useBackNavigation(parent);
   const { user } = useAuth();
+  const calendar = useSemesterCalendar();
   const org = useQuery({
     queryKey: queryKeys.organizations.detail(slug),
     queryFn: () => api.get(`/organizations/${slug}`, { schema: organizationDetailSchema }),
@@ -196,7 +197,7 @@ export function useUploadDocuments(
     const refused: RejectedFile[] = [];
     // A project's files start in its event's academic year and semester.
     const year = project ? academicYearOfDate(project.targetDate) : academicYearOf(new Date());
-    const semester = project ? semesterOf(project.targetDate) : undefined;
+    const semester = project ? calendar.keyOf(project.targetDate).semester : undefined;
     for (const file of files) {
       const check = checkFile(file);
       if ('reason' in check) {

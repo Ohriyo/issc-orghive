@@ -1,6 +1,7 @@
-import type { LeaderboardType, Semester } from '@orghive/shared';
+import type { LeaderboardType, Semester, SemesterKey } from '@orghive/shared';
 import type { Prisma } from '#src/generated/prisma/client';
 import type { DateRange } from './financial-figures.repository';
+import { integrityDocumentSelect } from './integrity-select';
 import type { Db } from './prisma';
 
 const asDate = (isoDate: string) => new Date(`${isoDate}T00:00:00Z`);
@@ -25,10 +26,11 @@ const projectStandingSelect = {
     select: {
       type: true,
       submittedAt: true,
-      // System view of the task's file: a deleted or refused file no longer counts.
-      document: { select: { status: true, deletedAt: true } },
-      // A multi-file task (Communication Letters) counts while any of its files does.
-      files: { select: { document: { select: { status: true, deletedAt: true } } } },
+      // System view of the task's file: a deleted or refused file no longer counts, and its
+      // integrity decides whether it counts for ranking (spec section 6).
+      document: { select: integrityDocumentSelect },
+      // A multi-file task (Communication Letters) is submitted while any of its files is.
+      files: { select: { document: { select: integrityDocumentSelect } } },
     },
   },
   figures: { select: { incomeCentavos: true, expensesCentavos: true, flaggedAt: true } },
@@ -44,7 +46,11 @@ const standingSelect = (range: DateRange) =>
   }) satisfies Prisma.OrganizationSelect;
 
 /** One of an organization's own projects, with what its dashboard names it by. */
-const ownProjectSelect = { id: true, name: true, ...projectStandingSelect } satisfies Prisma.ProjectSelect;
+const ownProjectSelect = {
+  id: true,
+  name: true,
+  ...projectStandingSelect,
+} satisfies Prisma.ProjectSelect;
 
 export type OwnProjectRecord = Prisma.ProjectGetPayload<{ select: typeof ownProjectSelect }>;
 
@@ -72,6 +78,12 @@ export interface SnapshotKey {
   academicYear: string;
   semester: Semester;
   type: LeaderboardType;
+}
+
+export interface FinalSnapshotRecord {
+  type: string;
+  rows: unknown;
+  latePoints: number | null;
 }
 
 export interface SnapshotRecord {
@@ -118,6 +130,46 @@ export function createLeaderboardRepository(db: Db) {
         orderBy: { computedAt: 'desc' },
         select: { rows: true, computedAt: true },
       });
+    },
+
+    /** A semester's frozen boards (spec 5B); none until its standings are final. */
+    finalSnapshots(semester: SemesterKey): Promise<FinalSnapshotRecord[]> {
+      return db.leaderboardSnapshot.findMany({
+        where: { ...semester, isFinal: true },
+        select: { type: true, rows: true, latePoints: true },
+      });
+    },
+
+    /**
+     * Freezes a semester's boards. Another process finishing first is fine: the partial unique
+     * index keeps its rows.
+     */
+    async saveFinal(
+      semester: SemesterKey,
+      boards: { type: 'SBO' | 'CSC'; rows: readonly object[] }[],
+      latePoints: number,
+      at: Date,
+    ): Promise<void> {
+      await db.leaderboardSnapshot.createMany({
+        data: boards.map((board) => ({
+          ...semester,
+          type: board.type,
+          rows: board.rows,
+          latePoints,
+          isFinal: true,
+          computedAt: at,
+        })),
+        skipDuplicates: true,
+      });
+    },
+
+    /** The organizations disqualified from a semester's leaderboard (spec 5B). */
+    async disqualifiedIn(semester: SemesterKey): Promise<string[]> {
+      const rows = await db.leaderboardDisqualification.findMany({
+        where: { ...semester, liftedAt: null },
+        select: { organizationId: true },
+      });
+      return rows.map((row) => row.organizationId);
     },
 
     /** `rows` are plain JSON values (the service's ranked rows). */

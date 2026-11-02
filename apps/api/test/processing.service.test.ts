@@ -26,6 +26,8 @@ function rec(overrides: Partial<ProcessingRecord> = {}): ProcessingRecord {
       currentVersionId: 'v1',
       title: 'Budget 2026',
       organization: { id: 'org-1', slug: 'jpice' },
+      projectTask: null,
+      taskFile: null,
     },
     ...overrides,
   };
@@ -50,6 +52,7 @@ function setup(options: SetupOptions = {}) {
   const documents = {
     findForProcessing: vi.fn(() => Promise.resolve(record)),
     markClean: vi.fn(() => Promise.resolve({ becameCurrent: false })),
+    markChecking: vi.fn(() => Promise.resolve()),
     markRefused: vi.fn(() => Promise.resolve({ quarantinedDocument: true })),
   };
   const intents = {
@@ -71,6 +74,7 @@ function setup(options: SetupOptions = {}) {
     ),
   };
   const previews = { enqueuePreview: vi.fn(() => Promise.resolve()) };
+  const integrity = { enqueueIntegrity: vi.fn(() => Promise.resolve()) };
   const audit = { record: vi.fn(() => Promise.resolve()) };
   const cache = {
     deleteMatching: vi.fn(() => Promise.resolve()),
@@ -86,6 +90,7 @@ function setup(options: SetupOptions = {}) {
     scanner,
     tools,
     previews,
+    integrity,
     audit,
     cache,
     logger,
@@ -101,6 +106,7 @@ function setup(options: SetupOptions = {}) {
     scanner,
     tools,
     previews,
+    integrity,
     audit,
     cache,
     onDocumentScanned,
@@ -269,6 +275,7 @@ describe('processingService.processVersion', () => {
           served = result.storageKey;
           return Promise.resolve({ becameCurrent: true });
         },
+        markChecking: () => Promise.resolve(),
         markRefused: () => Promise.resolve({ quarantinedDocument: false }),
       },
       intents: { listAbandoned: () => Promise.resolve([]), deleteMany: () => Promise.resolve() },
@@ -285,6 +292,7 @@ describe('processingService.processVersion', () => {
         pdfText: () => Promise.resolve(''),
       },
       previews: { enqueuePreview: () => Promise.resolve() },
+      integrity: { enqueueIntegrity: () => Promise.resolve() },
       audit: { record: () => Promise.resolve() },
       cache: { deleteMatching: () => Promise.resolve(), bump: () => Promise.resolve() },
       logger: { warn: vi.fn(), info: vi.fn() },
@@ -417,5 +425,49 @@ describe('createPendingRequeue', () => {
     expect(await requeue(NOW)).toBe(2);
     expect(queue.enqueueProcessing).toHaveBeenCalledWith('v7');
     expect(queue.enqueueProcessing).toHaveBeenCalledWith('v8');
+  });
+});
+
+describe('processingService: project task files (spec section 6)', () => {
+  const taskRec = (type: 'ACR' | 'OTHER_PRE_EVENT', multi = false) =>
+    rec({
+      document: {
+        ...rec().document,
+        projectTask: multi ? null : { type },
+        taskFile: multi ? { task: { type } } : null,
+      },
+    });
+
+  it('queues the integrity checks of a checked task’s clean file instead of filing it', async () => {
+    const { service, documents, integrity, previews, onDocumentScanned, storage } = setup({
+      record: taskRec('ACR'),
+    });
+    await expect(service.processVersion('v1')).resolves.toBe('checking');
+    expect(documents.markChecking).toHaveBeenCalledWith(
+      'v1',
+      { storageKey: 'files/org-1/k1', sha256: 'f'.repeat(64) },
+      NOW,
+    );
+    expect(integrity.enqueueIntegrity).toHaveBeenCalledWith('v1');
+    expect(documents.markClean).not.toHaveBeenCalled();
+    expect(previews.enqueuePreview).not.toHaveBeenCalled();
+    expect(onDocumentScanned).not.toHaveBeenCalled();
+    expect(storage.delete).toHaveBeenCalledWith('uploads/org-1/k1');
+  });
+
+  it('files other pre-event documents as before: they are never checked', async () => {
+    const { service, documents, integrity } = setup({ record: taskRec('OTHER_PRE_EVENT', true) });
+    await expect(service.processVersion('v1')).resolves.toBe('clean');
+    expect(documents.markClean).toHaveBeenCalled();
+    expect(integrity.enqueueIntegrity).not.toHaveBeenCalled();
+  });
+
+  it('refuses an infected task file before any check', async () => {
+    const { service, integrity } = setup({
+      record: taskRec('ACR'),
+      scan: { clean: false, signature: 'Eicar-Test-Signature' },
+    });
+    await expect(service.processVersion('v1')).resolves.toBe('infected');
+    expect(integrity.enqueueIntegrity).not.toHaveBeenCalled();
   });
 });

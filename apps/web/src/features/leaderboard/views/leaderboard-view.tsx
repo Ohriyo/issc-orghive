@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { Clock, Lock } from 'lucide-react';
 import { Tabs } from 'radix-ui';
 import type { LeaderboardType } from '@orghive/shared';
 import { Container } from '@/components/container';
@@ -91,8 +92,13 @@ function BoardBody({
     );
   }
   const empty = board.podium.length === 0 && board.list.length === 0;
+  const StatusIcon = board.standings.final ? Lock : Clock;
   return (
     <>
+      <p className="mb-6 flex items-center justify-center gap-2 text-body font-medium text-pretty text-ink">
+        <StatusIcon aria-hidden="true" className="size-4 shrink-0" />
+        {board.standings.label}
+      </p>
       {empty ? (
         filtered ? (
           <BoardEmpty
@@ -127,6 +133,7 @@ function BoardBody({
         </>
       )}
       <p className="mt-6 max-w-3xl text-small text-pretty text-ink-muted">{board.note}</p>
+      <p className="mt-2 max-w-3xl text-small text-pretty text-ink-muted">{board.rule}</p>
     </>
   );
 }

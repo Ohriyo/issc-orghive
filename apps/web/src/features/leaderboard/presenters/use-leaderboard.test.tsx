@@ -73,13 +73,14 @@ function row(slug: string, rank: number, college: string): PublicLeaderboardRow 
 }
 
 const SEMESTER = { academicYear: '2026-2027', semester: 'first' as const };
+const STATUS = { status: 'provisional' as const, provisionalUntil: '2027-01-07' };
 
 function response(rows: PublicLeaderboardRow[], type: 'SBO' | 'CSC' = 'SBO'): LeaderboardResponse {
-  return { ...SEMESTER, type, latePoints: 0.5, rows };
+  return { ...SEMESTER, ...STATUS, type, latePoints: 0.5, rows };
 }
 
 function event(sbo: PublicLeaderboardRow[], csc: PublicLeaderboardRow[] = []): LeaderboardEvent {
-  return { ...SEMESTER, latePoints: 0.5, boards: { SBO: sbo, CSC: csc } };
+  return { ...SEMESTER, ...STATUS, latePoints: 0.5, boards: { SBO: sbo, CSC: csc } };
 }
 
 function json(body: unknown, status = 200) {

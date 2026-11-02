@@ -11,9 +11,9 @@ export function createLeaderboardController(
     res.json(await leaderboard.read(leaderboardQuerySchema.parse(req.query)));
   };
 
-  const live: RequestHandler = (req, res) => {
+  const live: RequestHandler = async (req, res) => {
     const query = leaderboardStreamQuerySchema.parse(req.query);
-    stream.open(req, res, leaderboard.semesterOf(query));
+    stream.open(req, res, await leaderboard.semesterOf(query));
   };
 
   return { read, live };

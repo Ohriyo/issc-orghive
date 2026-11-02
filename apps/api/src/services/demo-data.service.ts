@@ -2,8 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   academicYearOf,
   currentSemesterKey,
+  DEFAULT_FINAL_AFTER_DAYS,
   DEMO_STORAGE_PREFIX,
   endOfManilaDay,
+  isCheckedTask,
   PROJECT_TASK_DOCUMENT_TYPES,
   PROJECT_TASK_LABELS,
   type DemoDataPreview,
@@ -16,6 +18,8 @@ import { type Cache, cacheKeys, invalidateDocuments } from '#src/lib/cache';
 import type { LeaderboardEvents } from '#src/lib/leaderboard-events';
 import type { LeaderboardStore } from '#src/lib/leaderboard-store';
 import type { Storage } from '#src/lib/storage';
+import type { FilledTaskFacts } from '#src/lib/task-template-pdf';
+import { generateTaskCode, type TaskQr } from '#src/lib/task-qr';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import {
   totalOf,
@@ -26,6 +30,7 @@ import {
 import type { LeaderboardRepository, SnapshotKey } from '#src/repositories/leaderboard.repository';
 import { appealDeciderOf } from './appeal-rules';
 import {
+  DEMO_LEGACY_ORGS,
   DEMO_SBOS,
   demoOverrides,
   planDemoData,
@@ -52,6 +57,11 @@ export interface DemoDataServiceDeps {
   standingsChanged: (eventDates: string[]) => Promise<void>;
   /** The demo PDF for a task's file (watermarked "SAMPLE — DEMO DATA"). */
   fileFor: (type: ProjectTaskType) => Buffer;
+  /**
+   * Checked tasks' files on their templates, with real QR codes (spec section 6). Without it
+   * (no TASK_QR_SECRET), every demo task file is the plain sample, legacy and unverified.
+   */
+  templates?: { qr: TaskQr; pdf: (facts: FilledTaskFacts) => Promise<Buffer> };
   /** The file's text, for search, as the worker extracts it from uploads. */
   textOf?: (pdf: Buffer) => Promise<string | null>;
   /** SHOW_DEMO_BADGE: whether public pages say "Sample data". */
@@ -93,10 +103,21 @@ export function createDemoDataService({
   audit,
   standingsChanged,
   fileFor,
+  templates,
   textOf,
   showBadge,
   now = () => new Date(),
 }: DemoDataServiceDeps) {
+  /** Every check passed: what the worker stores for a file on its template. */
+  const PASSED: { kind: DemoInsert['checks'][number]['kind']; message: string }[] = [
+    { kind: 'format', message: 'A PDF of 1 page.' },
+    { kind: 'task_code', message: 'The QR code is this task’s.' },
+    { kind: 'blank', message: 'Every page has content.' },
+    { kind: 'exact_duplicate', message: 'No other task file has the same bytes.' },
+    { kind: 'near_duplicate', message: 'No page looks like another task file’s.' },
+    { kind: 'keywords', message: 'Found the expected words, the project name and the acronym.' },
+  ];
+
   async function clearCaches(slugs: Iterable<string>) {
     for (const slug of new Set(slugs)) {
       await invalidateDocuments(cache, slug);
@@ -142,8 +163,10 @@ export function createDemoDataService({
         slug: sbo.slug,
         type: 'SBO',
         acronym: sbo.acronym,
+        name: sbo.name,
         parentId: parent.id,
         collegeId: parent.collegeId,
+        college: parent.college,
         accountId: null,
       };
       rows.organizations.push({
@@ -190,6 +213,9 @@ export function createDemoDataService({
       projects: [],
       documents: [],
       tasks: [],
+      taskCodes: [],
+      integrity: [],
+      checks: [],
       figures: [],
       freezes: [],
       appeals: [],
@@ -203,6 +229,7 @@ export function createDemoDataService({
       Object.values(PROJECT_TASK_DOCUMENT_TYPES).map((t) => t.slug),
     );
     const texts = new Map<ProjectTaskType, string | null>();
+    const codes = new Set<string>();
     const overrides = demoOverrides(plan);
     const projectIds = new Map<string, string>();
 
@@ -232,12 +259,75 @@ export function createDemoDataService({
       });
 
       for (const task of planned.tasks) {
+        const taskId = randomUUID();
         const submittedAt = project.submitted[task.type] ?? null;
         let documentId: string | null = null;
         if (submittedAt) {
           documentId = randomUUID();
-          const body = fileFor(task.type);
-          if (!texts.has(task.type)) texts.set(task.type, (await textOf?.(body)) ?? null);
+          const versionId = randomUUID();
+          // A checked task's file on its template, with its QR code, verified; or the plain
+          // sample, legacy (filed "before the checks", spec section 6E).
+          const checked = isCheckedTask(task.type);
+          const templated =
+            checked && templates && !DEMO_LEGACY_ORGS.includes(project.org) ? templates : null;
+          let body: Buffer;
+          let text: string | null;
+          if (templated && isCheckedTask(task.type)) {
+            let code = generateTaskCode(task.type);
+            while (codes.has(code)) code = generateTaskCode(task.type);
+            codes.add(code);
+            const codeId = randomUUID();
+            body = await templated.pdf({
+              type: task.type,
+              organization: { name: owner.name, acronym: owner.acronym, type: owner.type },
+              college: owner.college,
+              project: {
+                name: project.name,
+                targetDate: project.targetDate,
+                location: project.location,
+                beneficiaries: project.beneficiaries,
+              },
+              label: null,
+              code,
+              qrContent: templated.qr.contentOf({ code, taskId, organizationId: owner.id }),
+              ...(task.type === 'FINANCIAL_REPORT' && project.figures
+                ? { totals: project.figures }
+                : {}),
+            });
+            text = (await textOf?.(body)) ?? null;
+            rows.taskCodes.push({ id: codeId, taskId, code });
+            rows.integrity.push({
+              versionId,
+              taskCodeId: codeId,
+              matchedBy: 'qr',
+              legacy: false,
+              checkedAt: submittedAt,
+            });
+            const passed =
+              task.type === 'FINANCIAL_REPORT'
+                ? [
+                    ...PASSED,
+                    {
+                      kind: 'financial_totals' as const,
+                      message: 'The totals match the figures entered.',
+                    },
+                  ]
+                : PASSED;
+            for (const check of passed) rows.checks.push({ versionId, result: 'pass', ...check });
+          } else {
+            body = fileFor(task.type);
+            if (!texts.has(task.type)) texts.set(task.type, (await textOf?.(body)) ?? null);
+            text = texts.get(task.type) ?? null;
+            if (checked) {
+              rows.integrity.push({
+                versionId,
+                taskCodeId: null,
+                matchedBy: null,
+                legacy: true,
+                checkedAt: null,
+              });
+            }
+          }
           const storageKey = `${DEMO_STORAGE_PREFIX}files/${owner.id}/${documentId}.pdf`;
           await storage.put(storageKey, body, 'application/pdf');
           const typeSlug = PROJECT_TASK_DOCUMENT_TYPES[task.type].slug;
@@ -250,11 +340,11 @@ export function createDemoDataService({
             title: `${PROJECT_TASK_LABELS[task.type]}: ${project.name}`,
             academicYear: academicYearOf(project.targetDate),
             visibility: visibilityOf(task.type),
-            contentText: texts.get(task.type) ?? null,
+            contentText: text,
             createdById: owner.accountId,
             createdAt: submittedAt,
             version: {
-              id: randomUUID(),
+              id: versionId,
               storageKey,
               originalFilename: `${typeSlug}-sample.pdf`,
               sizeBytes: body.length,
@@ -265,6 +355,7 @@ export function createDemoDataService({
           });
         }
         rows.tasks.push({
+          id: taskId,
           projectId: id,
           type: task.type,
           status: task.status,
@@ -375,6 +466,14 @@ export function createDemoDataService({
       latestSnapshot: (key: SnapshotKey) => demo.latestDemoSnapshot(key),
       saveSnapshot: (key: SnapshotKey, rows: readonly object[], when: Date) =>
         demo.saveDemoSnapshot(key, rows, when),
+      // Demo standings are always of the current semester: never final, nobody disqualified.
+      finalSnapshots: () => Promise.resolve([]),
+      saveFinal: () => Promise.resolve(),
+      disqualifiedIn: () => Promise.resolve([]),
+    };
+    const demoSettings = {
+      latePoints: () => settings.latePoints(),
+      finalAfterDays: () => Promise.resolve(DEFAULT_FINAL_AFTER_DAYS),
     };
     await createLeaderboardService({
       leaderboard: {
@@ -382,13 +481,13 @@ export function createDemoDataService({
         standingFacts: async (range) =>
           standingFactsAsOf(await standings.standingFacts(range), plan.previousStandingsAt),
       },
-      settings,
+      settings: demoSettings,
       store,
       now: () => plan.previousStandingsAt,
     }).compute(semester);
     const boards = await createLeaderboardService({
       leaderboard: { ...snapshots, standingFacts: (range) => standings.standingFacts(range) },
-      settings,
+      settings: demoSettings,
       store,
       events,
       now: () => at,

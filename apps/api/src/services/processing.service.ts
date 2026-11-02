@@ -1,7 +1,7 @@
-import { MAX_UPLOAD_BYTES } from '@orghive/shared';
+import { isCheckedTask, MAX_UPLOAD_BYTES } from '@orghive/shared';
 import { type Cache, invalidateDocuments } from '#src/lib/cache';
 import type { VirusScanner } from '#src/lib/clamav';
-import type { JobQueue, PreviewQueue } from '#src/lib/queue';
+import type { IntegrityQueue, JobQueue, PreviewQueue } from '#src/lib/queue';
 import type { Storage } from '#src/lib/storage';
 import type { Logger } from '#src/logger';
 import type { AppealRepository } from '#src/repositories/appeal.repository';
@@ -65,13 +65,18 @@ export interface FileTools {
 }
 
 export interface ProcessingServiceDeps {
-  documents: Pick<DocumentRepository, 'findForProcessing' | 'markClean' | 'markRefused'>;
+  documents: Pick<
+    DocumentRepository,
+    'findForProcessing' | 'markClean' | 'markChecking' | 'markRefused'
+  >;
   intents: Pick<UploadIntentRepository, 'listAbandoned' | 'deleteMany'>;
   storage: Pick<Storage, 'read' | 'copy' | 'move' | 'delete'>;
   scanner: VirusScanner;
   tools: FileTools;
   /** A clean file's watermarked page images and thumbnail are rendered by their own job. */
   previews: PreviewQueue;
+  /** A project task's clean file is checked next (spec section 6), by its own job. */
+  integrity: IntegrityQueue;
   audit: Pick<AuditLogRepository, 'record'>;
   cache: Pick<Cache, 'deleteMatching' | 'bump'>;
   logger: Pick<Logger, 'warn' | 'info'>;
@@ -82,7 +87,7 @@ export interface ProcessingServiceDeps {
   now?: () => Date;
 }
 
-export type ProcessOutcome = 'clean' | 'infected' | 'invalid' | 'skipped';
+export type ProcessOutcome = 'clean' | 'checking' | 'infected' | 'invalid' | 'skipped';
 
 export type UploadVerdict =
   { clean: true } | { clean: false; scanStatus: 'infected' | 'invalid'; reason: string };
@@ -133,6 +138,7 @@ export function createProcessingService({
   scanner,
   tools,
   previews,
+  integrity,
   audit,
   cache,
   logger,
@@ -204,6 +210,20 @@ export function createProcessingService({
       const { scannedKey, body } = await snapshot(storage, rec.storageKey);
       const verdict = await inspectUpload(body, rec, { scanner, tools });
       if (!verdict.clean) return refuse(rec, scannedKey, verdict.scanStatus, verdict.reason);
+
+      // A project task's file is not filed yet: its integrity checks decide (spec section 6).
+      const task = rec.document.projectTask ?? rec.document.taskFile?.task;
+      if (task && isCheckedTask(task.type)) {
+        await documents.markChecking(
+          versionId,
+          { storageKey: scannedKey, sha256: tools.sha256Hex(body) },
+          now(),
+        );
+        await dropUpload(storage, logger, rec.storageKey);
+        await integrity.enqueueIntegrity(versionId);
+        logger.info({ versionId }, 'Task file scanned; integrity checks queued');
+        return 'checking';
+      }
 
       const contentText = await searchText(rec, body);
       await documents.markClean(

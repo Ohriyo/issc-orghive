@@ -1,3 +1,4 @@
+import { semesterCalendar } from '@orghive/shared';
 import { describe, expect, it } from 'vitest';
 import {
   figuresCorrectableUntil,
@@ -36,6 +37,7 @@ function project(overrides: Partial<ProjectStandingFacts> = {}): ProjectStanding
       ACR: REPORT_ON_TIME,
       FINANCIAL_REPORT: REPORT_ON_TIME,
     },
+    unverified: [],
     figures: { incomeCentavos: 500_000, expensesCentavos: 400_000, underReview: false },
     ...overrides,
   };
@@ -62,6 +64,7 @@ describe('scoreProject: implemented', () => {
   it('counts a project whose event passed and whose ACR and Financial Report are in', () => {
     expect(scoreProject(project(), OPTIONS)).toEqual({
       implemented: true,
+      held: [],
       late: false,
       points: 100,
       completedAt: REPORT_ON_TIME,
@@ -444,6 +447,17 @@ describe('rankStandings: boards', () => {
   });
 });
 
+describe('figuresCorrectableUntil with the ISSC’s dates', () => {
+  it('counts from the real last day', () => {
+    const calendar = semesterCalendar([
+      { academicYear: '2026-2027', semester: 'first', start: '2026-08-17', end: '2026-11-20' },
+    ]);
+    expect(figuresCorrectableUntil('2026-10-20', null, calendar)).toEqual(
+      new Date('2026-11-20T15:59:59.999Z'),
+    );
+  });
+});
+
 describe('figuresCorrectableUntil', () => {
   it('is the last day of the semester when the reports were due earlier', () => {
     expect(figuresCorrectableUntil('2026-10-20', null)).toEqual(
@@ -530,5 +544,70 @@ describe('standingHints', () => {
       ['check_figures', 'Project 1'],
     ]);
     expect(hints[1]!.missing).toEqual([]);
+  });
+});
+
+describe('scoreProject: integrity (spec section 6)', () => {
+  it('holds back a project whose required task does not count: no points, no profit', () => {
+    const score = scoreProject(project({ unverified: ['ACR'] }), OPTIONS);
+    expect(score).toMatchObject({
+      implemented: false,
+      held: ['ACR'],
+      points: 0,
+      netCentavos: null,
+      completedAt: null,
+    });
+  });
+
+  it('ignores an unticked pre-event document that does not count', () => {
+    expect(scoreProject(project({ unverified: ['NOM'] }), OPTIONS)).toMatchObject({
+      implemented: true,
+      held: [],
+      points: 100,
+    });
+    expect(scoreProject(project({ nomRequired: true, unverified: ['NOM'] }), OPTIONS).held).toEqual(
+      ['NOM'],
+    );
+  });
+
+  it('ranks only what counts', () => {
+    const boards = rankStandings(
+      [
+        { organizationId: 'a', type: 'SBO', name: 'A', projects: [project()] },
+        {
+          organizationId: 'b',
+          type: 'SBO',
+          name: 'B',
+          projects: [project(), project({ unverified: ['PROPOSAL'] })],
+        },
+        {
+          organizationId: 'c',
+          type: 'SBO',
+          name: 'C',
+          projects: [project({ unverified: ['FINANCIAL_REPORT'] })],
+        },
+      ],
+      OPTIONS,
+    );
+    expect(boards.SBO.map((r) => [r.organizationId, r.points, r.netProfitCentavos])).toEqual([
+      ['a', 1, 100_000],
+      ['b', 1, 100_000],
+    ]);
+  });
+
+  it('tells the organization which tasks to verify', () => {
+    const hints = standingHints(
+      [{ ...project({ unverified: ['ACR', 'OTHER_PRE_EVENT'] }), id: 'p1', name: 'Tree Planting' }],
+      NOW,
+    );
+    expect(hints).toEqual([
+      {
+        kind: 'verify_tasks',
+        projectId: 'p1',
+        projectName: 'Tree Planting',
+        missing: [],
+        held: ['ACR'],
+      },
+    ]);
   });
 });

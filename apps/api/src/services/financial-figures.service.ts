@@ -1,13 +1,15 @@
 import {
   formatPesos,
-  semesterRange,
+  USUAL_SEMESTERS,
   type CorrectFinancialFiguresRequest,
   type FinancialFiguresInput,
   type FinancialFiguresListItem,
   type FinancialFiguresListResponse,
   type FinancialFiguresQuery,
   type ProjectFinancialFigures,
+  type SemesterCalendar,
 } from '@orghive/shared';
+import { USUAL_SEMESTER_READER, type SemesterReader } from '#src/services/semester-calendar.service';
 import { AppError } from '#src/errors/app-error';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import type {
@@ -20,6 +22,8 @@ import type { RequestContext } from '#src/services/auth.service';
 import type { Actor } from '#src/services/document.service';
 import type { LeaderboardRecompute } from '#src/services/leaderboard-recompute';
 import { figuresCorrectableUntil } from '#src/services/leaderboard-rules';
+import { compareFinancialTotals } from '#src/services/integrity-rules';
+import type { IntegrityRepository } from '#src/repositories/integrity.repository';
 import type { NotificationService } from '#src/services/notification.service';
 import type { Recipients } from '#src/services/recipients.service';
 
@@ -31,6 +35,9 @@ export interface FinancialFiguresServiceDeps {
   audit: Pick<AuditLogRepository, 'record'>;
   /** New, corrected, flagged or cleared figures move the profit totals (spec 5D). */
   leaderboard?: Pick<LeaderboardRecompute, 'forEventDates'>;
+  /** The Financial Report's totals check, worked out again after a correction (spec 6). */
+  integrity?: Pick<IntegrityRepository, 'findFinancialCheck' | 'updateCheck'>;
+  semesters?: SemesterReader;
   now?: () => Date;
 }
 
@@ -71,6 +78,7 @@ export function toFiguresView(
   record: Pick<ProjectRecord, 'targetDate' | 'postEventDueOverride'> & {
     figures: FiguresRecord | null;
   },
+  calendar: SemesterCalendar = USUAL_SEMESTERS,
 ): ProjectFinancialFigures | null {
   const figures = record.figures;
   if (!figures) return null;
@@ -83,6 +91,7 @@ export function toFiguresView(
     correctableUntil: figuresCorrectableUntil(
       targetDate,
       record.postEventDueOverride,
+      calendar,
     ).toISOString(),
     updatedAt: figures.updatedAt.toISOString(),
   };
@@ -106,8 +115,27 @@ export function createFinancialFiguresService({
   notifications,
   audit,
   leaderboard,
+  integrity,
+  semesters = USUAL_SEMESTER_READER,
   now = () => new Date(),
 }: FinancialFiguresServiceDeps) {
+  /**
+   * The filed report's totals (read when it was checked) against the corrected figures, so
+   * a correction can clear the warning, or raise it (spec section 6). No new OCR.
+   */
+  async function recheckTotals(projectId: string, entered: FinancialFiguresInput) {
+    const check = await integrity?.findFinancialCheck(projectId);
+    if (!check) return;
+    const read = (check.details as { read?: Parameters<typeof compareFinancialTotals>[1] } | null)
+      ?.read;
+    if (!read) return;
+    await integrity!.updateCheck(
+      check.versionId,
+      'financial_totals',
+      compareFinancialTotals(entered, read),
+    );
+  }
+
   async function loadProject(projectId: string): Promise<ProjectRecord> {
     const record = await projects.findById(projectId);
     if (!record) throw AppError.notFound('Project not found');
@@ -142,11 +170,13 @@ export function createFinancialFiguresService({
       !current ||
       current.incomeCentavos !== input.incomeCentavos ||
       current.expensesCentavos !== input.expensesCentavos;
-    if (!changes) return toFiguresView(record)!;
+    const calendar = await semesters.load();
+    if (!changes) return toFiguresView(record, calendar)!;
 
     const until = figuresCorrectableUntil(
       record.targetDate.toISOString().slice(0, 10),
       record.postEventDueOverride,
+      calendar,
     );
     if (current && now() > until) {
       throw AppError.conflict(
@@ -165,7 +195,7 @@ export function createFinancialFiguresService({
       actingAs,
     });
     await leaderboard?.forEventDates(record.targetDate);
-    return toFiguresView({ ...record, figures: after })!;
+    return toFiguresView({ ...record, figures: after }, calendar)!;
   }
 
   return {
@@ -194,7 +224,9 @@ export function createFinancialFiguresService({
         );
       }
       const { actingAs, ...amounts } = input;
-      return save(actor, record, amounts, actingAs);
+      const saved = await save(actor, record, amounts, actingAs);
+      await recheckTotals(projectId, amounts);
+      return saved;
     },
 
     /** The ISSC account puts the figures under review (or rewords its remark). */
@@ -263,7 +295,8 @@ export function createFinancialFiguresService({
 
     /** GET /admin/financial-figures: the semester's submitted figures, for the ISSC. */
     async list(query: FinancialFiguresQuery): Promise<FinancialFiguresListResponse> {
-      const rows = await figures.listSubmitted(semesterRange(query.academicYear, query.semester));
+      const calendar = await semesters.load();
+      const rows = await figures.listSubmitted(calendar.spanOf(query));
       return {
         items: rows.map((row) => listItem(row, { id: row.projectId, ...row.project })),
       };

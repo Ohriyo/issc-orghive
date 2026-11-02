@@ -35,12 +35,9 @@ describe('parsePesos', () => {
     expect(parsePesos(text)).toBe(centavos);
   });
 
-  it.each(['', 'abc', '-5', '1.234', '12,34', '1,2345', '1e3', '.5', '₱'])(
-    'refuses %j',
-    (text) => {
-      expect(parsePesos(text)).toBeNull();
-    },
-  );
+  it.each(['', 'abc', '-5', '1.234', '12,34', '1,2345', '1e3', '.5', '₱'])('refuses %j', (text) => {
+    expect(parsePesos(text)).toBeNull();
+  });
 });
 
 describe('formatPesos', () => {
@@ -97,9 +94,7 @@ describe('Financial Report requests', () => {
     expect(financial.safeParse(file).success).toBe(false);
     expect(financial.safeParse({ ...file, figures }).success).toBe(true);
     expect(taskDocumentRequestSchemaFor('ACR').safeParse(file).success).toBe(true);
-    expect(taskDocumentRequestSchemaFor('ACR').safeParse({ ...file, figures }).success).toBe(
-      false,
-    );
+    expect(taskDocumentRequestSchemaFor('ACR').safeParse({ ...file, figures }).success).toBe(false);
   });
 
   it('takes whole, non-negative centavos within the cap', () => {
@@ -175,9 +170,18 @@ describe('semesters', () => {
   });
 
   it.each([
-    [{ academicYear: '2026-2027', semester: 'first' }, { academicYear: '2025-2026', semester: 'midyear' }],
-    [{ academicYear: '2026-2027', semester: 'second' }, { academicYear: '2026-2027', semester: 'first' }],
-    [{ academicYear: '2026-2027', semester: 'midyear' }, { academicYear: '2026-2027', semester: 'second' }],
+    [
+      { academicYear: '2026-2027', semester: 'first' },
+      { academicYear: '2025-2026', semester: 'midyear' },
+    ],
+    [
+      { academicYear: '2026-2027', semester: 'second' },
+      { academicYear: '2026-2027', semester: 'first' },
+    ],
+    [
+      { academicYear: '2026-2027', semester: 'midyear' },
+      { academicYear: '2026-2027', semester: 'second' },
+    ],
   ] as const)('the semester before %o is %o', (key, before) => {
     expect(previousSemesterKey(key)).toEqual(before);
   });
@@ -194,10 +198,12 @@ describe('leaderboard queries', () => {
   it('takes the academic year and semester together or not at all', () => {
     const both = { type: 'CSC', academicYear: '2026-2027', semester: 'first' };
     expect(leaderboardQuerySchema.safeParse(both).success).toBe(true);
-    expect(leaderboardQuerySchema.safeParse({ type: 'CSC', semester: 'first' }).success).toBe(false);
-    expect(
-      leaderboardStreamQuerySchema.safeParse({ academicYear: '2026-2027' }).success,
-    ).toBe(false);
+    expect(leaderboardQuerySchema.safeParse({ type: 'CSC', semester: 'first' }).success).toBe(
+      false,
+    );
+    expect(leaderboardStreamQuerySchema.safeParse({ academicYear: '2026-2027' }).success).toBe(
+      false,
+    );
     expect(leaderboardStreamQuerySchema.safeParse({}).success).toBe(true);
   });
 

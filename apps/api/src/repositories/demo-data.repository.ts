@@ -4,6 +4,7 @@ import type {
   AppealType,
   AuditAction,
   DocumentVisibility,
+  IntegrityCheckKind,
   NotificationKind,
   OrganizationType,
   Prisma,
@@ -84,8 +85,11 @@ export interface DemoOrganizationRecord {
   slug: string;
   type: OrganizationType;
   acronym: string;
+  name: string;
   parentId: string | null;
   collegeId: string | null;
+  /** The college's name, printed on task templates; null for the ISSC. */
+  college: string | null;
   accountId: string | null;
 }
 
@@ -151,12 +155,29 @@ export interface DemoInsert {
     };
   }[];
   tasks: {
+    id: string;
     projectId: string;
     type: ProjectTaskType;
     status: ProjectTaskStatus;
     dueAt: Date | null;
     documentId: string | null;
     submittedAt: Date | null;
+  }[];
+  /** A checked task's code (spec section 6), printed on its templated file. */
+  taskCodes: { id: string; taskId: string; code: string }[];
+  /** Each checked task file's integrity: verified on its template, or legacy. */
+  integrity: {
+    versionId: string;
+    taskCodeId: string | null;
+    matchedBy: 'qr' | null;
+    legacy: boolean;
+    checkedAt: Date | null;
+  }[];
+  checks: {
+    versionId: string;
+    kind: IntegrityCheckKind;
+    result: 'pass';
+    message: string;
   }[];
   figures: {
     projectId: string;
@@ -248,12 +269,18 @@ export function createDemoDataRepository(db: Db) {
           slug: true,
           type: true,
           acronym: true,
+          name: true,
           parentId: true,
           collegeId: true,
+          college: { select: { name: true } },
           accounts: { where: { disabledAt: null }, select: { id: true }, take: 1 },
         },
       });
-      return rows.map(({ accounts, ...org }) => ({ ...org, accountId: accounts[0]?.id ?? null }));
+      return rows.map(({ accounts, college, ...org }) => ({
+        ...org,
+        college: college?.name ?? null,
+        accountId: accounts[0]?.id ?? null,
+      }));
     },
 
     /** Document type ids by slug. */
@@ -317,6 +344,11 @@ export function createDemoDataRepository(db: Db) {
           FROM document_versions v
           WHERE v.document_id = d.id AND d.is_demo AND d.current_version_id IS NULL`;
         await tx.projectTask.createMany({ data: rows.tasks.map((r) => ({ ...r, isDemo })) });
+        await tx.taskCode.createMany({ data: rows.taskCodes.map((r) => ({ ...r, isDemo })) });
+        await tx.versionIntegrity.createMany({
+          data: rows.integrity.map((r) => ({ ...r, isDemo })),
+        });
+        await tx.integrityCheck.createMany({ data: rows.checks.map((r) => ({ ...r, isDemo })) });
         await tx.financialFigures.createMany({ data: rows.figures.map((r) => ({ ...r, isDemo })) });
         await tx.orgFreeze.createMany({ data: rows.freezes.map((r) => ({ ...r, isDemo })) });
         await tx.appeal.createMany({ data: rows.appeals.map((r) => ({ ...r, isDemo })) });

@@ -1,4 +1,5 @@
 import { pino } from 'pino';
+import { createIntegrityRepository } from '#src/repositories/integrity.repository';
 import type { ProjectTaskType, SemesterKey } from '@orghive/shared';
 import type { Storage } from '#src/lib/storage';
 import { createAppealRepository } from '#src/repositories/appeal.repository';
@@ -188,6 +189,7 @@ export function buildComplianceServices(db: Db) {
     viewers,
     figures,
     audit,
+    typedCodes: createIntegrityRepository(db),
     leaderboard,
   });
   const appeals = createAppealService({
@@ -286,8 +288,21 @@ export async function seedProject(
       createdById: input.createdById,
     });
     await projects.linkDocument(project.id, task, doc.id);
+    await markChecked(db, doc.id, input.createdAt);
   }
   return project;
+}
+
+/**
+ * A task file that passed its checks (spec section 6): its current version's integrity row, as
+ * the worker writes it. Without one a task file is legacy and never ranked.
+ */
+export async function markChecked(db: Db, documentId: string, checkedAt = new Date()) {
+  const { currentVersionId } = await db.document.findUniqueOrThrow({
+    where: { id: documentId },
+    select: { currentVersionId: true },
+  });
+  await db.versionIntegrity.create({ data: { versionId: currentVersionId!, checkedAt } });
 }
 
 /** An appeal attachment uploaded by `userId` (the browser PUT assumed done), still pending. */

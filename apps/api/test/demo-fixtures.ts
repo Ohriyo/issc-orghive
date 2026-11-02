@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { PROJECT_TASK_DOCUMENT_TYPES, type ProjectTaskType } from '@orghive/shared';
 import { memoryCache } from '#src/lib/cache';
 import { memoryLeaderboardStore } from '#src/lib/leaderboard-store';
+import { createTaskQr } from '#src/lib/task-qr';
+import type { FilledTaskFacts } from '#src/lib/task-template-pdf';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDemoDataRepository } from '#src/repositories/demo-data.repository';
 import { createLeaderboardRepository } from '#src/repositories/leaderboard.repository';
@@ -160,8 +162,16 @@ export async function tableCounts(db: Db) {
   };
 }
 
-/** The demo data service on the test database, with in-memory storage, store and cache. */
+/** The QR secret the demo tests sign task codes with. */
+export const demoQr = createTaskQr(Buffer.alloc(32, 5).toString('base64'));
+
+/**
+ * The demo data service on the test database, with in-memory storage, store and cache.
+ * Templated files are a stand-in naming their code (the real PDF: task-template-pdf.test.ts);
+ * `templated` records what each was asked to show.
+ */
 export function buildDemoService(db: Db, { now = () => DEMO_NOW, showBadge = true } = {}) {
+  const templated: FilledTaskFacts[] = [];
   const storage = memoryStorage();
   const store = memoryLeaderboardStore();
   const audit = createAuditLogRepository(db);
@@ -184,8 +194,15 @@ export function buildDemoService(db: Db, { now = () => DEMO_NOW, showBadge = tru
     },
     fileFor: (type: ProjectTaskType) =>
       readFileSync(join(ASSETS, `${PROJECT_TASK_DOCUMENT_TYPES[type].slug}.pdf`)),
+    templates: {
+      qr: demoQr,
+      pdf: (facts) => {
+        templated.push(facts);
+        return Promise.resolve(Buffer.from(`%PDF-1.7 demo template ${facts.code}`));
+      },
+    },
     showBadge,
     now,
   });
-  return { service, storage, store, settings, changed };
+  return { service, storage, store, settings, changed, templated };
 }

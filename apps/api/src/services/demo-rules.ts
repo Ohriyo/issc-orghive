@@ -69,6 +69,13 @@ export const DEMO_SBOS: { slug: string; acronym: string; name: string; parent: s
   },
 ];
 
+/**
+ * Demo organizations whose task files stay the plain sample, "legacy, unverified" (spec
+ * section 6E), so the dashboard notice and held projects can be shown. Every other demo task
+ * file is on its template with a real QR code, so the boards rank as designed.
+ */
+export const DEMO_LEGACY_ORGS = ['jiiee'];
+
 /** One demo project of an existing organization (by slug). */
 export interface DemoProject {
   /** Stable within the plan; other demo rows refer to the project by it. */

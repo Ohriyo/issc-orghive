@@ -77,6 +77,7 @@ const PUBLIC: Record<string, string> = {
   'post /api/v1/auth/logout': 'clears the refresh cookie',
   'post /api/v1/auth/forgot-password': 'password reset request',
   'post /api/v1/auth/reset-password': 'reset token, checked by the service',
+  'get /api/v1/semesters': 'the dates of each semester, shown on public pages',
   'get /api/v1/colleges': 'public browsing',
   'get /api/v1/colleges/:slug': 'public browsing',
   'get /api/v1/organizations/:slug': 'public browsing',

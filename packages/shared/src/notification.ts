@@ -24,6 +24,12 @@ export const NOTIFICATION_KINDS = [
   'account_request_declined',
   /** The ISSC put the organization's Financial Report figures under review, or cleared them. */
   'figures_review',
+  /** A task file the user uploaded was checked: verified, needs attention, or refused (spec 6). */
+  'task_file_checked',
+  /** A governing body flagged one of the organization's task files invalid (spec 6). */
+  'task_file_flagged',
+  /** The ISSC disqualified the organization from a semester's leaderboard, or lifted it (spec 5B). */
+  'leaderboard_penalty',
 ] as const;
 export const notificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
@@ -73,6 +79,18 @@ export const NOTIFICATION_KIND_INFO: Record<NotificationKind, { label: string; h
     label: 'Financial Report figures under review',
     hint: 'The ISSC is checking a project’s reported figures, or finished checking them.',
   },
+  task_file_checked: {
+    label: 'Task file checks',
+    hint: 'A project task file you uploaded was verified, needs attention, or was refused.',
+  },
+  task_file_flagged: {
+    label: 'Task files flagged invalid',
+    hint: 'Your CSC or the ISSC flagged a task file invalid; it no longer counts until re-uploaded.',
+  },
+  leaderboard_penalty: {
+    label: 'Leaderboard disqualification',
+    hint: 'The ISSC disqualified your organization from a semester’s leaderboard, or lifted it.',
+  },
   password_reveal: {
     label: 'Temporary passwords to hand over',
     hint: 'A new account or password waits behind a one-time Reveal. The email never has the password.',
@@ -81,7 +99,17 @@ export const NOTIFICATION_KIND_INFO: Record<NotificationKind, { label: string; h
 
 /** How the settings page groups the kinds, in order. */
 export const NOTIFICATION_KIND_GROUPS: { title: string; kinds: NotificationKind[] }[] = [
-  { title: 'Projects', kinds: ['deadline_soon', 'deadline_missed', 'figures_review'] },
+  {
+    title: 'Projects',
+    kinds: [
+      'deadline_soon',
+      'deadline_missed',
+      'figures_review',
+      'task_file_checked',
+      'task_file_flagged',
+      'leaderboard_penalty',
+    ],
+  },
   { title: 'Appeals', kinds: ['appeal_submitted', 'appeal_decided'] },
   { title: 'Files and reports', kinds: ['upload_quarantined', 'report_ready'] },
   { title: 'Your organization', kinds: ['term_ending', 'announcement_posted'] },

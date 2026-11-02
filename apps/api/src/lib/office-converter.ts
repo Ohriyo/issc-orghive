@@ -1,4 +1,7 @@
-/** Converts DOCX, XLSX and PPTX to PDF so their pages can be rendered (worker only). */
+/**
+ * Converts DOCX, XLSX and PPTX to PDF: uploads, so the worker can render their pages, and the
+ * API's task templates (lib/task-template.ts), so their PDF matches the Word file.
+ */
 export interface OfficeConverter {
   /** Throws ConversionRejectedError when the file itself cannot be converted. */
   toPdf(body: Buffer, mimeType: string): Promise<Buffer>;

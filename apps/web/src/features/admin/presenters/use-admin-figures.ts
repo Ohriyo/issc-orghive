@@ -14,6 +14,7 @@ import {
   semesterValue,
 } from '@/features/leaderboard/presenters/leaderboard-model';
 import { formatManilaDate } from '@/features/projects/presenters/project-format';
+import { useSemesterCalendar } from '@/features/semesters/presenters/use-semester-calendar';
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -97,7 +98,8 @@ const errorText = (error: unknown) =>
 export function useAdminFigures(now: () => Date = () => new Date()): AdminFiguresModel {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const options = semesterChoices(now());
+  const calendar = useSemesterCalendar();
+  const options = semesterChoices(now(), calendar);
   const picked = parseSemesterValue(params.get('semester'));
   const semester = picked ?? parseSemesterValue(options[0]!.value)!;
   const value = semesterValue(semester);

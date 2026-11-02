@@ -43,6 +43,16 @@ const unwiredServices: AppServices = {
   projects: new Proxy({} as AppServices['projects'], {
     get: (_t, key) => () => unwired(`projects.${String(key)}`),
   }),
+  taskTemplates: { template: () => unwired('taskTemplates.template') },
+  semesters: new Proxy({} as AppServices['semesters'], {
+    get: (_t, key) => () => unwired(`semesters.${String(key)}`),
+  }),
+  disqualifications: new Proxy({} as AppServices['disqualifications'], {
+    get: (_t, key) => () => unwired(`disqualifications.${String(key)}`),
+  }),
+  taskFileDecisions: new Proxy({} as AppServices['taskFileDecisions'], {
+    get: (_t, key) => () => unwired(`taskFileDecisions.${String(key)}`),
+  }),
   appeals: new Proxy({} as AppServices['appeals'], {
     get: (_t, key) => () => unwired(`appeals.${String(key)}`),
   }),

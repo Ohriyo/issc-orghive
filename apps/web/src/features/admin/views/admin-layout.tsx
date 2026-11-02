@@ -7,10 +7,12 @@ const ADMIN_SECTIONS = [
   { to: '/admin/organizations', label: 'Organizations' },
   { to: '/admin/financial-figures', label: 'Financial figures' },
   { to: '/admin/handbook', label: 'Student Handbook' },
+  { to: '/admin/semesters', label: 'Semesters' },
+  { to: '/admin/disqualifications', label: 'Disqualifications' },
 ] as const;
 
 const NAV_LINK = cn(
-  '-mb-px flex min-h-11 shrink-0 items-center border-b-2 border-transparent px-1 text-body font-medium text-ink-muted',
+  '-mb-px flex min-h-11 shrink-0 items-center border-b-2 border-transparent px-1 text-body font-medium whitespace-nowrap text-ink-muted',
   'transition-colors duration-300 hover:text-ink focus-visible:text-ink',
   'aria-[current=page]:border-ink aria-[current=page]:text-ink',
 );

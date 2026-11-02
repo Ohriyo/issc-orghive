@@ -75,8 +75,11 @@ describe('uploadConstitutionRequestSchema', () => {
 
   it('takes a date and an optional note', () => {
     expect(
-      uploadConstitutionRequestSchema.parse({ uploadKey: key, actingAs: 'Ana', amendedOn: '2026-08-01' })
-        .note,
+      uploadConstitutionRequestSchema.parse({
+        uploadKey: key,
+        actingAs: 'Ana',
+        amendedOn: '2026-08-01',
+      }).note,
     ).toBeUndefined();
     expect(
       uploadConstitutionRequestSchema.parse({
@@ -87,8 +90,11 @@ describe('uploadConstitutionRequestSchema', () => {
       }).note,
     ).toBeNull();
     expect(
-      uploadConstitutionRequestSchema.safeParse({ uploadKey: key, actingAs: 'Ana', amendedOn: '1 Aug' })
-        .success,
+      uploadConstitutionRequestSchema.safeParse({
+        uploadKey: key,
+        actingAs: 'Ana',
+        amendedOn: '1 Aug',
+      }).success,
     ).toBe(false);
   });
 });

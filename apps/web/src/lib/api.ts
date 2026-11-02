@@ -122,19 +122,8 @@ async function send(path: string, init: RequestInit, json: unknown, raw?: Blob):
   }
 }
 
-export async function apiFetch<T = unknown>(
-  path: string,
-  { json, raw, schema, background, ...rest }: RequestOptions<T> = {},
-): Promise<T> {
-  const init: RequestInit = background
-    ? {
-        ...rest,
-        headers: {
-          ...Object.fromEntries(new Headers(rest.headers)),
-          [BACKGROUND_REQUEST_HEADER]: '1',
-        },
-      }
-    : rest;
+/** Sends a request, refreshing the session once on a 401; a non-2xx answer throws ApiError. */
+async function request(path: string, init: RequestInit, json: unknown, raw?: Blob) {
   let response = await send(path, init, json, raw);
 
   // An expired access token: refresh once and retry. Auth routes answer 401 for wrong
@@ -150,6 +139,29 @@ export async function apiFetch<T = unknown>(
     }
     throw new ApiError(response.status, 'HTTP_ERROR', response.statusText || 'Request failed');
   }
+  return response;
+}
+
+/** A POST whose answer is a file (a task template), not JSON. */
+export async function apiPostForBlob(path: string, json?: unknown): Promise<Blob> {
+  const response = await request(path, { method: 'POST' }, json);
+  return response.blob();
+}
+
+export async function apiFetch<T = unknown>(
+  path: string,
+  { json, raw, schema, background, ...rest }: RequestOptions<T> = {},
+): Promise<T> {
+  const init: RequestInit = background
+    ? {
+        ...rest,
+        headers: {
+          ...Object.fromEntries(new Headers(rest.headers)),
+          [BACKGROUND_REQUEST_HEADER]: '1',
+        },
+      }
+    : rest;
+  const response = await request(path, init, json, raw);
 
   if (response.status === 204 || response.status === 202) {
     const text = await response.text();

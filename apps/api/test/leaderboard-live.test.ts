@@ -41,7 +41,7 @@ import { createProjectSync } from '#src/services/project-sync.service';
 import { createPublicLeaderboardService } from '#src/services/public-leaderboard.service';
 import { createRecipients } from '#src/services/recipients.service';
 import { createSystemSettingsService } from '#src/services/system-settings.service';
-import { buildComplianceWorld, seedProject } from './compliance-fixtures';
+import { buildComplianceWorld, markChecked, seedProject } from './compliance-fixtures';
 import { createTestDocument, testDb } from './db';
 import { buildTestApp, TEST_ASSET_BASE_URL } from './helpers';
 import { testRedis } from './redis';
@@ -120,7 +120,6 @@ beforeAll(async () => {
   const publicLeaderboard = createPublicLeaderboardService({
     leaderboard,
     organizations: leaderboardReads,
-    settings,
     cache: memoryCache(),
     publicUrl: createPublicUrl(TEST_ASSET_BASE_URL),
     now,
@@ -234,6 +233,7 @@ describe('the live leaderboard, end to end', () => {
       createdById: officerId,
     });
     await createProjectRepository(db).linkDocument(projectId, 'FINANCIAL_REPORT', report.id);
+    await markChecked(db, report.id);
     // Every file of the project was filed by this officer.
     await db.documentVersion.updateMany({
       where: { document: { organizationId: jpice.id } },

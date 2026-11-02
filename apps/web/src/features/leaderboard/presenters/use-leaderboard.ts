@@ -63,6 +63,8 @@ export function applyStandings(client: QueryClient, semesterKey: string, event: 
       academicYear: event.academicYear,
       semester: event.semester,
       latePoints: event.latePoints,
+      status: event.status,
+      provisionalUntil: event.provisionalUntil,
       type: type as LeaderboardType,
       rows: college ? rows.filter((row) => row.college?.slug === college) : rows,
     });

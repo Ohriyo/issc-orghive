@@ -28,6 +28,7 @@ const DASHBOARD: DashboardResponse = {
       quarantined: [],
       activity: [],
       semester: null,
+      legacyTaskFiles: [],
     },
   ],
   isIssc: false,

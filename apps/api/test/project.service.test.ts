@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { verifiedDoc } from './integrity-fixtures';
 import type { ProjectTaskType } from '@orghive/shared';
 import type { DocumentViewer } from '#src/repositories/document-visibility';
 import type { FreezeRecord } from '#src/repositories/org-freeze.repository';
@@ -53,7 +54,14 @@ function record(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
     createdById: 'u1',
     createdAt: CREATED,
     updatedAt: CREATED,
-    organization: { id: 'jpice', slug: 'jpice', acronym: 'JPICE', name: 'JPICE', type: 'SBO' },
+    organization: {
+      id: 'jpice',
+      slug: 'jpice',
+      acronym: 'JPICE',
+      name: 'JPICE',
+      type: 'SBO',
+      parentId: 'csc-cea',
+    },
     tasks: [task('PROPOSAL', { status: 'open' }), task('ACR'), task('FINANCIAL_REPORT')],
     extraFiles: [],
     figures: null,
@@ -73,7 +81,7 @@ function labelled(
       label,
       documentId: `doc-${type}-${i}`,
       createdAt: CREATED,
-      document: { status: status as never, deletedAt: null, createdById: by },
+      document: { ...verifiedDoc({ status: status as never }), createdById: by },
     })),
   });
 }
@@ -82,7 +90,7 @@ function labelled(
 function filed(type: ProjectTaskType, status = 'available', by = 'u1'): TaskRecord {
   return task(type, {
     documentId: `doc-${type}`,
-    document: { status: status as never, deletedAt: null, createdById: by },
+    document: { ...verifiedDoc({ status: status as never }), createdById: by },
   });
 }
 
@@ -129,7 +137,9 @@ function setup(found: ProjectRecord | null = record()) {
   const audit = { record: vi.fn(() => Promise.resolve()) };
   const figures = { saveWithFile: vi.fn(() => Promise.resolve({} as never)) };
   const leaderboard = { forEventDates: vi.fn(() => Promise.resolve()) };
+  const typedCodes = { recordTypedCode: vi.fn(() => Promise.resolve()) };
   const service = createProjectService({
+    typedCodes,
     projects,
     sync,
     freezes,
@@ -146,6 +156,7 @@ function setup(found: ProjectRecord | null = record()) {
   return {
     service,
     leaderboard,
+    typedCodes,
     figures,
     projects,
     sync,
@@ -468,6 +479,36 @@ describe('projectService.submitTaskFile', () => {
     expect(sync.sync).toHaveBeenCalledWith('p1');
   });
 
+  it('keeps the short code typed for a damaged QR with the file (spec section 6)', async () => {
+    const { service, typedCodes } = setup();
+    await service.submitTaskFile(ACTOR, JPICE, 'p1', 'PROPOSAL', {
+      uploadKey: 'uploads/jpice/k1',
+      visibility: 'governing',
+      actingAs: 'Juan Dela Cruz',
+      taskCode: 'OH-7K3P-PROP',
+    });
+    expect(typedCodes.recordTypedCode).toHaveBeenCalledWith('new-doc', 'OH-7K3P-PROP');
+
+    const again = setup(
+      record({ tasks: [filed('PROPOSAL'), task('ACR'), task('FINANCIAL_REPORT')] }),
+    );
+    await again.service.submitTaskFile(ACTOR, JPICE, 'p1', 'PROPOSAL', {
+      uploadKey: 'uploads/jpice/k2',
+      visibility: 'governing',
+      actingAs: 'Juan Dela Cruz',
+      taskCode: 'OH-7K3P-PROP',
+    });
+    expect(again.typedCodes.recordTypedCode).toHaveBeenCalledWith('doc-PROPOSAL', 'OH-7K3P-PROP');
+
+    const without = setup();
+    await without.service.submitTaskFile(ACTOR, JPICE, 'p1', 'PROPOSAL', {
+      uploadKey: 'uploads/jpice/k1',
+      visibility: 'governing',
+      actingAs: 'Juan Dela Cruz',
+    });
+    expect(without.typedCodes.recordTypedCode).not.toHaveBeenCalled();
+  });
+
   it('adds a version when the task already has a file', async () => {
     const { service, documents, projects } = setup(
       record({ tasks: [filed('PROPOSAL'), task('ACR'), task('FINANCIAL_REPORT')] }),
@@ -488,7 +529,7 @@ describe('projectService.submitTaskFile', () => {
   it('starts a new document when the old file was deleted', async () => {
     const deleted = task('PROPOSAL', {
       documentId: 'old',
-      document: { status: 'available', deletedAt: new Date(), createdById: 'u1' },
+      document: { ...verifiedDoc({ deletedAt: new Date() }), createdById: 'u1' },
     });
     const { service, documents, projects } = setup(
       record({ tasks: [deleted, task('ACR'), task('FINANCIAL_REPORT')] }),
@@ -771,14 +812,27 @@ describe('projectService: extra project files (spec 2C)', () => {
       new Map([
         [
           'extra-2',
-          { id: 'extra-2', title: 'Budget', status: 'available' as const, visibility: 'governing' as const },
+          {
+            id: 'extra-2',
+            title: 'Budget',
+            status: 'available' as const,
+            visibility: 'governing' as const,
+          },
         ],
       ]),
     );
     const detail = await service.get(ACTOR, JPICE, 'p1');
     expect(documentReads.findVisibleBriefs).toHaveBeenCalledWith(VIEWER, ['extra-1', 'extra-2']);
     expect(detail.files).toEqual([
-      { document: { id: 'extra-2', title: 'Budget', status: 'available', visibility: 'governing' } },
+      {
+        document: {
+          id: 'extra-2',
+          title: 'Budget',
+          status: 'available',
+          visibility: 'governing',
+          integrity: null,
+        },
+      },
     ]);
   });
 });

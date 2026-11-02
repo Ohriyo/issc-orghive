@@ -16,6 +16,8 @@ const SECOND = { academicYear: '2026-2027', semester: 'second' as const };
 const eventOf = (semester: SemesterKey, marker = 0): LeaderboardEvent => ({
   ...semester,
   latePoints: 0.5 + marker / 100,
+  status: 'provisional',
+  provisionalUntil: '2027-01-07',
   boards: { SBO: [], CSC: [] },
 });
 

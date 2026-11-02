@@ -4,6 +4,7 @@ import type { ComplianceOverview, ComplianceRow } from '@orghive/shared';
 import { createComplianceOverviewRepository } from '#src/repositories/compliance-overview.repository';
 import { createAccountRepository } from '#src/repositories/account.repository';
 import { createComplianceOverviewService } from '#src/services/compliance-overview.service';
+import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createTokenService } from '#src/services/token.service';
 import { testKeys } from './auth-fixtures';
 import { buildComplianceWorld, seedProject, type Person } from './compliance-fixtures';
@@ -99,6 +100,9 @@ beforeAll(async () => {
     complianceOverview: createComplianceOverviewService({
       overview: createComplianceOverviewRepository(db),
       accounts,
+      viewers: createDocumentViewerService({ accounts }),
+      // Task files needing attention: task-file-decisions.routes.test.ts.
+      attention: { attentionFiles: () => Promise.resolve(new Map()) },
       now: () => NOW,
     }),
   });

@@ -1,8 +1,4 @@
 import {
-  academicYearOf,
-  manilaDate,
-  semesterOf,
-  semesterRange,
   type ComplianceOverview,
   type ComplianceOverviewQuery,
   type ComplianceRow,
@@ -11,11 +7,18 @@ import { AppError } from '#src/errors/app-error';
 import type { ComplianceOverviewRepository } from '#src/repositories/compliance-overview.repository';
 import type { AccountRepository } from '#src/repositories/account.repository';
 import { complianceScopeOf } from '#src/services/account-rules';
+import { USUAL_SEMESTER_READER, type SemesterReader } from '#src/services/semester-calendar.service';
+import type { DocumentViewerService } from '#src/services/document-viewer.service';
+import type { TaskFileDecisionService } from '#src/services/task-file-decision.service';
 import { countByStatus, overdueTasks, planAll, upcomingDeadlines } from './project-figures';
 
 export interface ComplianceOverviewServiceDeps {
   overview: ComplianceOverviewRepository;
   accounts: Pick<AccountRepository, 'findAccount'>;
+  viewers: Pick<DocumentViewerService, 'forUser'>;
+  /** Task files needing attention or flagged (spec section 6), with what the viewer may see. */
+  attention: Pick<TaskFileDecisionService, 'attentionFiles'>;
+  semesters?: SemesterReader;
   now?: () => Date;
 }
 
@@ -31,6 +34,9 @@ type Scope = { type: 'ISSC'; acronym: string } | { type: 'CSC'; acronym: string;
 export function createComplianceOverviewService({
   overview,
   accounts,
+  viewers,
+  attention,
+  semesters = USUAL_SEMESTER_READER,
   now = () => new Date(),
 }: ComplianceOverviewServiceDeps) {
   async function scopeOf(userId: string): Promise<Scope | null> {
@@ -55,19 +61,22 @@ export function createComplianceOverviewService({
       if (!scope) throw AppError.forbidden('The compliance overview is for the CSCs and the ISSC');
 
       const at = now();
-      const today = manilaDate(at);
-      const academicYear = query.academicYear ?? academicYearOf(today);
-      const semester = query.semester ?? semesterOf(today);
-      const { start, end } = semesterRange(academicYear, semester);
+      const calendar = await semesters.load();
+      const current = calendar.currentKey(at);
+      const academicYear = query.academicYear ?? current.academicYear;
+      const semester = query.semester ?? current.semester;
+      const { start, end } = calendar.spanOf({ academicYear, semester });
 
       const collegeIds =
         scope.type === 'CSC' ? await overview.collegesOfCscs(scope.cscIds) : undefined;
       const orgs = await overview.organizations({ collegeIds });
       const ids = orgs.map((org) => org.id);
-      const [projects, freezes, appeals] = await Promise.all([
+      const viewer = await viewers.forUser(userId);
+      const [projects, freezes, appeals, files] = await Promise.all([
         overview.projectsInRange(ids, start, end),
         overview.openFreezes(ids),
         overview.pendingAppeals(ids),
+        attention.attentionFiles(viewer, ids, start, end),
       ]);
       const planned = planAll(projects, at);
 
@@ -90,6 +99,7 @@ export function createComplianceOverviewService({
           overdueTasks: overdueTasks(mine, at),
           frozenSince: freezes.get(org.id)?.toISOString() ?? null,
           openAppeals: appeals.get(org.id) ?? 0,
+          attentionFiles: files.get(org.id) ?? [],
         };
       });
 

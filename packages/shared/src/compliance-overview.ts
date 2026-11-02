@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { academicYearSchema, semesterSchema } from './academic-term';
 import { organizationTypeSchema, slugSchema } from './organization';
+import { taskFileIntegritySchema } from './integrity';
 import { projectStatusSchema, projectTaskTypeSchema } from './project';
 
 /*
@@ -30,6 +31,23 @@ export const taskDeadlineSchema = z.object({
 });
 export type TaskDeadline = z.infer<typeof taskDeadlineSchema>;
 
+/**
+ * A task file its governing bodies should look at (spec section 6): its checks warn and
+ * nobody cleared them, or a governing body flagged it. Only files shared with them (public
+ * or governing) are listed: a private file is never shown, and never ranked.
+ */
+export const attentionFileSchema = z.object({
+  documentId: z.uuid(),
+  title: z.string(),
+  projectId: z.uuid(),
+  projectName: z.string(),
+  task: projectTaskTypeSchema,
+  /** A Communication Letter's label; null for one-file tasks. */
+  label: z.string().nullable(),
+  integrity: taskFileIntegritySchema,
+});
+export type AttentionFile = z.infer<typeof attentionFileSchema>;
+
 export const complianceRowSchema = z
   .object({
     organization: z.object({
@@ -52,6 +70,8 @@ export const complianceRowSchema = z
     frozenSince: z.iso.datetime().nullable(),
     /** Whatever the semester: appeals not decided yet. */
     openAppeals: z.number().int().nonnegative(),
+    /** This semester's task files needing attention or flagged invalid, oldest project first. */
+    attentionFiles: z.array(attentionFileSchema),
   })
   .meta({ id: 'ComplianceRow' });
 export type ComplianceRow = z.infer<typeof complianceRowSchema>;

@@ -1,12 +1,19 @@
-import { currentSemesterKey, previousSemesterKey, semesterKeyOf, type SemesterKey } from '@orghive/shared';
+import {
+  previousSemesterKey,
+  USUAL_SEMESTERS,
+  type SemesterCalendar,
+  type SemesterKey,
+} from '@orghive/shared';
 import type { LeaderboardQueue } from '#src/lib/queue';
 import type { Logger } from '#src/logger';
 import type { ProjectRepository } from '#src/repositories/project.repository';
+import { USUAL_SEMESTER_READER, type SemesterReader } from '#src/services/semester-calendar.service';
 
 export interface LeaderboardRecomputeDeps {
   queue: LeaderboardQueue;
   projects: Pick<ProjectRepository, 'targetDateOfDocument'>;
   logger: Pick<Logger, 'warn'>;
+  semesters?: SemesterReader;
   now?: () => Date;
 }
 
@@ -26,6 +33,7 @@ export function createLeaderboardRecompute({
   queue,
   projects,
   logger,
+  semesters = USUAL_SEMESTER_READER,
   now = () => new Date(),
 }: LeaderboardRecomputeDeps) {
   async function enqueue(keys: SemesterKey[]): Promise<void> {
@@ -41,15 +49,25 @@ export function createLeaderboardRecompute({
 
   return {
     /** Projects with these target dates changed (both dates when one moved). */
-    forEventDates(...dates: EventDate[]): Promise<void> {
-      return enqueue(dates.map((date) => semesterKeyOf(isoDate(date))));
+    async forEventDates(...dates: EventDate[]): Promise<void> {
+      try {
+        const calendar = await semesters.load();
+        await enqueue(dates.map((date) => calendar.keyOf(isoDate(date))));
+      } catch (err) {
+        logger.warn({ err }, 'Leaderboard recompute could not be queued');
+      }
+    },
+
+    /** These semesters changed: their dates, or who is disqualified from them. */
+    forSemesters(...keys: SemesterKey[]): Promise<void> {
+      return enqueue(keys);
     },
 
     /** A file was deleted: when it was a task's file, its project's semester. */
     async forDocument(documentId: string): Promise<void> {
       try {
         const targetDate = await projects.targetDateOfDocument(documentId);
-        if (targetDate) await enqueue([semesterKeyOf(isoDate(targetDate))]);
+        if (targetDate) await enqueue([(await semesters.load()).keyOf(isoDate(targetDate))]);
       } catch (err) {
         logger.warn({ err, documentId }, 'Leaderboard recompute could not be queued');
       }
@@ -57,19 +75,30 @@ export function createLeaderboardRecompute({
 
     /**
      * Something every board depends on changed (the late value, an organization deactivated):
-     * the current semester and the previous one, which is still settling (spec 5B). Older
-     * semesters keep their standings.
+     * the semesters still settling (spec 5B). Final ones keep their standings.
      */
-    forOpenSemesters(): Promise<void> {
-      return enqueue(openSemesters(now()));
+    async forOpenSemesters(): Promise<void> {
+      try {
+        await enqueue(openSemesters(now(), await semesters.load()));
+      } catch (err) {
+        logger.warn({ err }, 'Leaderboard recompute could not be queued');
+      }
     },
   };
 }
 
 export type LeaderboardRecompute = ReturnType<typeof createLeaderboardRecompute>;
 
-/** The current and previous semester at an instant: what the daily run recomputes. */
-export function openSemesters(at: Date): SemesterKey[] {
-  const current = currentSemesterKey(at);
-  return [current, previousSemesterKey(current)];
+/**
+ * The current semester and the two before it: what the daily run recomputes. Two, as a short
+ * semester can pass while the one before it is still provisional. A final one is left as it
+ * is, so including it costs nothing.
+ */
+export function openSemesters(
+  at: Date,
+  calendar: SemesterCalendar = USUAL_SEMESTERS,
+): SemesterKey[] {
+  const current = calendar.currentKey(at);
+  const previous = previousSemesterKey(current);
+  return [current, previous, previousSemesterKey(previous)];
 }

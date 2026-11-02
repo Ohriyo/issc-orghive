@@ -53,6 +53,20 @@ const envSchema = z
       .optional(),
 
     /**
+     * Signs the QR codes on project task templates (docs/PROJECT_WORKFLOW_SPEC.md, section
+     * 6), 32 random bytes, base64. Required in production; without it, templates cannot be
+     * made and every task file fails its code check. Changing it invalidates every printed
+     * template's QR (their short codes still work).
+     */
+    TASK_QR_SECRET: z
+      .string()
+      .refine(
+        (value) => Buffer.from(value, 'base64').length === 32,
+        'must be 32 random bytes, base64-encoded (run pnpm --filter api keys:generate)',
+      )
+      .optional(),
+
+    /**
      * Comma-separated email domains organization accounts may sign in with, e.g.
      * "nwssu.edu.ph". Empty or unset: any domain. Checked when the super admin creates or
      * edits an account.
@@ -115,6 +129,10 @@ const envSchema = z
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.MFA_ENCRYPTION_KEY !== undefined, {
     path: ['MFA_ENCRYPTION_KEY'],
+    message: 'is required in production (run pnpm --filter api keys:generate)',
+  })
+  .refine((env) => env.NODE_ENV !== 'production' || env.TASK_QR_SECRET !== undefined, {
+    path: ['TASK_QR_SECRET'],
     message: 'is required in production (run pnpm --filter api keys:generate)',
   });
 

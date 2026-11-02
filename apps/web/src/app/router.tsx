@@ -236,6 +236,18 @@ function dashboardRoutes(): RouteObject[] {
       }),
     },
     {
+      path: 'admin/semesters',
+      lazy: async () => ({
+        Component: (await import('@/features/admin/admin-pages')).AdminSemestersPage,
+      }),
+    },
+    {
+      path: 'admin/disqualifications',
+      lazy: async () => ({
+        Component: (await import('@/features/admin/admin-pages')).AdminDisqualificationsPage,
+      }),
+    },
+    {
       path: 'admin/handbook',
       lazy: async () => ({
         Component: (await import('@/features/admin/admin-pages')).AdminHandbookPage,

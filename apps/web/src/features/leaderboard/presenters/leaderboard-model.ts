@@ -1,5 +1,4 @@
 import {
-  currentSemesterKey,
   formatPesos,
   formatPoints,
   pointsBreakdown,
@@ -7,10 +6,14 @@ import {
   SEMESTER_LABELS,
   semesterSchema,
   underReviewNote,
+  USUAL_SEMESTERS,
   type LeaderboardType,
   type PublicLeaderboardRow,
+  type SemesterCalendar,
   type SemesterKey,
+  type StandingsStatus,
 } from '@orghive/shared';
+import { formatManilaDate } from '@/features/projects/presenters/project-format';
 
 /*
  * The leaderboard's view models (docs/PROJECT_WORKFLOW_SPEC.md, section 5): pure shaping
@@ -122,6 +125,13 @@ export function scoringNote(latePoints: number): string {
   return `Ranked by points (1 per implemented project, ${formatPoints(latePoints)} if any of its reports was late), then by net profit reported in submitted Financial Reports.`;
 }
 
+/** Whether a board can still change (spec 5B), in words. */
+export function standingsLabel(status: StandingsStatus, provisionalUntil: string): string {
+  return status === 'final'
+    ? 'Final standings. They no longer change.'
+    : `Provisional until ${formatManilaDate(provisionalUntil)}, then final.`;
+}
+
 export const BOARD_LABELS: Record<LeaderboardType, { short: string; long: string }> = {
   SBO: { short: 'SBO', long: 'Student Body Organizations' },
   CSC: { short: 'CSC', long: 'Collegiate Student Councils' },
@@ -145,8 +155,11 @@ export function semesterLabel({ academicYear, semester }: SemesterKey): string {
 /** How many semesters the picker offers, the current one first. */
 export const SEMESTER_CHOICES = 6;
 
-export function semesterChoices(now: Date): { value: string; label: string }[] {
-  const choices: SemesterKey[] = [currentSemesterKey(now)];
+export function semesterChoices(
+  now: Date,
+  calendar: SemesterCalendar = USUAL_SEMESTERS,
+): { value: string; label: string }[] {
+  const choices: SemesterKey[] = [calendar.currentKey(now)];
   while (choices.length < SEMESTER_CHOICES) choices.push(previousSemesterKey(choices.at(-1)!));
   return choices.map((key) => ({ value: semesterValue(key), label: semesterLabel(key) }));
 }

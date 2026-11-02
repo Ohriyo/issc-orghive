@@ -5,12 +5,18 @@ import {
   toCsv,
   type ComplianceOverview,
   type ComplianceRow,
+  type TaskFileIntegrity,
 } from '@orghive/shared';
 import {
   deadlineLabel,
   formatManilaDate,
   type DeadlineLabel,
 } from '@/features/projects/presenters/project-format';
+import {
+  integrityStatus,
+  type IntegrityStatus,
+} from '@/features/projects/presenters/task-integrity';
+import type { DecisionTarget } from '@/features/projects/presenters/use-task-file-decision';
 
 export type OverviewSort = 'overdue' | 'name';
 
@@ -50,6 +56,48 @@ export interface ComplianceRowView {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** A task file needing a look (spec section 6), with what to decide on it. */
+export interface AttentionFileView {
+  key: string;
+  acronym: string;
+  /** "Project Proposal", or "Letter to the Dean (Communication Letter)". */
+  what: string;
+  title: string;
+  href: string;
+  projectName: string;
+  projectHref: string;
+  status: IntegrityStatus;
+  /** As the API sent it: what decides which actions apply. */
+  integrity: TaskFileIntegrity;
+  target: DecisionTarget;
+}
+
+/** Every organization's files needing attention or flagged, in the rows' order. */
+export function attentionFilesOf(rows: ComplianceRow[]): AttentionFileView[] {
+  return rows.flatMap((row) =>
+    row.attentionFiles.map((file) => {
+      const task = PROJECT_TASK_LABELS[file.task];
+      const what = file.label ? `${file.label} (${task})` : task;
+      return {
+        key: file.documentId,
+        acronym: row.organization.acronym,
+        what,
+        title: file.title,
+        href: `/documents/${file.documentId}`,
+        projectName: file.projectName,
+        projectHref: `/projects/${file.projectId}`,
+        status: integrityStatus(file.integrity, false)!,
+        integrity: file.integrity,
+        target: {
+          documentId: file.documentId,
+          name: `${what}, ${file.projectName} (${row.organization.acronym})`,
+          reasons: file.integrity.reasons,
+        },
+      };
+    }),
+  );
+}
 
 export function toRowView(row: ComplianceRow, now: Date): ComplianceRowView {
   const { organization: org } = row;

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { verifiedDoc } from './integrity-fixtures';
 import type { LeaderboardQuery, LeaderboardResponse, PublicLeaderboardRow } from '@orghive/shared';
 import type { OwnProjectRecord } from '#src/repositories/leaderboard.repository';
 import { createMyStandingService } from '#src/services/my-standing.service';
@@ -33,7 +34,7 @@ const missingReports: OwnProjectRecord = {
     {
       type: 'PROPOSAL',
       submittedAt: new Date('2026-10-05T02:00:00Z'),
-      document: { status: 'available', deletedAt: null },
+      document: verifiedDoc(),
       files: [],
     },
   ],
@@ -61,21 +62,53 @@ function setup(type: 'ISSC' | 'SBO' | 'CSC' | null) {
     ),
   };
   const leaderboard = {
-    read: vi.fn(
-      (query: LeaderboardQuery): Promise<LeaderboardResponse> =>
-        Promise.resolve({
-          academicYear: '2026-2027',
-          semester: 'first',
-          type: query.type,
-          latePoints: 0.5,
-          rows: [row('psme', 1), row('jpice', 2)],
-        }),
+    read: vi.fn((query: LeaderboardQuery): Promise<LeaderboardResponse> =>
+      Promise.resolve({
+        academicYear: '2026-2027',
+        semester: 'first',
+        type: query.type,
+        latePoints: 0.5,
+        status: 'provisional',
+        provisionalUntil: '2027-01-07',
+        rows: [row('psme', 1), row('jpice', 2)],
+      }),
     ),
   };
   const projects = { ownProjects: vi.fn(() => Promise.resolve([missingReports])) };
-  const service = createMyStandingService({ accounts, leaderboard, projects, now: () => NOW });
-  return { service, leaderboard, projects };
+  const disqualifications = {
+    reasonFor: vi.fn(() => Promise.resolve<string | null>(null)),
+  };
+  const service = createMyStandingService({
+    accounts,
+    leaderboard,
+    projects,
+    disqualifications,
+    now: () => NOW,
+  });
+  return { service, leaderboard, projects, disqualifications };
 }
+
+describe('myStanding.forUser: status and disqualification (spec 5B)', () => {
+  it('passes on whether the standings are provisional', async () => {
+    const { standing } = await setup('SBO').service.forUser('u1');
+    expect(standing).toMatchObject({
+      status: 'provisional',
+      provisionalUntil: '2027-01-07',
+      disqualifiedFor: null,
+    });
+  });
+
+  it('gives the organization the ISSC’s reason, for this semester', async () => {
+    const { service, disqualifications } = setup('SBO');
+    disqualifications.reasonFor.mockResolvedValueOnce('Falsified attendance sheets.');
+    const { standing } = await service.forUser('u1');
+    expect(standing?.disqualifiedFor).toBe('Falsified attendance sheets.');
+    expect(disqualifications.reasonFor).toHaveBeenCalledWith('org-jpice', {
+      academicYear: '2026-2027',
+      semester: 'first',
+    });
+  });
+});
 
 describe('myStanding.forUser', () => {
   it('gives an SBO its row on the SBO board, the board size and its hints', async () => {
@@ -110,6 +143,8 @@ describe('myStanding.forUser', () => {
       semester: 'first',
       type: 'CSC',
       latePoints: 0.5,
+      status: 'provisional',
+      provisionalUntil: '2027-01-07',
       rows: [],
     });
     const { standing } = await service.forUser('u1');

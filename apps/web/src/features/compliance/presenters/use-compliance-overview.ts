@@ -1,11 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import {
-  academicYearOf,
   complianceOverviewSchema,
   manilaDate,
   SEMESTER_LABELS,
-  semesterOf,
   SEMESTERS,
   type ComplianceOverview,
   type Semester,
@@ -14,15 +12,23 @@ import {
   semesterOptions,
   type SemesterOption,
 } from '@/features/reports/presenters/use-semestral-reports';
+import { useSemesterCalendar } from '@/features/semesters/presenters/use-semester-calendar';
+import {
+  useTaskFileDecision,
+  type DecisionActions,
+  type TaskFileDecisionModel,
+} from '@/features/projects/presenters/use-task-file-decision';
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import {
+  attentionFilesOf,
   csvFilename,
   overviewCsv,
   SORT_OPTIONS,
   sortRows,
   toRowView,
   totalsOf,
+  type AttentionFileView,
   type ComplianceRowView,
   type OverviewSort,
   type OverviewTotals,
@@ -43,6 +49,9 @@ export type ComplianceOverviewModel = {
       totals: OverviewTotals;
       /** Downloads what is on screen, in its order, as CSV. */
       exportCsv: () => void;
+      /** Task files needing a look, with "Clear warning" and "Flag invalid" (spec 6). */
+      attention: (AttentionFileView & { decide: DecisionActions })[];
+      decision: TaskFileDecisionModel;
     }
 );
 
@@ -94,11 +103,14 @@ function scopeText(overview: ComplianceOverview): string {
 export function useComplianceOverview(now = new Date()): ComplianceOverviewModel {
   const [params, setParams] = useSearchParams();
   const today = manilaDate(now);
-  const current = `${academicYearOf(today)}:${semesterOf(today)}`;
+  const calendar = useSemesterCalendar();
+  const currentKey = calendar.keyOf(today);
+  const current = `${currentKey.academicYear}:${currentKey.semester}`;
   const chosen = parseSemester(params.get('semester'), current);
   const sort: OverviewSort = params.get('sort') === 'name' ? 'name' : 'overdue';
 
-  const options = semesterOptions(today);
+  const decision = useTaskFileDecision();
+  const options = semesterOptions(today, calendar);
   const setParam = (name: string, value: string, fallback: string) =>
     setParams(
       (prev) => {
@@ -164,5 +176,10 @@ export function useComplianceOverview(now = new Date()): ComplianceOverviewModel
     rows: sorted.map((row) => toRowView(row, now)),
     totals: totalsOf(sorted),
     exportCsv: () => download(csvFilename(overview), overviewCsv(sorted)),
+    attention: attentionFilesOf(sorted).map((file) => ({
+      ...file,
+      decide: decision.actionsFor(file.target, file.integrity),
+    })),
+    decision,
   };
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { semesterCalendar } from '@orghive/shared';
 import { lbRow as row } from '@/test/leaderboard';
 import {
   medalOf,
@@ -9,8 +10,31 @@ import {
   semesterChoices,
   semesterLabel,
   splitBoard,
+  standingsLabel,
   toStandingView,
 } from './leaderboard-model';
+
+describe('standingsLabel', () => {
+  it('says until when the standings are provisional, or that they are final', () => {
+    expect(standingsLabel('provisional', '2027-01-07')).toBe(
+      'Provisional until Jan 7, 2027, then final.',
+    );
+    expect(standingsLabel('final', '2027-01-07')).toBe('Final standings. They no longer change.');
+  });
+});
+
+describe('semesterChoices with the ISSC’s dates', () => {
+  it('starts from the semester the dates make current', () => {
+    const calendar = semesterCalendar([
+      { academicYear: '2026-2027', semester: 'first', start: '2026-08-17', end: '2027-01-15' },
+    ]);
+    // Jan 10 would be the 2nd semester by the usual dates.
+    expect(semesterChoices(new Date('2027-01-10T04:00:00Z'), calendar)[0]!.value).toBe(
+      '2026-2027:first',
+    );
+    expect(semesterChoices(new Date('2027-01-10T04:00:00Z'))[0]!.value).toBe('2026-2027:second');
+  });
+});
 
 describe('medalOf', () => {
   it('gives the Top 3 their metal by rank, so ties share it', () => {

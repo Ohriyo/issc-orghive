@@ -28,6 +28,7 @@ function row(acronym: string, overdueDays: number[]): ComplianceRow {
     })),
     frozenSince: null,
     openAppeals: 0,
+    attentionFiles: [],
   };
 }
 

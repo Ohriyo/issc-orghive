@@ -1,19 +1,19 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  academicYearOf,
   downloadUrlResponseSchema,
   manilaDate,
   SEMESTER_LABELS,
   SEMESTERS,
-  semesterOf,
-  semesterRange,
   semestralReportListResponseSchema,
   semestralReportSchema,
   type ReportStatus,
   type Semester,
   type SemestralReport,
+  USUAL_SEMESTERS,
+  type SemesterCalendar,
 } from '@orghive/shared';
+import { useSemesterCalendar } from '@/features/semesters/presenters/use-semester-calendar';
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -28,13 +28,16 @@ export interface SemesterOption {
  * The semesters an officer can report on: those that have started, this academic year and
  * the two before, newest first. Pure, so the rules are tested with any date.
  */
-export function semesterOptions(today: string): SemesterOption[] {
-  const currentStart = Number(academicYearOf(today).slice(0, 4));
+export function semesterOptions(
+  today: string,
+  calendar: SemesterCalendar = USUAL_SEMESTERS,
+): SemesterOption[] {
+  const currentStart = Number(calendar.keyOf(today).academicYear.slice(0, 4));
   const options: SemesterOption[] = [];
   for (let start = currentStart; start > currentStart - 3; start--) {
     const year = `${start}-${start + 1}`;
     for (const semester of [...SEMESTERS].reverse()) {
-      if (semesterRange(year, semester).start > today) continue;
+      if (calendar.rangeOf({ academicYear: year, semester }).start > today) continue;
       options.push({ value: `${year}:${semester}`, label: `${SEMESTER_LABELS[semester]} ${year}` });
     }
   }
@@ -125,9 +128,12 @@ export function useSemestralReports(
 ): SemestralReportsModel | null {
   const queryClient = useQueryClient();
   const today = manilaDate(now());
-  const options = semesterOptions(today);
+  const calendar = useSemesterCalendar();
+  const options = semesterOptions(today, calendar);
+  const current = calendar.keyOf(today);
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState(() => `${academicYearOf(today)}:${semesterOf(today)}`);
+  const [picked, setSelected] = useState<string | null>(null);
+  const selected = picked ?? `${current.academicYear}:${current.semester}`;
   const [error, setError] = useState<string>();
   const [downloadError, setDownloadError] = useState<string>();
 

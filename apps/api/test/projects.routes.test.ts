@@ -23,6 +23,11 @@ import { createDocumentService } from '#src/services/document.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
 import { createFinancialFiguresService } from '#src/services/financial-figures.service';
 import { createProjectService } from '#src/services/project.service';
+import { createTaskQr } from '#src/lib/task-qr';
+import { DOCX_MIME } from '#src/lib/task-template';
+import { createTaskCodeRepository } from '#src/repositories/task-code.repository';
+import { createIntegrityRepository } from '#src/repositories/integrity.repository';
+import { createTaskTemplateService } from '#src/services/task-template.service';
 import { createProjectSync } from '#src/services/project-sync.service';
 import { createRecipients } from '#src/services/recipients.service';
 import { createTokenService } from '#src/services/token.service';
@@ -143,6 +148,13 @@ beforeAll(async () => {
       viewers,
       figures: financialFigures,
       audit,
+      typedCodes: createIntegrityRepository(db),
+    }),
+    taskTemplates: createTaskTemplateService({
+      codes: createTaskCodeRepository(db),
+      qr: createTaskQr(Buffer.alloc(32, 3).toString('base64')),
+      // The PDF is LibreOffice's work (Gotenberg); here it only has to be called.
+      converter: { toPdf: () => Promise.resolve(Buffer.from('%PDF-1.7 converted')) },
     }),
   });
 });
@@ -264,6 +276,11 @@ describe('project authorization', () => {
         }),
       // Authorized users get past the guard; the unknown upload key is then a 400.
       { anonymous: 401, student: 403, psmeOfficer: 403, governor: 403, officer: 400, admin: 403 },
+    ],
+    [
+      'download a task template',
+      (who) => call('post', `/projects/${project.id}/tasks/ACR/template`, who, {}),
+      { anonymous: 401, student: 403, psmeOfficer: 403, governor: 403, officer: 200, admin: 403 },
     ],
   ];
 
@@ -670,8 +687,13 @@ describe('extra project files (spec 2C)', () => {
 
   it('lets only the organization’s own account add one (401/403)', async () => {
     const project = await newProject();
-    for (const path of [`/projects/${project.id}/files/upload-url`, `/projects/${project.id}/files`]) {
-      const body = path.endsWith('upload-url') ? PDF : { ...details('private'), uploadKey: 'uploads/x/y' };
+    for (const path of [
+      `/projects/${project.id}/files/upload-url`,
+      `/projects/${project.id}/files`,
+    ]) {
+      const body = path.endsWith('upload-url')
+        ? PDF
+        : { ...details('private'), uploadKey: 'uploads/x/y' };
       await call('post', path, undefined, body).expect(401);
       for (const who of ['student', 'governor', 'psmeOfficer', 'admin'] as const) {
         await call('post', path, who, body).expect(403);
@@ -684,7 +706,11 @@ describe('extra project files (spec 2C)', () => {
     const added = await addFile(project.id, 'governing');
     expect(added.files).toHaveLength(1);
     const file = added.files[0]!.document;
-    expect(file).toMatchObject({ title: 'Site visit photos', status: 'scanning', visibility: 'governing' });
+    expect(file).toMatchObject({
+      title: 'Site visit photos',
+      status: 'scanning',
+      visibility: 'governing',
+    });
     const stored = await db.document.findUniqueOrThrow({ where: { id: file.id } });
     expect(stored).toMatchObject({
       organizationId: world.orgs.jpice.id,
@@ -708,7 +734,8 @@ describe('extra project files (spec 2C)', () => {
     const project = await newProject();
     const added = await addFile(project.id, 'private');
     await scanClean(added.files[0]!.document.id);
-    const council = (await call('get', `/projects/${project.id}`, 'governor')).body as ProjectDetail;
+    const council = (await call('get', `/projects/${project.id}`, 'governor'))
+      .body as ProjectDetail;
     expect(council.files).toEqual([]);
     const own = (await call('get', `/projects/${project.id}`, 'officer')).body as ProjectDetail;
     expect(own.files).toHaveLength(1);
@@ -725,7 +752,9 @@ describe('extra project files (spec 2C)', () => {
     expect(read.status).toBe('blocked');
     const added = await addFile(project.id, 'private');
     expect(added.files).toHaveLength(1);
-    await call('post', `/projects/${project.id}/tasks/PROPOSAL/upload-url`, 'officer', PDF).expect(409);
+    await call('post', `/projects/${project.id}/tasks/PROPOSAL/upload-url`, 'officer', PDF).expect(
+      409,
+    );
   });
 
   it('validates the details like any Paperworks upload', async () => {
@@ -736,6 +765,77 @@ describe('extra project files (spec 2C)', () => {
       uploadKey: 'uploads/x/y',
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('task templates (spec section 6)', () => {
+  /** A binary response body as a Buffer. */
+  const binary = (req: request.Test) =>
+    req.buffer(true).parse((res, done) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => done(null, Buffer.concat(chunks)));
+    });
+
+  it('gives the Word file with the task’s code, the same code every time', async () => {
+    const project = await newProject();
+    const path = `/projects/${project.id}/tasks/PROPOSAL/template`;
+    const first = await binary(call('post', path, 'officer', {})).expect(200);
+    expect(first.headers['content-type']).toBe(DOCX_MIME);
+    expect(first.headers['cache-control']).toBe('private, no-store');
+    const name = /filename="([^"]+)"/.exec(first.headers['content-disposition'] as string)![1]!;
+    expect(name).toMatch(
+      /^Project Proposal - Inter-Year Bridge Design Competition - OH-[0-9A-Z]{4}-PROP\.docx$/,
+    );
+    expect((first.body as Buffer).subarray(0, 2).toString()).toBe('PK');
+    const again = await binary(call('post', path, 'officer', {})).expect(200);
+    expect(again.headers['content-disposition']).toBe(first.headers['content-disposition']);
+    const task = await db.projectTask.findFirstOrThrow({
+      where: { projectId: project.id, type: 'PROPOSAL' },
+      select: { codes: { select: { code: true } } },
+    });
+    expect(task.codes).toHaveLength(1);
+  });
+
+  it('gives the PDF on request', async () => {
+    const project = await newProject();
+    const res = await binary(
+      call('post', `/projects/${project.id}/tasks/ACR/template`, 'officer', { format: 'pdf' }),
+    ).expect(200);
+    expect(res.headers['content-type']).toBe('application/pdf');
+    expect((res.body as Buffer).toString()).toBe('%PDF-1.7 converted');
+  });
+
+  it('gives each Communication Letter its own labelled code, and needs the label', async () => {
+    const project = await newProject({ communicationLetterRequired: true });
+    const path = `/projects/${project.id}/tasks/COMMUNICATION_LETTER/template`;
+    await call('post', path, 'officer', {}).expect(400);
+    await binary(call('post', path, 'officer', { label: 'Letter to the Dean' })).expect(200);
+    await binary(call('post', path, 'officer', { label: 'Letter to the Guidance Office' })).expect(
+      200,
+    );
+    const codes = await db.taskCode.findMany({
+      where: { task: { projectId: project.id } },
+      select: { code: true, label: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(codes.map((c) => c.label)).toEqual([
+      'Letter to the Dean',
+      'Letter to the Guidance Office',
+    ]);
+    expect(codes[0]!.code).not.toBe(codes[1]!.code);
+    expect(codes.every((c) => c.code.endsWith('-CL'))).toBe(true);
+  });
+
+  it('has no template for other pre-event documents or unticked tasks (404)', async () => {
+    const project = await newProject();
+    await call(
+      'post',
+      `/projects/${project.id}/tasks/OTHER_PRE_EVENT/template`,
+      'officer',
+      {},
+    ).expect(404);
+    await call('post', `/projects/${project.id}/tasks/NOM/template`, 'officer', {}).expect(404);
   });
 });
 

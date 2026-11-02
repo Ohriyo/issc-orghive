@@ -65,6 +65,7 @@ function dashboard(who: Who): DashboardResponse {
         quarantined: [],
         activity: [],
         semester: null,
+        legacyTaskFiles: [],
       },
     ],
     isIssc: false,

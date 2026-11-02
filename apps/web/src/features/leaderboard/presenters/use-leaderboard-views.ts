@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { collegeListResponseSchema, type LeaderboardType, type SemesterKey } from '@orghive/shared';
+import {
+  collegeListResponseSchema,
+  DISQUALIFICATION_RULE,
+  type LeaderboardType,
+  type SemesterKey,
+} from '@orghive/shared';
 import { useDemoOrganizations } from '@/features/demo/presenters/use-demo-organizations';
+import { useSemesterCalendar } from '@/features/semesters/presenters/use-semester-calendar';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -14,6 +20,7 @@ import {
   semesterLabel,
   semesterValue,
   splitBoard,
+  standingsLabel,
   type StandingView,
 } from './leaderboard-model';
 import {
@@ -50,6 +57,10 @@ export type BoardState =
       podium: StandingView[];
       list: StandingView[];
       note: string;
+      /** The penalty rule (spec 5B). */
+      rule: string;
+      /** Final, or provisional until a date (spec 5B). */
+      standings: { final: boolean; label: string };
       /** Bumped on every live change to the Top 3: play the celebration. */
       bursts: number;
       /** Someone on this board ranks with demo data: show the "Sample data" chip. */
@@ -68,6 +79,11 @@ function boardState(
     semester: { academicYear: board.academicYear, semester: board.semester },
     ...splitBoard(board.rows),
     note: scoringNote(board.latePoints),
+    rule: DISQUALIFICATION_RULE,
+    standings: {
+      final: board.status === 'final',
+      label: standingsLabel(board.status, board.provisionalUntil),
+    },
     bursts,
     sample: board.rows.some((row) => demo.has(row.organization.slug)),
   };
@@ -162,7 +178,8 @@ export function useLeaderboardPage(now: () => Date = () => new Date()): Leaderbo
     enabled: type === 'SBO',
   });
 
-  const options = semesterChoices(now());
+  const calendar = useSemesterCalendar();
+  const options = semesterChoices(now(), calendar);
   const value = picked ? semesterValue(picked) : options[0]!.value;
   // A shared link may name a semester older than the picker lists.
   if (picked && !options.some((o) => o.value === value)) {

@@ -156,6 +156,38 @@ export interface SelectedOrganization {
   recentDocuments: RecentDocument[];
   /** Set for the organization's officers only. */
   semester: SemesterView | null;
+  /** Task files filed before the checks (spec section 6E); null when there are none. */
+  legacy: LegacyNotice | null;
+}
+
+/** "3 task files don't count for the leaderboard yet", with the first few to re-upload. */
+export interface LegacyNotice {
+  title: string;
+  /** "Coastal Cleanup Drive 2026: Activity Completion Report". */
+  items: { key: string; text: string; href: string }[];
+  /** How many more are not listed. */
+  more: number;
+}
+
+/** How many legacy files the notice lists by name. */
+export const LEGACY_LISTED = 5;
+
+export function toLegacyNotice(
+  files: DashboardOrganization['legacyTaskFiles'],
+): LegacyNotice | null {
+  if (files.length === 0) return null;
+  return {
+    title:
+      files.length === 1
+        ? '1 task file does not count for the leaderboard yet'
+        : `${files.length} task files don’t count for the leaderboard yet`,
+    items: files.slice(0, LEGACY_LISTED).map((file, i) => ({
+      key: `${file.projectId}:${file.task}:${i}`,
+      text: `${file.projectName}: ${file.label ? `${file.label} (${PROJECT_TASK_LABELS[file.task]})` : PROJECT_TASK_LABELS[file.task]}`,
+      href: `/projects/${file.projectId}`,
+    })),
+    more: Math.max(0, files.length - LEGACY_LISTED),
+  };
 }
 
 export type DashboardModel =
@@ -398,6 +430,7 @@ export function selectOrganization(
     })),
     recentDocuments: found.recentDocuments.map(toRecent),
     semester: found.semester ? toSemesterView(found.semester, org.slug, now) : null,
+    legacy: toLegacyNotice(found.legacyTaskFiles),
   };
 }
 

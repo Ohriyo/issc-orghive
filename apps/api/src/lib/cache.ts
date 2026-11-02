@@ -33,6 +33,8 @@ export const cacheKeys = {
   search: (generation: string, queryHash: string) => `search:${generation}:${queryHash}`,
   /** Public fields of the ranked organizations. Delete it when one is renamed or changes logo. */
   leaderboardOrganizations: () => 'leaderboard:orgs',
+  /** The dates the ISSC set for semesters. Delete it when one changes. */
+  semesterCalendar: () => 'semester:calendar',
 };
 
 /**

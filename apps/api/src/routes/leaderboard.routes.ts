@@ -1,8 +1,18 @@
 import { Router } from 'express';
 import { createLeaderboardController } from '#src/controllers/leaderboard.controller';
 import type { LeaderboardStream } from '#src/lib/leaderboard-stream';
-import { leaderboardCache } from '#src/middleware/public-cache';
+import { leaderboardCache, publicCache } from '#src/middleware/public-cache';
 import type { PublicLeaderboardService } from '#src/services/public-leaderboard.service';
+import type { SemesterCalendarService } from '#src/services/semester-calendar.service';
+
+/** GET /semesters: the dates the ISSC account set, public as every date the app shows is. */
+export function semestersRouter(semesters: Pick<SemesterCalendarService, 'read'>): Router {
+  const router = Router();
+  router.get('/', publicCache, async (_req, res) => {
+    res.json(await semesters.read());
+  });
+  return router;
+}
 
 export interface LeaderboardRouterDeps {
   leaderboard: Pick<PublicLeaderboardService, 'read' | 'semesterOf'>;

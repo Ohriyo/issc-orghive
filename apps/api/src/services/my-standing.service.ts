@@ -1,14 +1,18 @@
-import { semesterRange, type MyStandingResponse } from '@orghive/shared';
+import type { MyStandingResponse } from '@orghive/shared';
 import type { AccountRepository } from '#src/repositories/account.repository';
+import type { DisqualificationRepository } from '#src/repositories/disqualification.repository';
 import type { LeaderboardRepository } from '#src/repositories/leaderboard.repository';
 import { standingHints } from '#src/services/leaderboard-rules';
 import { projectFactsOf } from '#src/services/leaderboard.service';
 import type { PublicLeaderboardService } from '#src/services/public-leaderboard.service';
+import { USUAL_SEMESTER_READER, type SemesterReader } from '#src/services/semester-calendar.service';
 
 export interface MyStandingServiceDeps {
   accounts: Pick<AccountRepository, 'findAccount'>;
   leaderboard: Pick<PublicLeaderboardService, 'read'>;
   projects: Pick<LeaderboardRepository, 'ownProjects'>;
+  disqualifications?: Pick<DisqualificationRepository, 'reasonFor'>;
+  semesters?: SemesterReader;
   now?: () => Date;
 }
 
@@ -21,6 +25,8 @@ export function createMyStandingService({
   accounts,
   leaderboard,
   projects,
+  disqualifications,
+  semesters = USUAL_SEMESTER_READER,
   now = () => new Date(),
 }: MyStandingServiceDeps) {
   return {
@@ -30,10 +36,12 @@ export function createMyStandingService({
       if (!org || org.type === 'ISSC') return { standing: null };
 
       const board = await leaderboard.read({ type: org.type });
-      const own = await projects.ownProjects(
-        org.id,
-        semesterRange(board.academicYear, board.semester),
-      );
+      const key = { academicYear: board.academicYear, semester: board.semester };
+      const [calendar, disqualifiedFor] = await Promise.all([
+        semesters.load(),
+        disqualifications?.reasonFor(org.id, key) ?? null,
+      ]);
+      const own = await projects.ownProjects(org.id, calendar.spanOf(key));
       const hints = standingHints(
         own.map((project) => ({ id: project.id, name: project.name, ...projectFactsOf(project) })),
         now(),
@@ -43,6 +51,9 @@ export function createMyStandingService({
           academicYear: board.academicYear,
           semester: board.semester,
           latePoints: board.latePoints,
+          status: board.status,
+          provisionalUntil: board.provisionalUntil,
+          disqualifiedFor,
           type: org.type,
           boardSize: board.rows.length,
           row: board.rows.find((row) => row.organization.slug === org.slug) ?? null,

@@ -5,6 +5,7 @@ import type { DocumentViewer } from '#src/repositories/document-visibility';
 import type { AccountOrganization } from '#src/repositories/account.repository';
 import type { ProjectRecord } from '#src/repositories/project.repository';
 import { createDashboardService } from '#src/services/dashboard.service';
+import { verifiedDoc } from './integrity-fixtures';
 
 const JPICE: AccountOrganization = {
   id: '0195f3c0-0000-7000-8000-0000000000a1',
@@ -88,7 +89,10 @@ const TERM = {
 };
 
 /** The shared account of `org` (null: an account acting for no organization). */
-function setup({ org = JPICE }: { org?: AccountOrganization | null } = {}) {
+function setup({
+  org = JPICE,
+  projects = PROJECTS,
+}: { org?: AccountOrganization | null; projects?: ProjectRecord[] } = {}) {
   const viewer: DocumentViewer = org
     ? { kind: 'account', userId: 'u1', organizationId: org.id, organizationType: org.type }
     : { kind: 'public' };
@@ -125,7 +129,7 @@ function setup({ org = JPICE }: { org?: AccountOrganization | null } = {}) {
     dashboard: repo,
     documents,
     viewers: { forUser: () => Promise.resolve(viewer) },
-    projects: { listByOrganization: vi.fn(() => Promise.resolve(PROJECTS)) },
+    projects: { listByOrganization: vi.fn(() => Promise.resolve(projects)) },
     storage,
     publicUrl: createPublicUrl('https://cdn.test'),
     now: () => NOW,
@@ -226,5 +230,37 @@ describe('dashboardService "This semester"', () => {
         expect.objectContaining({ projectId: 'p-next', task: 'PROPOSAL' }),
       ],
     });
+  });
+
+  it('lists the task files still legacy, unverified (spec section 6E)', async () => {
+    const legacy = verifiedDoc({ integrity: { legacy: true } });
+    const filed = {
+      ...project('p-filed', '2026-09-01T02:00:00Z', '2026-09-20'),
+      tasks: [
+        { type: 'PROPOSAL', document: legacy, files: [] },
+        { type: 'ACR', document: verifiedDoc(), files: [] },
+        {
+          type: 'COMMUNICATION_LETTER',
+          document: null,
+          files: [
+            { label: 'Letter to the Dean', document: legacy },
+            { label: 'Letter to the Mayor', document: verifiedDoc() },
+          ],
+        },
+        // Other pre-event documents are never checked, so never legacy.
+        { type: 'OTHER_PRE_EVENT', document: null, files: [{ label: 'Venue', document: legacy }] },
+      ],
+    } as unknown as ProjectRecord;
+    const [jpice] = (await setup({ projects: [filed] }).service.forUser('u1')).organizations;
+    expect(jpice!.legacyTaskFiles).toEqual([
+      { projectId: 'p-filed', projectName: 'Project p-filed', task: 'PROPOSAL', label: null },
+      {
+        projectId: 'p-filed',
+        projectName: 'Project p-filed',
+        task: 'COMMUNICATION_LETTER',
+        label: 'Letter to the Dean',
+      },
+    ]);
+    expect((await setup().service.forUser('u1')).organizations[0]!.legacyTaskFiles).toEqual([]);
   });
 });

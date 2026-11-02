@@ -101,6 +101,7 @@ function org(
       },
     ],
     semester: null,
+    legacyTaskFiles: [],
     ...overrides,
   };
 }
@@ -391,6 +392,37 @@ describe('/dashboard', () => {
     renderAt('/dashboard');
     await screen.findByRole('heading', { level: 1 }, { timeout: 5000 });
     expect(screen.queryByRole('heading', { name: 'This semester' })).not.toBeInTheDocument();
+  });
+
+  it('lists legacy task files to re-upload on their templates (spec section 6E)', async () => {
+    const project = '0195f3c0-0000-7000-8000-0000000000c3';
+    const legacy: DashboardOrganization['legacyTaskFiles'] = Array.from({ length: 7 }, (_, i) => ({
+      projectId: project,
+      projectName: `Cleanup ${i + 1}`,
+      task: 'ACR',
+      label: null,
+    }));
+    legacy[0] = { ...legacy[0]!, task: 'COMMUNICATION_LETTER', label: 'Letter to the Dean' };
+    serve(dashboard({ organizations: [org(JPICE_ID, 'JPICE', { legacyTaskFiles: legacy })] }));
+    renderAt('/dashboard');
+    const notice = await screen.findByRole(
+      'region',
+      { name: '7 task files don’t count for the leaderboard yet' },
+      { timeout: 5000 },
+    );
+    const links = within(notice).getAllByRole('link');
+    expect(links).toHaveLength(5);
+    expect(links[0]).toHaveTextContent('Cleanup 1: Letter to the Dean (Communication Letter)');
+    expect(links[1]).toHaveTextContent('Cleanup 2: Activity Completion Report');
+    expect(links[0]).toHaveAttribute('href', `/projects/${project}`);
+    expect(within(notice).getByText('And 2 more on your projects.')).toBeInTheDocument();
+  });
+
+  it('shows no legacy notice when every task file is checked', async () => {
+    serve(dashboard());
+    renderAt('/dashboard');
+    await screen.findByRole('heading', { level: 1 }, { timeout: 5000 });
+    expect(screen.queryByText(/count for the leaderboard yet/)).not.toBeInTheDocument();
   });
 
   it('explains what to do without an organization', async () => {

@@ -5,6 +5,7 @@ import type {
   ProjectTaskType,
 } from '#src/generated/prisma/client';
 import { figuresSelect } from './financial-figures.repository';
+import { integrityDocumentSelect } from './integrity-select';
 import type { Db } from './prisma';
 
 export const projectSelect = {
@@ -27,7 +28,9 @@ export const projectSelect = {
   createdById: true,
   createdAt: true,
   updatedAt: true,
-  organization: { select: { id: true, slug: true, acronym: true, name: true, type: true } },
+  organization: {
+    select: { id: true, slug: true, acronym: true, name: true, type: true, parentId: true },
+  },
   tasks: {
     select: {
       id: true,
@@ -36,9 +39,10 @@ export const projectSelect = {
       dueAt: true,
       submittedAt: true,
       documentId: true,
-      // System view of the task's file, for the unlock rules only. What a viewer may see of
-      // it goes through the document repository's visibility filter.
-      document: { select: { status: true, deletedAt: true, createdById: true } },
+      // System view of the task's file, for the unlock rules and its integrity (spec section
+      // 6). What a viewer may see of it goes through the document repository's visibility
+      // filter.
+      document: { select: { ...integrityDocumentSelect, createdById: true } },
       // A multi-file task's files (Communication Letters, other pre-event documents).
       files: {
         orderBy: { createdAt: 'asc' },
@@ -46,7 +50,7 @@ export const projectSelect = {
           label: true,
           documentId: true,
           createdAt: true,
-          document: { select: { status: true, deletedAt: true, createdById: true } },
+          document: { select: { ...integrityDocumentSelect, createdById: true } },
         },
       },
     },

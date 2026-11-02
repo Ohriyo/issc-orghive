@@ -22,7 +22,11 @@ const PROJECT_ID = '0195f3c0-0000-7000-8000-0000000000c1';
 const DOC_ID = '0195f3c0-0000-7000-8000-0000000000d1';
 /** An extra project file (spec 2C). */
 const FILE_ID = '0195f3c0-0000-7000-8000-0000000000d7';
-const TYPE = { id: '0195f3c0-0000-7000-8000-0000000000e1', slug: 'activity-proposal', name: 'Activity proposal' };
+const TYPE = {
+  id: '0195f3c0-0000-7000-8000-0000000000e1',
+  slug: 'activity-proposal',
+  name: 'Activity proposal',
+};
 const UPLOAD_KEY = `uploads/${JPICE_ID}/0195f3c0-0000-7000-8000-0000000000e9`;
 const today = manilaDate(new Date());
 
@@ -57,6 +61,7 @@ function dashboard(role: TestAccount): DashboardResponse {
         quarantined: [],
         activity: [],
         semester: null,
+        legacyTaskFiles: [],
       },
     ],
     isIssc: false,
@@ -229,7 +234,7 @@ beforeEach(() => {
           ...stored[0]!,
           files: [
             ...stored[0]!.files,
-            { document: { id: FILE_ID, title, status: 'scanning', visibility } },
+            { document: { id: FILE_ID, title, status: 'scanning', visibility, integrity: null } },
           ],
         },
       ];
@@ -261,6 +266,7 @@ beforeEach(() => {
                     title: 'Project Proposal',
                     status: 'scanning',
                     visibility,
+                    integrity: null,
                   },
                 }
               : t,
@@ -298,6 +304,14 @@ beforeEach(() => {
         correctableUntil: new Date(Date.now() + 86_400_000).toISOString(),
         updatedAt: new Date().toISOString(),
       });
+    }
+    if (/\/tasks\/\w+\/template$/.test(url) && method === 'POST') {
+      return Promise.resolve(
+        new Response(new Blob(['PK']), {
+          status: 200,
+          headers: { 'Content-Type': 'application/octet-stream' },
+        }),
+      );
     }
     return json({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404);
   });
@@ -556,7 +570,7 @@ describe('/projects/:id', () => {
     expect(await within(proposal).findByText(/Checking for viruses/)).toBeInTheDocument();
   });
 
-  it('refuses a Word file for a task before sending anything', async () => {
+  it('takes only a PDF for a checked task, refusing Word and images before sending anything', async () => {
     renderAt(`/projects/${PROJECT_ID}`);
     const proposal = await screen.findByRole(
       'region',
@@ -567,10 +581,14 @@ describe('/projects/:id', () => {
       target: { value: 'Juan Dela Cruz' },
     });
     const input = proposal.querySelector<HTMLInputElement>('input[type="file"]')!;
-    fireEvent.change(input, {
-      target: { files: [new File(['x'], 'proposal.docx')] },
-    });
-    expect(await within(proposal).findByRole('alert')).toHaveTextContent(/PDF, JPG or PNG/);
+    expect(input).toHaveAttribute('accept', '.pdf');
+    expect(within(proposal).getByText(/signed template as a PDF/)).toBeInTheDocument();
+    for (const name of ['proposal.docx', 'proposal.jpg']) {
+      fireEvent.change(input, { target: { files: [new File(['x'], name)] } });
+      expect(await within(proposal).findByRole('alert')).toHaveTextContent(
+        'Upload the signed template as a PDF, up to 25 MB.',
+      );
+    }
     expect(calls.some((c) => c.url.includes('/upload-url'))).toBe(false);
   });
 
@@ -775,7 +793,55 @@ describe('/projects/:id', () => {
       { timeout: 5000 },
     );
     expect(within(proposal).queryByRole('button', { name: /Upload/ })).not.toBeInTheDocument();
+    expect(within(proposal).queryByRole('button', { name: /Template/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Acting as' })).not.toBeInTheDocument();
+  });
+
+  it('lets a governing body clear or flag a file with warnings (spec section 6)', async () => {
+    role = 'governing';
+    const base = project();
+    stored = [
+      project({
+        canDecideIntegrity: true,
+        tasks: base.tasks.map((t) =>
+          t.type === 'PROPOSAL'
+            ? {
+                ...t,
+                status: 'submitted',
+                submittedAt: new Date().toISOString(),
+                document: {
+                  id: DOC_ID,
+                  title: 'Project Proposal',
+                  status: 'available',
+                  visibility: 'governing',
+                  integrity: {
+                    state: 'needs_attention',
+                    reasons: ['Could not find: JPICE.'],
+                    checks: [],
+                  },
+                },
+              }
+            : t,
+        ),
+      }),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    const proposal = await screen.findByRole(
+      'region',
+      { name: 'Project Proposal' },
+      { timeout: 5000 },
+    );
+    expect(
+      within(proposal).getByRole('button', { name: 'Clear warning: Project Proposal' }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(proposal).getByRole('button', { name: 'Flag invalid: Project Proposal' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Flag as invalid' });
+    expect(
+      within(dialog).getByText('Project Proposal, Inter-Year Bridge Design Competition (JPICE)'),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('Could not find: JPICE.')).toBeInTheDocument();
   });
 
   it('shows not found for a project the API does not return', async () => {
@@ -783,6 +849,179 @@ describe('/projects/:id', () => {
     expect(
       await screen.findByRole('heading', { name: 'Project not found' }, { timeout: 5000 }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('/projects/:id: templates and file checks (spec section 6)', () => {
+  const brief = (
+    integrity: NonNullable<ProjectDetail['tasks'][number]['document']>['integrity'],
+  ) => ({
+    id: DOC_ID,
+    title: 'Project Proposal',
+    status: 'available' as const,
+    visibility: 'governing' as const,
+    integrity,
+  });
+  const withProposal = (
+    integrity: NonNullable<ProjectDetail['tasks'][number]['document']>['integrity'],
+  ) => {
+    const base = project();
+    return project({
+      tasks: base.tasks.map((t) =>
+        t.type === 'PROPOSAL'
+          ? {
+              ...t,
+              status: 'submitted',
+              submittedAt: new Date().toISOString(),
+              document: brief(integrity),
+            }
+          : t,
+      ),
+    });
+  };
+
+  function stubDownloads() {
+    const createObjectURL = vi.fn(() => 'blob:template');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    return { createObjectURL, click };
+  }
+
+  async function proposalCard() {
+    return screen.findByRole('region', { name: 'Project Proposal' }, { timeout: 5000 });
+  }
+
+  it('downloads the pre-filled template in Word or as a PDF', async () => {
+    const { createObjectURL, click } = stubDownloads();
+    renderAt(`/projects/${PROJECT_ID}`);
+    const proposal = await proposalCard();
+    fireEvent.click(
+      within(proposal).getByRole('button', { name: 'Template (Word): Project Proposal' }),
+    );
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledOnce());
+    expect(calls.find((c) => c.url.endsWith('/tasks/PROPOSAL/template'))).toMatchObject({
+      method: 'POST',
+      body: { format: 'docx' },
+    });
+    expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe(
+      'JPICE Project Proposal template.docx',
+    );
+
+    fireEvent.click(
+      within(proposal).getByRole('button', { name: 'Template (PDF): Project Proposal' }),
+    );
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(2));
+    expect((click.mock.contexts[1] as HTMLAnchorElement).download).toBe(
+      'JPICE Project Proposal template.pdf',
+    );
+    click.mockRestore();
+  });
+
+  it('shows the checks: verified, needs attention with its reasons, refused, flagged and legacy', async () => {
+    stored = [withProposal({ state: 'verified', reasons: [], checks: [] })];
+    renderAt(`/projects/${PROJECT_ID}`);
+    expect(await within(await proposalCard()).findByText('Verified ✓')).toBeInTheDocument();
+    cleanup();
+
+    stored = [
+      withProposal({
+        state: 'needs_attention',
+        reasons: ['Could not find: JPICE.'],
+        checks: [],
+      }),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    let card = await proposalCard();
+    expect(within(card).getByText('Needs attention')).toBeInTheDocument();
+    expect(within(card).getByText('Could not find: JPICE.')).toBeInTheDocument();
+    expect(
+      within(card).getByRole('button', { name: 'Upload again: Project Proposal' }),
+    ).toBeInTheDocument();
+    cleanup();
+
+    stored = [
+      withProposal({
+        state: 'refused',
+        reasons: [
+          'This QR code belongs to another task. Download this task’s template and use it.',
+        ],
+        checks: [],
+      }),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    card = await proposalCard();
+    expect(within(card).getByText('Refused')).toBeInTheDocument();
+    expect(within(card).getByText(/belongs to another task/)).toBeInTheDocument();
+    expect(within(card).getByText(/keeps its earlier file/)).toBeInTheDocument();
+    cleanup();
+
+    stored = [
+      withProposal({ state: 'flagged_invalid', reasons: ['Signatures missing.'], checks: [] }),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    card = await proposalCard();
+    expect(within(card).getByText('Flagged invalid')).toBeInTheDocument();
+    expect(within(card).getByText('Signatures missing.')).toBeInTheDocument();
+    cleanup();
+
+    stored = [
+      withProposal({
+        state: 'legacy',
+        reasons: ['Filed before Orghive checked task files. Re-upload it on its template.'],
+        checks: [],
+      }),
+    ];
+    renderAt(`/projects/${PROJECT_ID}`);
+    card = await proposalCard();
+    expect(within(card).getByText('Legacy, unverified')).toBeInTheDocument();
+    expect(within(card).getByText(/Filed before Orghive checked task files/)).toBeInTheDocument();
+    expect(within(card).getByText(/counts for the leaderboard only once/)).toBeInTheDocument();
+  });
+
+  it('checks a typed code before the file picker opens, and sends it with the file', async () => {
+    renderAt(`/projects/${PROJECT_ID}`);
+    const proposal = await proposalCard();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Acting as' }), {
+      target: { value: 'Juan Dela Cruz' },
+    });
+    const code = within(proposal).getByRole('textbox', {
+      name: 'Code under the QR: Project Proposal',
+    });
+    const upload = within(proposal).getByRole('button', { name: 'Upload file: Project Proposal' });
+    const input = proposal.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const pick = vi.spyOn(input, 'click').mockImplementation(() => {});
+
+    fireEvent.change(code, { target: { value: 'OH-7K3P-ACR' } });
+    fireEvent.click(upload);
+    expect(await within(proposal).findByText(/This code is for another task/)).toBeInTheDocument();
+    expect(pick).not.toHaveBeenCalled();
+
+    fireEvent.change(code, { target: { value: 'oh 7k3p prop' } });
+    fireEvent.click(upload);
+    expect(pick).toHaveBeenCalledOnce();
+    fireEvent.change(input, {
+      target: { files: [new File(['%PDF-1.7'], 'proposal.pdf', { type: 'application/pdf' })] },
+    });
+    await waitFor(() =>
+      expect(calls.find((c) => c.url.endsWith('/tasks/PROPOSAL/documents'))?.body).toMatchObject({
+        taskCode: 'OH-7K3P-PROP',
+      }),
+    );
+  });
+
+  it('says a Private file completes the task but is not ranked', async () => {
+    renderAt(`/projects/${PROJECT_ID}`);
+    const proposal = await proposalCard();
+    // Proposals default to Private.
+    expect(within(proposal).getByRole('note')).toHaveTextContent(/count for the leaderboard/);
+    fireEvent.change(
+      within(proposal).getByRole('combobox', { name: 'Who can see it: Project Proposal' }),
+      {
+        target: { value: 'public' },
+      },
+    );
+    expect(within(proposal).queryByText(/count for the leaderboard/)).not.toBeInTheDocument();
   });
 });
 
@@ -796,6 +1035,7 @@ describe('/projects/:id pre-event documents', () => {
       title: `Communication Letter: ${label}`,
       status: 'available' as const,
       visibility: 'private' as const,
+      integrity: null,
     },
   });
 
@@ -906,6 +1146,51 @@ describe('/projects/:id pre-event documents', () => {
     );
   });
 
+  it('names a new letter before its template, and gives a filed letter its own', async () => {
+    const createObjectURL = vi.fn(() => 'blob:template');
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderAt(`/projects/${PROJECT_ID}`);
+    const letters = await screen.findByRole(
+      'region',
+      { name: 'Communication Letter' },
+      { timeout: 5000 },
+    );
+    const newTemplate = within(letters).getByRole('button', {
+      name: 'Template (Word): Communication Letter',
+    });
+    fireEvent.click(newTemplate);
+    expect(await within(letters).findByText(/Name this file/)).toBeInTheDocument();
+    expect(calls.some((c) => c.url.endsWith('/template'))).toBe(false);
+
+    fireEvent.change(within(letters).getByRole('textbox', { name: /Name the next file/ }), {
+      target: { value: 'Letter to the Registrar' },
+    });
+    fireEvent.click(newTemplate);
+    await waitFor(() =>
+      expect(calls.find((c) => c.url.endsWith('/COMMUNICATION_LETTER/template'))?.body).toEqual({
+        format: 'docx',
+        label: 'Letter to the Registrar',
+      }),
+    );
+    fireEvent.click(
+      within(letters).getByRole('button', {
+        name: 'Template (PDF): Communication Letter, Letter to the Dean',
+      }),
+    );
+    await waitFor(() =>
+      expect(calls.filter((c) => c.url.endsWith('/template')).at(-1)?.body).toEqual({
+        format: 'pdf',
+        label: 'Letter to the Dean',
+      }),
+    );
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(2));
+    expect((click.mock.contexts[1] as HTMLAnchorElement).download).toBe(
+      'JPICE Communication Letter Letter to the Dean template.pdf',
+    );
+    click.mockRestore();
+  });
+
   it('uploads a new version of one letter by its document', async () => {
     stored = [
       (() => {
@@ -988,6 +1273,7 @@ describe('/projects/:id: extra project files (spec 2C)', () => {
             title: 'Site visit photos',
             status: 'available',
             visibility: 'governing',
+            integrity: null,
           },
         },
       ],
@@ -1028,14 +1314,20 @@ describe('/projects/:id: extra project files (spec 2C)', () => {
       const files = await screen.findByRole('region', { name: 'Project files' }, { timeout: 5000 });
       fireEvent.click(within(files).getByRole('link', { name: 'Add files' }));
       expect(
-        await screen.findByRole('heading', { level: 1, name: 'Add project files' }, { timeout: 5000 }),
+        await screen.findByRole(
+          'heading',
+          { level: 1, name: 'Add project files' },
+          { timeout: 5000 },
+        ),
       ).toBeInTheDocument();
       expect(screen.getByText(stored[0]!.name, { selector: 'p' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: `Back to ${stored[0]!.name}` })).toBeInTheDocument();
 
       const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
       fireEvent.change(input, {
-        target: { files: [new File(['%PDF'], 'site_visit-photos.pdf', { type: 'application/pdf' })] },
+        target: {
+          files: [new File(['%PDF'], 'site_visit-photos.pdf', { type: 'application/pdf' })],
+        },
       });
       const card = (await screen.findByText('site_visit-photos.pdf')).closest('li')!;
       // The project's event decides the academic year and semester it starts with.
@@ -1060,10 +1352,9 @@ describe('/projects/:id: extra project files (spec 2C)', () => {
       });
       fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
 
-      await waitFor(
-        () => expect(router.state.location.pathname).toBe(`/projects/${PROJECT_ID}`),
-        { timeout: 5000 },
-      );
+      await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${PROJECT_ID}`), {
+        timeout: 5000,
+      });
       expect(await screen.findByText(/Added to the project/)).toBeInTheDocument();
       expect(puts).toEqual(['https://storage.test/put']);
       const create = calls.find(

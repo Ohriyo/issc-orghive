@@ -50,6 +50,7 @@ function facts(p: DemoPlan, at: Date): OrganizationStandingFacts[] {
         communicationLetterRequired: x.communicationLetterRequired,
         attendanceSheetRequired: false,
         submitted: Object.fromEntries(Object.entries(x.submitted).filter(([, when]) => when <= at)),
+        unverified: [],
         figures: x.figures && { ...x.figures, underReview: false },
       })),
   }));

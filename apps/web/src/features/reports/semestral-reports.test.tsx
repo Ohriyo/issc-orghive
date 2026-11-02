@@ -44,6 +44,7 @@ function dashboard(): DashboardResponse {
         quarantined: [],
         activity: [],
         semester: null,
+        legacyTaskFiles: [],
       },
     ],
     isIssc: false,

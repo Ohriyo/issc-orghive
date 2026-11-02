@@ -1,11 +1,11 @@
 import {
-  academicYearOf,
+  isCheckedTask,
   deadlineAfter,
   endOfManilaDay,
   manilaDate,
-  semesterOf,
   POST_EVENT_REPORTS,
-  semesterRange,
+  USUAL_SEMESTERS,
+  type SemesterCalendar,
   type LeaderboardType,
   type ProjectTaskType,
   type StandingHint,
@@ -22,10 +22,16 @@ export interface ProjectStandingFacts {
   communicationLetterRequired: boolean;
   attendanceSheetRequired: boolean;
   /**
-   * When each task was submitted: its file first passed the virus scan (`submittedAt`).
+   * When each task was submitted: its file first passed the checks (`submittedAt`), or later
+   * for a file that replaced one flagged invalid (rankingSubmittedAt, integrity-rules.ts).
    * Only tasks whose file is still filed (not deleted, not refused).
    */
   submitted: Partial<Record<ProjectTaskType, Date>>;
+  /**
+   * Submitted tasks whose files do not count for ranking (spec section 6): legacy, flagged
+   * invalid, warnings not cleared, or private. A required one holds the project back.
+   */
+  unverified: ProjectTaskType[];
   /** The Financial Report's totals, when entered. */
   figures: { incomeCentavos: number; expensesCentavos: number; underReview: boolean } | null;
 }
@@ -40,8 +46,13 @@ export interface OrganizationStandingFacts {
 }
 
 export interface ProjectScore {
-  /** Event day reached, ACR and Financial Report both submitted (spec 5B). */
+  /**
+   * Event day reached, ACR and Financial Report both submitted (spec 5B), and every required
+   * task counts for ranking (section 6).
+   */
   implemented: boolean;
+  /** Required tasks that are submitted but do not count yet (section 6); empty otherwise. */
+  held: ProjectTaskType[];
   /** A required task was not submitted by its original deadline (spec 5C). */
   late: boolean;
   /** Hundredths of a point: 100 on time, the late value late, 0 when not implemented. */
@@ -71,6 +82,8 @@ export interface RankingOptions {
   /** Points for a late implemented project, 0 to 1 (the system setting, spec 5C). */
   latePoints: number;
   now: Date;
+  /** Organizations the ISSC disqualified from this semester's board (spec 5B). */
+  disqualified?: ReadonlySet<string>;
 }
 
 const ON_TIME = 100;
@@ -97,7 +110,23 @@ export function originalDeadlines(project: ProjectStandingFacts): [ProjectTaskTy
 }
 
 /**
- * One project's contribution (docs/PROJECT_WORKFLOW_SPEC.md, 5B to 5D).
+ * The tasks a project needs: the Proposal, ACR and Financial Report always, and each ticked
+ * pre-event document (spec 2B). Other pre-event documents never.
+ */
+export function requiredTasks(project: ProjectStandingFacts): ProjectTaskType[] {
+  return [
+    'PROPOSAL',
+    ...(project.nomRequired ? (['NOM'] as const) : []),
+    ...(project.momRequired ? (['MOM'] as const) : []),
+    ...(project.communicationLetterRequired ? (['COMMUNICATION_LETTER'] as const) : []),
+    ...(project.attendanceSheetRequired ? (['ATTENDANCE_SHEET'] as const) : []),
+    'ACR',
+    'FINANCIAL_REPORT',
+  ];
+}
+
+/**
+ * One project's contribution (docs/PROJECT_WORKFLOW_SPEC.md, 5B to 5D, and section 6).
  * - Implemented: the event day has come (Manila) and the ACR and Financial Report are both
  *   submitted, whenever that happened (it counts in its event's semester).
  * - Late: a required task with a deadline (Proposal, a ticked Communication Letter or
@@ -105,6 +134,8 @@ export function originalDeadlines(project: ProjectStandingFacts): [ProjectTaskTy
  *   that deadline passed with nothing submitted. A deadline an approved appeal set never
  *   makes a task on time.
  * - Profit: every submitted Financial Report with figures, implemented or not, late or not.
+ * - Held: a required task is submitted but does not count for ranking (legacy, flagged,
+ *   warnings not cleared, private). The project then earns no points and no profit.
  */
 export function scoreProject(
   project: ProjectStandingFacts,
@@ -112,15 +143,19 @@ export function scoreProject(
 ): ProjectScore {
   const acr = project.submitted.ACR;
   const financial = project.submitted.FINANCIAL_REPORT;
-  const implemented = manilaDate(now) >= project.targetDate && !!acr && !!financial;
+  const required = requiredTasks(project);
+  const held = project.unverified.filter((type) => required.includes(type));
+  const counted = held.length === 0;
+  const implemented = counted && manilaDate(now) >= project.targetDate && !!acr && !!financial;
   const late = originalDeadlines(project).some(([type, due]) => {
     const at = project.submitted[type];
     return at ? at > due : now > due;
   });
-  const figures = financial ? project.figures : null;
+  const figures = financial && counted ? project.figures : null;
   const underReview = figures?.underReview ?? false;
   return {
     implemented,
+    held,
     late: implemented && late,
     points: implemented ? (late ? Math.round(latePoints * 100) : ON_TIME) : 0,
     completedAt: implemented ? new Date(Math.max(acr.getTime(), financial.getTime())) : null,
@@ -207,13 +242,14 @@ export function rankStandings(
   orgs: OrganizationStandingFacts[],
   options: RankingOptions,
 ): Record<LeaderboardType, Standing[]> {
+  const ranked = orgs.filter((o) => !options.disqualified?.has(o.organizationId));
   return {
     SBO: rankBoard(
-      orgs.filter((o) => o.type === 'SBO'),
+      ranked.filter((o) => o.type === 'SBO'),
       options,
     ),
     CSC: rankBoard(
-      orgs.filter((o) => o.type === 'CSC'),
+      ranked.filter((o) => o.type === 'CSC'),
       options,
     ),
   };
@@ -230,23 +266,28 @@ export interface OwnProjectFacts extends ProjectStandingFacts {
  * same scoring as the ranking:
  * - an event day that has come whose ACR or Financial Report is still missing: submitting
  *   them implements the project (a point, or the late value);
- * - a Financial Report under review: its profit counts again once the ISSC clears it.
- * Missing reports come first (they add points), each list by event date.
+ * - a Financial Report under review: its profit counts again once the ISSC clears it;
+ * - required tasks that do not count yet (legacy, flagged, warnings, private: section 6):
+ *   re-uploading on the template, or sharing, lets the project count.
+ * Missing reports come first (they add points), then tasks to verify, each list by event date.
  */
 export function standingHints(projects: OwnProjectFacts[], now: Date): StandingHint[] {
   const byEvent = [...projects].sort((a, b) => a.targetDate.localeCompare(b.targetDate));
   const submit: StandingHint[] = [];
+  const verify: StandingHint[] = [];
   const check: StandingHint[] = [];
   for (const project of byEvent) {
     const score = scoreProject(project, { latePoints: 1, now });
     const ref = { projectId: project.id, projectName: project.name };
     if (!score.implemented && manilaDate(now) >= project.targetDate) {
       const missing = POST_EVENT_REPORTS.filter((type) => !project.submitted[type]);
-      if (missing.length > 0) submit.push({ kind: 'submit_reports', ...ref, missing });
+      if (missing.length > 0) submit.push({ kind: 'submit_reports', ...ref, missing, held: [] });
     }
-    if (score.underReview) check.push({ kind: 'check_figures', ...ref, missing: [] });
+    const held = score.held.filter(isCheckedTask);
+    if (held.length > 0) verify.push({ kind: 'verify_tasks', ...ref, missing: [], held });
+    if (score.underReview) check.push({ kind: 'check_figures', ...ref, missing: [], held: [] });
   }
-  return [...submit, ...check];
+  return [...submit, ...verify, ...check];
 }
 
 /**
@@ -257,8 +298,9 @@ export function standingHints(projects: OwnProjectFacts[], now: Date): StandingH
 export function figuresCorrectableUntil(
   targetDate: string,
   postEventDueOverride: Date | null,
+  calendar: SemesterCalendar = USUAL_SEMESTERS,
 ): Date {
-  const { end } = semesterRange(academicYearOf(targetDate), semesterOf(targetDate));
+  const { end } = calendar.rangeOf(calendar.keyOf(targetDate));
   const semesterEnd = endOfManilaDay(end);
   const postEvent = postEventDueOverride ?? deadlineAfter(targetDate);
   return postEvent > semesterEnd ? postEvent : semesterEnd;

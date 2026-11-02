@@ -105,6 +105,8 @@ export const queryKeys = {
   notificationPreferences: ['me', 'notification-preferences'] as const,
   /** GET /demo-status: organizations whose pages show demo data ("Sample data" chip). */
   demoStatus: ['demo-status'] as const,
+  /** GET /semesters: the dates the ISSC set for semesters. */
+  semesters: ['semesters'] as const,
   /** GET /me/leaderboard: the dashboard's rank card. Under 'me', with the dashboard. */
   myStanding: ['me', 'leaderboard'] as const,
 };

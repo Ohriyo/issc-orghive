@@ -3,12 +3,15 @@ import { LOGO_MAX_BYTES, LOGO_MIME_TYPES } from '@orghive/shared';
 import { createAdminController } from '#src/controllers/admin.controller';
 import { createFinancialFiguresController } from '#src/controllers/financial-figures.controller';
 import { createHandbookController } from '#src/controllers/handbook.controller';
+import { createLeaderboardAdminController } from '#src/controllers/leaderboard-admin.controller';
 import { createOrgGuards, requireAuth } from '#src/middleware/require-auth';
 import type { AccessService } from '#src/services/access.service';
 import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
+import type { DisqualificationService } from '#src/services/disqualification.service';
 import type { FinancialFiguresService } from '#src/services/financial-figures.service';
 import type { HandbookService } from '#src/services/handbook.service';
+import type { SemesterCalendarService } from '#src/services/semester-calendar.service';
 import type { TokenService } from '#src/services/token.service';
 
 export interface AdminRouterDeps {
@@ -19,6 +22,10 @@ export interface AdminRouterDeps {
   figures: Pick<FinancialFiguresService, 'list' | 'flag' | 'clearFlag'>;
   /** The Student Handbook: uploads and the current edition (the ISSC account). */
   handbook: HandbookService;
+  /** The dates of each semester, which the ISSC account sets (spec 5B). */
+  semesters: Pick<SemesterCalendarService, 'adminList' | 'set'>;
+  /** Disqualifications from a semester's leaderboard (spec 5B). */
+  disqualifications: DisqualificationService;
   access: AccessService;
   tokens: Pick<TokenService, 'verify'>;
 }
@@ -37,6 +44,8 @@ export function adminRouter({
   accountRequests,
   figures,
   handbook,
+  semesters,
+  disqualifications,
   access,
   tokens,
 }: AdminRouterDeps): Router {
@@ -44,6 +53,7 @@ export function adminRouter({
   const controller = createAdminController(organizations, accountRequests);
   const figuresController = createFinancialFiguresController(figures);
   const handbookController = createHandbookController(handbook);
+  const leaderboardAdmin = createLeaderboardAdminController(semesters, disqualifications);
   const { requireAdmin } = createOrgGuards(access);
   router.use(requireAuth(tokens), requireAdmin, noStore);
 
@@ -66,6 +76,11 @@ export function adminRouter({
   router.post('/handbook', handbookController.upload);
   router.put('/handbook/:year/current', handbookController.makeCurrent);
   router.post('/handbook/:year/preview/retry', handbookController.retryPreview);
+  router.get('/semesters', leaderboardAdmin.listSemesters);
+  router.put('/semesters/:academicYear/:semester', leaderboardAdmin.setSemester);
+  router.get('/disqualifications', leaderboardAdmin.listDisqualifications);
+  router.post('/disqualifications', leaderboardAdmin.disqualify);
+  router.post('/disqualifications/:id/lift', leaderboardAdmin.lift);
   router.get('/financial-figures', figuresController.list);
   router.put('/projects/:projectId/financial-figures/flag', figuresController.flag);
   router.delete('/projects/:projectId/financial-figures/flag', figuresController.clearFlag);

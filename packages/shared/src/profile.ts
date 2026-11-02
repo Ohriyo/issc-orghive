@@ -60,7 +60,6 @@ function hostOf(url: string): string {
 
 const FACEBOOK_HOSTS = ['facebook.com', 'fb.com', 'fb.me'];
 
-
 const SOCIAL_HOSTS: Record<Exclude<SocialKind, 'website'>, { hosts: string[]; label: string }> = {
   facebook: { hosts: FACEBOOK_HOSTS, label: 'Facebook' },
   instagram: { hosts: ['instagram.com'], label: 'Instagram' },

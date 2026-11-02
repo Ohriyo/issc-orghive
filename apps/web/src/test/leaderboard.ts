@@ -28,10 +28,11 @@ export function lbRow(
 }
 
 export const LB_SEMESTER = { academicYear: '2026-2027', semester: 'first' as const };
+export const LB_STATUS = { status: 'provisional' as const, provisionalUntil: '2027-01-07' };
 
 export function lbEvent(
   sbo: PublicLeaderboardRow[],
   csc: PublicLeaderboardRow[] = [],
 ): LeaderboardEvent {
-  return { ...LB_SEMESTER, latePoints: 0.5, boards: { SBO: sbo, CSC: csc } };
+  return { ...LB_SEMESTER, ...LB_STATUS, latePoints: 0.5, boards: { SBO: sbo, CSC: csc } };
 }

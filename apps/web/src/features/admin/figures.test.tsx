@@ -96,9 +96,11 @@ describe('useAdminFigures', () => {
     });
     const { result } = renderHook(() => useAdminFigures(NOW), { wrapper });
     await waitFor(() => expect(result.current.state.status).toBe('ready'));
-    expect(urlOf(fetchMock.mock.calls[0]![0])).toContain(
-      '/admin/financial-figures?academicYear=2026-2027&semester=first',
-    );
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        urlOf(input).includes('/admin/financial-figures?academicYear=2026-2027&semester=first'),
+      ),
+    ).toBe(true);
 
     const row = result.current.state.status === 'ready' ? result.current.state.rows[0]! : null;
     act(() => result.current.flag(row!));

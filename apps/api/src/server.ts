@@ -57,9 +57,16 @@ import { createAnnouncementService } from '#src/services/announcement.service';
 import { createAnnouncementRepository } from '#src/repositories/announcement.repository';
 import { createComplianceOverviewService } from '#src/services/compliance-overview.service';
 import { createComplianceOverviewRepository } from '#src/repositories/compliance-overview.repository';
+import { createTaskFileDecisionService } from '#src/services/task-file-decision.service';
+import { createTaskFileDecisionRepository } from '#src/repositories/task-file-decision.repository';
 import { createAdminOrganizationService } from '#src/services/admin-organization.service';
 import { createAdminOrganizationRepository } from '#src/repositories/admin-organization.repository';
 import { createProjectService } from '#src/services/project.service';
+import { createGotenbergConverter } from '#src/lib/office-converter';
+import { createTaskQr } from '#src/lib/task-qr';
+import { createTaskCodeRepository } from '#src/repositories/task-code.repository';
+import { createIntegrityRepository } from '#src/repositories/integrity.repository';
+import { createTaskTemplateService } from '#src/services/task-template.service';
 import { createProjectSync } from '#src/services/project-sync.service';
 import { createUploadService } from '#src/services/upload.service';
 import { createDocumentViewerService } from '#src/services/document-viewer.service';
@@ -97,6 +104,13 @@ import { createLeaderboardRecompute } from '#src/services/leaderboard-recompute'
 import { createLeaderboardService } from '#src/services/leaderboard.service';
 import { createPublicLeaderboardService } from '#src/services/public-leaderboard.service';
 import { createMyStandingService } from '#src/services/my-standing.service';
+import { createDisqualificationRepository } from '#src/repositories/disqualification.repository';
+import { createSemesterDatesRepository } from '#src/repositories/semester-dates.repository';
+import { createDisqualificationService } from '#src/services/disqualification.service';
+import {
+  createSemesterCalendarService,
+  createSemesterReader,
+} from '#src/services/semester-calendar.service';
 import { createDemoDataRepository } from '#src/repositories/demo-data.repository';
 import { createDemoDataService } from '#src/services/demo-data.service';
 import { demoDataStartAllowed } from '#src/services/demo-guard';
@@ -146,7 +160,14 @@ const documentTypes = createDocumentTypeRepository(db);
 const projects = createProjectRepository(db);
 const leaderboardQueue = createBullLeaderboardQueue(queueConnection);
 // Changes queue a recompute; the worker runs it and publishes the change.
-const recompute = createLeaderboardRecompute({ queue: leaderboardQueue, projects, logger });
+const semesterDates = createSemesterDatesRepository(db);
+const semesterReader = createSemesterReader({ dates: semesterDates, cache });
+const recompute = createLeaderboardRecompute({
+  queue: leaderboardQueue,
+  projects,
+  logger,
+  semesters: semesterReader,
+});
 const freezes = createOrgFreezeRepository(db);
 const notificationQueue = createBullNotificationQueue(queueConnection);
 const notifications = createNotificationService({
@@ -161,12 +182,14 @@ const projectSync = createProjectSync({
   compliance: createCompliance({ freezes, recipients, notifications, audit }),
 });
 const financialFigures = createFinancialFiguresService({
+  semesters: semesterReader,
   figures: createFinancialFiguresRepository(db),
   projects,
   recipients,
   notifications,
   audit,
   leaderboard: recompute,
+  integrity: createIntegrityRepository(db),
 });
 const systemSettings = createSystemSettingsService({
   settings: createSystemSettingRepository(db),
@@ -178,15 +201,34 @@ const leaderboardReads = createLeaderboardRepository(db);
 const leaderboard = createLeaderboardService({
   leaderboard: leaderboardReads,
   settings: systemSettings,
+  semesters: semesterReader,
   store: createRedisLeaderboardStore(redis, logger),
   events: createRedisLeaderboardEvents(redis, logger),
 });
 const publicLeaderboard = createPublicLeaderboardService({
   leaderboard,
   organizations: leaderboardReads,
-  settings: systemSettings,
+  semesters: semesterReader,
   cache,
   publicUrl,
+});
+const semesterCalendar = createSemesterCalendarService({
+  dates: semesterDates,
+  semesters: semesterReader,
+  leaderboard,
+  settings: systemSettings,
+  recompute,
+  cache,
+  audit,
+});
+const disqualificationRepo = createDisqualificationRepository(db);
+const disqualifications = createDisqualificationService({
+  disqualifications: disqualificationRepo,
+  leaderboard,
+  recompute,
+  recipients,
+  notifications,
+  audit,
 });
 const leaderboardStream = createLeaderboardStream({
   boards: (semester) => publicLeaderboard.boards(semester),
@@ -249,9 +291,20 @@ const announcements = createAnnouncementService({
   notifications,
   logger,
 });
+const taskFileDecisions = createTaskFileDecisionService({
+  decisions: createTaskFileDecisionRepository(db),
+  viewers,
+  recipients,
+  notifications,
+  audit,
+  leaderboard: recompute,
+});
 const complianceOverview = createComplianceOverviewService({
+  semesters: semesterReader,
   overview: createComplianceOverviewRepository(db),
   accounts,
+  viewers,
+  attention: taskFileDecisions,
 });
 const adminOrganizationReads = createAdminOrganizationRepository(db);
 const adminOrganizations = createAdminOrganizationService({
@@ -265,6 +318,7 @@ const adminOrganizations = createAdminOrganizationService({
 const reportQueue = createBullReportQueue(queueConnection);
 // The API only queues reports; the worker renders them (src/worker.ts).
 const reports = createReportService({
+  semesters: semesterReader,
   reports: createReportRepository(db),
   documents,
   documentTypes,
@@ -291,6 +345,10 @@ if (!config.MFA_ENCRYPTION_KEY) {
   logger.warn('MFA_ENCRYPTION_KEY is not set: super admins cannot sign in');
 }
 const secrets = config.MFA_ENCRYPTION_KEY ? createSecretBox(config.MFA_ENCRYPTION_KEY) : null;
+if (!config.TASK_QR_SECRET) {
+  logger.warn('TASK_QR_SECRET is not set: project task templates cannot be made');
+}
+const taskQr = config.TASK_QR_SECRET ? createTaskQr(config.TASK_QR_SECRET) : null;
 const accountAdminReads = createAccountAdminRepository(db);
 const accountRequestReads = createAccountRequestRepository(db);
 const reveals = createRevealService({
@@ -414,6 +472,7 @@ const app = createApp({
       announcements: announcementRepository,
     }),
     dashboard: createDashboardService({
+      semesters: semesterReader,
       accounts,
       dashboard: dashboardReads,
       documents,
@@ -422,7 +481,13 @@ const app = createApp({
       storage,
       publicUrl,
     }),
+    taskTemplates: createTaskTemplateService({
+      codes: createTaskCodeRepository(db),
+      qr: taskQr,
+      converter: createGotenbergConverter({ url: config.GOTENBERG_URL }),
+    }),
     projects: createProjectService({
+      semesters: semesterReader,
       projects,
       sync: projectSync,
       freezes,
@@ -433,6 +498,7 @@ const app = createApp({
       viewers,
       figures: financialFigures,
       audit,
+      typedCodes: createIntegrityRepository(db),
       leaderboard: recompute,
     }),
     appeals: createAppealService({
@@ -455,6 +521,7 @@ const app = createApp({
     adminOrganizations,
     announcements,
     complianceOverview,
+    taskFileDecisions,
     reveals,
     accountAdmin: createAccountAdminService({
       accounts: accountAdminReads,
@@ -500,7 +567,11 @@ const app = createApp({
       accounts,
       leaderboard: publicLeaderboard,
       projects: leaderboardReads,
+      disqualifications: disqualificationRepo,
+      semesters: semesterReader,
     }),
+    semesters: semesterCalendar,
+    disqualifications,
     demoData,
   },
 });

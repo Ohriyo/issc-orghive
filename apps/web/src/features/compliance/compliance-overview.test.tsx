@@ -33,9 +33,12 @@ function row(acronym: string, overrides: Partial<ComplianceRow> = {}): Complianc
     overdueTasks: [],
     frozenSince: null,
     openAppeals: 0,
+    attentionFiles: [],
     ...overrides,
   };
 }
+
+const WARNED_ID = '0195f3c0-0000-7000-8000-0000000000d1';
 
 const overdue = (daysOverdue: number, projectName = 'Bridge contest') => ({
   projectId: PROJECT_A,
@@ -51,6 +54,17 @@ const JPICE = row('JPICE', {
   blockedProjects: [{ id: PROJECT_B, name: 'Seminar' }],
   frozenSince: '2026-10-03T02:00:00.000Z',
   openAppeals: 1,
+  attentionFiles: [
+    {
+      documentId: WARNED_ID,
+      title: 'Project Proposal: Seminar',
+      projectId: PROJECT_B,
+      projectName: 'Seminar',
+      task: 'PROPOSAL',
+      label: null,
+      integrity: { state: 'needs_attention', reasons: ['Could not find: JPICE.'], checks: [] },
+    },
+  ],
 });
 const PSME = row('PSME', {
   overdueTasks: [overdue(20)],
@@ -159,6 +173,7 @@ function session(): AuthResponse {
 
 const fetchMock = vi.fn<typeof fetch>();
 const calls: { path: string; search: string }[] = [];
+const posts: { path: string; body: unknown }[] = [];
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(
@@ -167,11 +182,18 @@ function json(body: unknown, status = 200) {
 }
 
 function serve({ forbidden = false } = {}) {
-  fetchMock.mockImplementation((input) => {
+  fetchMock.mockImplementation((input, init) => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, 'http://localhost');
     const path = url.pathname.replace(/^\/api\/v1/, '');
     calls.push({ path, search: url.search });
+    if (path.startsWith('/task-files/') && init?.method === 'POST') {
+      posts.push({ path, body: JSON.parse(init.body as string) as unknown });
+      return json({
+        documentId: WARNED_ID,
+        integrity: { state: 'verified', reasons: [], checks: [] },
+      });
+    }
     if (path === '/auth/refresh') return json(session());
     if (path === '/compliance/overview') {
       return forbidden
@@ -204,6 +226,8 @@ function renderAt(url: string) {
 
 beforeEach(() => {
   calls.length = 0;
+  posts.length = 0;
+  window.localStorage.clear();
   vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => {
@@ -249,6 +273,70 @@ describe('/dashboard/compliance', () => {
     await waitFor(() => expect(router.state.location.search).toContain('sort=name'));
     const rows = within(await screen.findByRole('table')).getAllByRole('row');
     expect(within(rows[1]!).getByRole('link', { name: 'JPICE' })).toBeInTheDocument();
+  });
+
+  it('lists the task files to look at, and clears a warning with who acted', async () => {
+    serve();
+    renderAt('/dashboard/compliance');
+    const section = await screen.findByRole('region', { name: 'Task files to look at' });
+    expect(within(section).getByText('JPICE · Project Proposal')).toBeInTheDocument();
+    expect(within(section).getByText('Needs attention')).toBeInTheDocument();
+    expect(within(section).getByText('Could not find: JPICE.')).toBeInTheDocument();
+
+    fireEvent.click(
+      within(section).getByRole('button', {
+        name: 'Clear warning: Project Proposal, Seminar (JPICE)',
+      }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Clear the warning' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear warning' }));
+    // Who acts for the council comes first.
+    expect(
+      await within(dialog).findByText('Enter your name: who is acting for the account'),
+    ).toBeInTheDocument();
+    expect(posts).toEqual([]);
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Acting as' }), {
+      target: { value: 'Ana Reyes' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear warning' }));
+    await waitFor(() =>
+      expect(posts).toEqual([
+        {
+          path: `/task-files/${WARNED_ID}/integrity/clear-warnings`,
+          body: { actingAs: 'Ana Reyes' },
+        },
+      ]),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('flags a file invalid only with a reason', async () => {
+    serve();
+    renderAt('/dashboard/compliance');
+    const section = await screen.findByRole('region', { name: 'Task files to look at' });
+    fireEvent.click(
+      within(section).getByRole('button', {
+        name: 'Flag invalid: Project Proposal, Seminar (JPICE)',
+      }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Flag as invalid' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Acting as' }), {
+      target: { value: 'Ana Reyes' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Flag invalid' }));
+    expect(await within(dialog).findByText('Say why the file is invalid')).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Why it is invalid' }), {
+      target: { value: 'The signatures are pasted images.' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Flag invalid' }));
+    await waitFor(() =>
+      expect(posts).toEqual([
+        {
+          path: `/task-files/${WARNED_ID}/integrity/flag`,
+          body: { reason: 'The signatures are pasted images.', actingAs: 'Ana Reyes' },
+        },
+      ]),
+    );
   });
 
   it('downloads the CSV', async () => {

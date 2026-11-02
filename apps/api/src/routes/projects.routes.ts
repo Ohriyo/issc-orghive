@@ -4,12 +4,15 @@ import { createOrgGuards, requireAuth } from '#src/middleware/require-auth';
 import type { AccessService } from '#src/services/access.service';
 import type { FinancialFiguresService } from '#src/services/financial-figures.service';
 import type { ProjectService } from '#src/services/project.service';
+import type { TaskTemplateService } from '#src/services/task-template.service';
 import type { TokenService } from '#src/services/token.service';
 
 export interface ProjectsRouterDeps {
   projects: ProjectService;
   /** Corrections to a Financial Report's totals (spec 5D). */
   figures: Pick<FinancialFiguresService, 'correct'>;
+  /** Task templates with their QR codes (spec section 6). */
+  templates: TaskTemplateService;
   access: AccessService;
   tokens: Pick<TokenService, 'verify'>;
 }
@@ -20,9 +23,15 @@ export interface ProjectsRouterDeps {
  * edits and files tasks. A task's file then follows the document visibility rules like any
  * other Paperworks file.
  */
-export function projectsRouter({ projects, figures, access, tokens }: ProjectsRouterDeps): Router {
+export function projectsRouter({
+  projects,
+  figures,
+  templates,
+  access,
+  tokens,
+}: ProjectsRouterDeps): Router {
   const router = Router();
-  const controller = createProjectController(projects, figures);
+  const controller = createProjectController(projects, figures, templates);
   const { requireOwnOrg, requireOrgOrGoverning, requireActiveOrg } = createOrgGuards(access);
   const auth = requireAuth(tokens);
 
@@ -51,6 +60,14 @@ export function projectsRouter({ projects, figures, access, tokens }: ProjectsRo
     requireActiveOrg,
     controller.submitTaskFile,
   );
+  // The task's template (spec section 6): the organization's own account only.
+  router.post(
+    '/projects/:projectId/tasks/:type/template',
+    auth,
+    requireOwnOrg,
+    requireActiveOrg,
+    controller.taskTemplate,
+  );
   // Extra files outside the checklist (spec 2C): any phase, whatever the checklist's state.
   router.post(
     '/projects/:projectId/files/upload-url',
@@ -59,7 +76,13 @@ export function projectsRouter({ projects, figures, access, tokens }: ProjectsRo
     requireActiveOrg,
     controller.fileUploadUrl,
   );
-  router.post('/projects/:projectId/files', auth, requireOwnOrg, requireActiveOrg, controller.addFile);
+  router.post(
+    '/projects/:projectId/files',
+    auth,
+    requireOwnOrg,
+    requireActiveOrg,
+    controller.addFile,
+  );
   router.patch(
     '/projects/:projectId/financial-figures',
     auth,

@@ -21,6 +21,8 @@ import { createRedisLeaderboardEvents } from '#src/lib/leaderboard-events';
 import { createRedisLeaderboardStore } from '#src/lib/leaderboard-store';
 import { createBullPreviewQueue, createQueueConnection } from '#src/lib/queue';
 import { createS3Storage } from '#src/lib/storage';
+import { createTaskQr } from '#src/lib/task-qr';
+import { filledTaskPdf } from '#src/lib/task-template-pdf';
 import { createLogger } from '#src/logger';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDemoDataRepository } from '#src/repositories/demo-data.repository';
@@ -96,6 +98,10 @@ const demo = createDemoDataService({
     for (const semester of semesters.values()) await leaderboard.compute(semester);
   },
   fileFor,
+  // Checked tasks' files on their templates with real QR codes (spec section 6).
+  templates: config.TASK_QR_SECRET
+    ? { qr: createTaskQr(config.TASK_QR_SECRET), pdf: filledTaskPdf }
+    : undefined,
   textOf: async (pdf) => (await pdfText(pdf)) || null,
   showBadge: config.SHOW_DEMO_BADGE,
 });
@@ -113,6 +119,11 @@ async function queuePreviews(): Promise<number> {
 
 try {
   if (mode === 'seed') {
+    if (!config.TASK_QR_SECRET) {
+      console.warn(
+        'TASK_QR_SECRET is not set: every demo task file is legacy and none is ranked. Run pnpm --filter api keys:generate --qr-only >> apps/api/.env first.',
+      );
+    }
     const { counts, boards } = await demo.seed();
     const previews = await queuePreviews();
     console.log(`Demo data seeded: ${counts.total} rows flagged is_demo.`);

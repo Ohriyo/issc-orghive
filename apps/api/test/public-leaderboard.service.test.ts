@@ -47,6 +47,13 @@ function setup(boards: Partial<Record<LeaderboardType, LeaderboardRow[]>> = {}) 
     board: vi.fn((_semester: SemesterKey, type: LeaderboardType) =>
       Promise.resolve(boards[type] ?? []),
     ),
+    meta: vi.fn(() =>
+      Promise.resolve({
+        status: 'provisional' as const,
+        provisionalUntil: '2027-01-07',
+        latePoints: 0.25,
+      }),
+    ),
   };
   const organizations = {
     publicOrganizations: vi.fn(() =>
@@ -58,12 +65,10 @@ function setup(boards: Partial<Record<LeaderboardType, LeaderboardRow[]>> = {}) 
       ]),
     ),
   };
-  const settings = { latePoints: vi.fn(() => Promise.resolve(0.25)) };
   const cache = memoryCache();
   const service = createPublicLeaderboardService({
     leaderboard,
     organizations,
-    settings,
     cache,
     publicUrl: createPublicUrl('https://cdn.test'),
     now: () => new Date('2027-02-10T04:00:00Z'),
@@ -151,9 +156,9 @@ describe('publicLeaderboard.boards', () => {
 });
 
 describe('publicLeaderboard.semesterOf', () => {
-  it('takes the named semester, or the current one', () => {
+  it('takes the named semester, or the current one', async () => {
     const { service } = setup();
-    expect(service.semesterOf(SEMESTER)).toEqual(SEMESTER);
-    expect(service.semesterOf({})).toEqual({ academicYear: '2026-2027', semester: 'second' });
+    await expect(service.semesterOf(SEMESTER)).resolves.toEqual(SEMESTER);
+    await expect(service.semesterOf({})).resolves.toEqual({ academicYear: '2026-2027', semester: 'second' });
   });
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CHECKED_TASK_TYPES, nearDuplicateBitsSchema, taskKeywordsSchema } from './integrity';
 import { academicYearSchema, semesterSchema, type Semester } from './academic-term';
 import { actingAsSchema } from './acting-as';
 import { academicYearOf, manilaDate } from './manila-time';
@@ -142,23 +143,119 @@ export const latePointsSchema = z
   .number({ error: 'Enter a number from 0 to 1' })
   .min(0, 'Use a number from 0 to 1')
   .max(1, 'Use a number from 0 to 1')
-  .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-9, 'Use at most two decimals');
+  .refine(
+    (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-9,
+    'Use at most two decimals',
+  );
 
 /** GET /system/settings. */
+/** Standings stay provisional this many days after a semester's last day (spec 5B). */
+export const DEFAULT_FINAL_AFTER_DAYS = 7;
+export const finalAfterDaysSchema = z
+  .number({ error: 'Use a whole number of days from 0 to 60' })
+  .int('Use a whole number of days from 0 to 60')
+  .min(0, 'Use a whole number of days from 0 to 60')
+  .max(60, 'Use a whole number of days from 0 to 60');
+
+/** Provisional until the semester closes plus the grace days, then frozen as final (spec 5B). */
+export const STANDINGS_STATUSES = ['provisional', 'final'] as const;
+export const standingsStatusSchema = z.enum(STANDINGS_STATUSES);
+export type StandingsStatus = z.infer<typeof standingsStatusSchema>;
+
 export const systemSettingsSchema = z
   .object({
     leaderboardLatePoints: latePointsSchema,
+    /** When the late value last changed; null while it is the default. */
     updatedAt: z.iso.datetime().nullable(),
+    /** Words each task's file is expected to contain (spec section 6); missing ones warn. */
+    taskKeywords: taskKeywordsSchema,
+    /** Page hashes this many bits apart or fewer look like the same page (spec section 6). */
+    nearDuplicateBits: nearDuplicateBitsSchema,
+    /** When either check setting last changed; null while both are the defaults. */
+    checksUpdatedAt: z.iso.datetime().nullable(),
+    /** Days after a semester's last day until its standings are final (spec 5B). */
+    finalAfterDays: finalAfterDaysSchema,
+    /** When it last changed; null while it is the default. */
+    finalAfterDaysUpdatedAt: z.iso.datetime().nullable(),
   })
   .meta({ id: 'SystemSettings' });
 export type SystemSettings = z.infer<typeof systemSettingsSchema>;
 
 /** PATCH /system/settings: only what changes. */
 export const updateSystemSettingsRequestSchema = z
-  .strictObject({ leaderboardLatePoints: latePointsSchema })
+  .strictObject({
+    leaderboardLatePoints: latePointsSchema,
+    taskKeywords: taskKeywordsSchema,
+    nearDuplicateBits: nearDuplicateBitsSchema,
+    finalAfterDays: finalAfterDaysSchema,
+  })
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, 'Change at least one setting');
 export type UpdateSystemSettingsRequest = z.infer<typeof updateSystemSettingsRequestSchema>;
+
+/** The penalty rule, shown on /leaderboard (spec 5B). */
+export const DISQUALIFICATION_RULE =
+  'The ISSC can disqualify an organization from a semester’s leaderboard, with a reason. A disqualified organization is left off that semester’s board and everyone below it moves up. The ISSC can lift it, with a reason, until the standings are final.';
+
+/** A reason the ISSC gives for disqualifying an organization, or for lifting it. */
+export const disqualificationReasonSchema = z
+  .string({ error: 'Give the reason' })
+  .trim()
+  .min(10, 'Give the reason in a sentence')
+  .max(500, 'Keep the reason under 500 characters');
+
+/** POST /admin/disqualifications. */
+export const disqualifyRequestSchema = z.strictObject({
+  organizationId: z.uuid('Pick an organization'),
+  academicYear: academicYearSchema,
+  semester: semesterSchema,
+  reason: disqualificationReasonSchema,
+  actingAs: actingAsSchema,
+});
+export type DisqualifyRequest = z.infer<typeof disqualifyRequestSchema>;
+
+/** POST /admin/disqualifications/:id/lift. */
+export const liftDisqualificationRequestSchema = z.strictObject({
+  reason: disqualificationReasonSchema,
+  actingAs: actingAsSchema,
+});
+export type LiftDisqualificationRequest = z.infer<typeof liftDisqualificationRequestSchema>;
+
+/** GET /admin/disqualifications: one semester. */
+export const disqualificationsQuerySchema = z.strictObject({
+  academicYear: academicYearSchema,
+  semester: semesterSchema,
+});
+export type DisqualificationsQuery = z.infer<typeof disqualificationsQuerySchema>;
+
+const penaltyOrganizationSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  acronym: z.string(),
+  type: z.enum(['SBO', 'CSC']),
+});
+
+export const disqualificationSchema = z.object({
+  id: z.uuid(),
+  organization: penaltyOrganizationSchema,
+  reason: z.string(),
+  actingAs: z.string(),
+  createdAt: z.iso.datetime(),
+  /** Null while it stands. */
+  lifted: z.object({ reason: z.string(), actingAs: z.string(), at: z.iso.datetime() }).nullable(),
+});
+export type Disqualification = z.infer<typeof disqualificationSchema>;
+
+export const disqualificationsResponseSchema = z
+  .object({
+    /** Once final, the standings are frozen: nothing can be added or lifted. */
+    status: standingsStatusSchema,
+    items: z.array(disqualificationSchema),
+    /** Who can be disqualified: every SBO and CSC, never the ISSC (spec 5A). */
+    organizations: z.array(penaltyOrganizationSchema),
+  })
+  .meta({ id: 'DisqualificationsResponse' });
+export type DisqualificationsResponse = z.infer<typeof disqualificationsResponseSchema>;
 
 /** The boards: SBOs and CSCs are ranked separately; the ISSC never (spec 5A). */
 export const LEADERBOARD_TYPES = ['SBO', 'CSC'] as const;
@@ -262,6 +359,10 @@ const boardMeta = {
   semester: semesterSchema,
   /** The late value the points were computed with, so the UI can explain the scoring. */
   latePoints: latePointsSchema,
+  /** Provisional until the semester closes plus the grace days, then final and frozen. */
+  status: standingsStatusSchema,
+  /** The last provisional day (spec 5B). */
+  provisionalUntil: z.iso.date(),
 };
 
 /** GET /leaderboard. */
@@ -291,7 +392,7 @@ export const LEADERBOARD_STANDINGS_EVENT = 'standings';
  * submitted yet (it earns no point until both are); `check_figures` names a Financial
  * Report the ISSC put under review (its profit is left out until cleared).
  */
-export const STANDING_HINT_KINDS = ['submit_reports', 'check_figures'] as const;
+export const STANDING_HINT_KINDS = ['submit_reports', 'check_figures', 'verify_tasks'] as const;
 export const POST_EVENT_REPORTS = ['ACR', 'FINANCIAL_REPORT'] as const;
 
 export const standingHintSchema = z.object({
@@ -300,6 +401,11 @@ export const standingHintSchema = z.object({
   projectName: z.string(),
   /** `submit_reports`: which of the two reports are still missing. Empty otherwise. */
   missing: z.array(z.enum(POST_EVENT_REPORTS)),
+  /**
+   * `verify_tasks`: required tasks submitted but not counting yet (legacy, flagged, warnings,
+   * or private; spec section 6). Empty otherwise.
+   */
+  held: z.array(z.enum(CHECKED_TASK_TYPES)).default([]),
 });
 export type StandingHint = z.infer<typeof standingHintSchema>;
 
@@ -312,6 +418,8 @@ export const myStandingSchema = z.object({
   /** Its row, or null while it has no implemented project this semester. */
   row: publicLeaderboardRowSchema.nullable(),
   hints: z.array(standingHintSchema),
+  /** The ISSC's reason when it disqualified this organization from the semester's board. */
+  disqualifiedFor: z.string().nullable(),
 });
 export type MyStanding = z.infer<typeof myStandingSchema>;
 

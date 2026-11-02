@@ -20,6 +20,8 @@ import type {
   DocumentListResponse,
   DocumentSummary,
   DocumentTypeListResponse,
+  AdminSemestersResponse,
+  DisqualificationsResponse,
   FinancialFiguresListResponse,
   LeaderboardResponse,
   MyStandingResponse,
@@ -44,6 +46,7 @@ import type {
   SystemSettings,
   TestDataPreview,
 } from '@orghive/shared';
+import { DEFAULT_TASK_KEYWORDS } from '@orghive/shared';
 
 /*
  * API stand-ins for the e2e checks, typed against the shared schemas so they cannot drift
@@ -387,6 +390,8 @@ const LEADERBOARD_SEMESTER = {
   academicYear: '2026-2027',
   semester: 'first' as const,
   latePoints: 0.5,
+  status: 'provisional' as const,
+  provisionalUntil: '2027-01-07',
 };
 
 const LEADERBOARD_SBO: PublicLeaderboardRow[] = sbos.map((org, i) =>
@@ -414,12 +419,14 @@ function leaderboardOf(type: string | null, college: string | null): Leaderboard
 const MY_STANDING: MyStandingResponse = {
   standing: {
     ...LEADERBOARD_SEMESTER,
+    disqualifiedFor: null,
     type: 'SBO',
     boardSize: LEADERBOARD_SBO.length,
     row: LEADERBOARD_SBO.find((row) => row.organization.slug === 'jpice') ?? null,
     hints: [
       {
         kind: 'submit_reports',
+        held: [],
         projectId: '0195f3c0-0000-7000-8000-0000000000c3',
         projectName: 'Tree Planting',
         missing: ['ACR'],
@@ -466,6 +473,88 @@ const ADMIN_FIGURES: FinancialFiguresListResponse = {
 const SYSTEM_SETTINGS: SystemSettings = {
   leaderboardLatePoints: 0.5,
   updatedAt: null,
+  taskKeywords: DEFAULT_TASK_KEYWORDS,
+  nearDuplicateBits: 6,
+  checksUpdatedAt: null,
+  finalAfterDays: 7,
+  finalAfterDaysUpdatedAt: null,
+};
+
+const ADMIN_SEMESTERS: AdminSemestersResponse = {
+  finalAfterDays: 7,
+  semesters: [
+    {
+      academicYear: '2026-2027',
+      semester: 'first',
+      start: '2026-08-17',
+      end: '2026-12-18',
+      isSet: true,
+      status: 'provisional',
+      provisionalUntil: '2026-12-25',
+    },
+    {
+      academicYear: '2026-2027',
+      semester: 'second',
+      start: '2027-01-01',
+      end: '2027-05-31',
+      isSet: false,
+      status: 'provisional',
+      provisionalUntil: '2027-06-07',
+    },
+    {
+      academicYear: '2026-2027',
+      semester: 'midyear',
+      start: '2027-06-01',
+      end: '2027-07-31',
+      isSet: false,
+      status: 'provisional',
+      provisionalUntil: '2027-08-07',
+    },
+  ],
+};
+
+const ADMIN_DISQUALIFICATIONS: DisqualificationsResponse = {
+  status: 'provisional',
+  items: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000f1',
+      organization: {
+        id: '0195f3c0-0000-7000-8000-0000000000f2',
+        name: 'Junior Philippine Institute of Civil Engineers',
+        acronym: 'JPICE',
+        type: 'SBO',
+      },
+      reason: 'The attendance sheets of two projects were falsified.',
+      actingAs: 'Ana Reyes',
+      createdAt: '2026-10-20T02:00:00.000Z',
+      lifted: null,
+    },
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000f3',
+      organization: {
+        id: '0195f3c0-0000-7000-8000-0000000000f4',
+        name: 'Philippine Society of Mechanical Engineers',
+        acronym: 'PSME',
+        type: 'SBO',
+      },
+      reason: 'A report was filed under the wrong project.',
+      actingAs: 'Ana Reyes',
+      createdAt: '2026-09-20T02:00:00.000Z',
+      lifted: {
+        reason: 'The report was checked again and is in order.',
+        actingAs: 'Ben Cruz',
+        at: '2026-09-28T02:00:00.000Z',
+      },
+    },
+  ],
+  organizations: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000f2',
+      name: 'Junior Philippine Institute of Civil Engineers',
+      acronym: 'JPICE',
+      type: 'SBO',
+    },
+  ],
 };
 
 /** Public routes the responsive and accessibility checks visit. */
@@ -567,6 +656,8 @@ export const ADMIN_ROUTES = [
   '/admin/organizations',
   '/admin/financial-figures',
   '/admin/handbook',
+  '/admin/semesters',
+  '/admin/disqualifications',
 ] as const;
 
 /** The developer's console account: SUPER_ADMIN with MFA, no organization. */
@@ -953,6 +1044,21 @@ const DASHBOARD: DashboardResponse = {
       },
       recentDocuments: jpiceDocs,
       quarantined: [jpiceDocs[3]!],
+      // Spec section 6E: filed before the checks, so the dashboard shows its notice.
+      legacyTaskFiles: [
+        {
+          projectId: '0195f3c0-0000-7000-8000-0000000000c3',
+          projectName: 'Coastal Cleanup Drive 2026',
+          task: 'ACR',
+          label: null,
+        },
+        {
+          projectId: '0195f3c0-0000-7000-8000-0000000000c3',
+          projectName: 'Coastal Cleanup Drive 2026',
+          task: 'FINANCIAL_REPORT',
+          label: null,
+        },
+      ],
       activity: [
         {
           id: '0195f3c0-0000-7000-8000-0000000000a9',
@@ -1022,6 +1128,14 @@ const PROJECT: ProjectDetail = {
         title: 'Project Proposal: Inter-Year Bridge Design Competition 2026',
         status: 'available',
         visibility: 'private',
+        // Spec section 6: passed the hard checks, with a warning nobody cleared yet.
+        integrity: {
+          state: 'needs_attention',
+          reasons: [
+            'Could not find the words expected in a Project Proposal: “rationale”, “objectives”.',
+          ],
+          checks: [],
+        },
       },
       files: [],
     },
@@ -1059,6 +1173,7 @@ const PROJECT: ProjectDetail = {
               'Communication Letter: Letter to the Dean (Inter-Year Bridge Design Competition 2026)',
             status: 'available',
             visibility: 'private',
+            integrity: { state: 'verified', reasons: [], checks: [] },
           },
         },
         {
@@ -1068,6 +1183,7 @@ const PROJECT: ProjectDetail = {
             title: 'Communication Letter: Letter to the Guidance Office',
             status: 'scanning',
             visibility: 'private',
+            integrity: { state: 'checking', reasons: [], checks: [] },
           },
         },
       ],
@@ -1117,6 +1233,7 @@ const PROJECT: ProjectDetail = {
         title: 'Site visit photos of the CEA Building',
         status: 'available',
         visibility: 'governing',
+        integrity: null,
       },
     },
   ],
@@ -1388,6 +1505,41 @@ const OVERVIEW: ComplianceOverview = {
         : [],
     frozenSince: i === 0 ? new Date(Date.now() - 5 * 86_400_000).toISOString() : null,
     openAppeals: i === 0 ? 1 : 0,
+    // Spec section 6: a warned file and a flagged one, with the clear/flag actions.
+    attentionFiles:
+      i === 0
+        ? [
+            {
+              documentId: '0195f3c0-0000-7000-8000-0000000000c7',
+              title:
+                'Communication Letter: Letter to the Dean (Inter-Year Bridge Design Competition 2026)',
+              projectId: PROJECT.id,
+              projectName: 'Inter-Year Bridge Design Competition 2026',
+              task: 'COMMUNICATION_LETTER',
+              label: 'Letter to the Dean, College of Engineering and Architecture',
+              integrity: {
+                state: 'needs_attention',
+                reasons: [
+                  'Page 2 looks like page 1 of a Communication Letter of another organization’s project.',
+                ],
+                checks: [],
+              },
+            },
+            {
+              documentId: documents[0]!.id,
+              title: 'Project Proposal: Inter-Year Bridge Design Competition 2026',
+              projectId: PROJECT.id,
+              projectName: 'Inter-Year Bridge Design Competition 2026',
+              task: 'PROPOSAL',
+              label: null,
+              integrity: {
+                state: 'flagged_invalid',
+                reasons: ['The signatures are pasted images, not signed by hand.'],
+                checks: [],
+              },
+            },
+          ]
+        : [],
   })),
 };
 
@@ -1431,6 +1583,8 @@ export async function stubApi(
     if (admin && path === '/auth/refresh') return json(route, ADMIN);
     if (admin && path === '/admin/organizations') return json(route, ADMIN_TREE);
     if (admin && path === '/admin/financial-figures') return json(route, ADMIN_FIGURES);
+    if (admin && path === '/admin/semesters') return json(route, ADMIN_SEMESTERS);
+    if (admin && path === '/admin/disqualifications') return json(route, ADMIN_DISQUALIFICATIONS);
     if (signedIn && path === '/auth/refresh') return json(route, OFFICER);
     if (signedIn && path === '/me/dashboard') return json(route, DASHBOARD);
     if (signedIn && path === '/me/leaderboard') return json(route, MY_STANDING);
@@ -1461,6 +1615,9 @@ export async function stubApi(
           password_reveal: true,
           account_request_declined: true,
           figures_review: true,
+          task_file_checked: true,
+          task_file_flagged: true,
+          leaderboard_penalty: true,
           announcement_posted: false,
         },
       } satisfies NotificationPreferences);
@@ -1479,6 +1636,7 @@ export async function stubApi(
         401,
       );
     }
+    if (path === '/semesters') return json(route, { semesters: [] });
     if (path === '/colleges')
       return json(route, { colleges: collegeSummaries } satisfies CollegeListResponse);
     if (path === '/colleges/cea') return json(route, cea);

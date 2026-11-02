@@ -1,5 +1,4 @@
 import {
-  currentSemesterKey,
   LEADERBOARD_TYPES,
   type CollegeRef,
   type LeaderboardEvent,
@@ -19,12 +18,12 @@ import type {
 } from '#src/repositories/leaderboard.repository';
 import { toOrganizationSummary } from '#src/services/college.service';
 import type { LeaderboardRow, LeaderboardService } from '#src/services/leaderboard.service';
-import type { SystemSettingsService } from '#src/services/system-settings.service';
+import { USUAL_SEMESTER_READER, type SemesterReader } from '#src/services/semester-calendar.service';
 
 export interface PublicLeaderboardServiceDeps {
-  leaderboard: Pick<LeaderboardService, 'board'>;
+  leaderboard: Pick<LeaderboardService, 'board' | 'meta'>;
   organizations: Pick<LeaderboardRepository, 'publicOrganizations'>;
-  settings: Pick<SystemSettingsService, 'latePoints'>;
+  semesters?: SemesterReader;
   cache: Pick<Cache, 'getOrSet'>;
   publicUrl: PublicUrl;
   now?: () => Date;
@@ -73,7 +72,7 @@ function toPublicRow(row: LeaderboardRow, org: PublicOrganization): PublicLeader
 export function createPublicLeaderboardService({
   leaderboard,
   organizations,
-  settings,
+  semesters = USUAL_SEMESTER_READER,
   cache,
   publicUrl,
   now = () => new Date(),
@@ -91,10 +90,10 @@ export function createPublicLeaderboardService({
   }
 
   /** The asked semester, or the current one (Manila) when the query names none. */
-  function semesterOf(query: LeaderboardStreamQuery): SemesterKey {
+  async function semesterOf(query: LeaderboardStreamQuery): Promise<SemesterKey> {
     return query.academicYear && query.semester
       ? { academicYear: query.academicYear, semester: query.semester }
-      : currentSemesterKey(now());
+      : (await semesters.load()).currentKey(now());
   }
 
   async function publicRows(
@@ -118,24 +117,24 @@ export function createPublicLeaderboardService({
 
     /** GET /leaderboard: one board. The college filter keeps each row's rank on the board. */
     async read(query: LeaderboardQuery): Promise<LeaderboardResponse> {
-      const semester = semesterOf(query);
-      const [orgs, latePoints] = await Promise.all([organizationsById(), settings.latePoints()]);
+      const semester = await semesterOf(query);
+      const [orgs, meta] = await Promise.all([organizationsById(), leaderboard.meta(semester)]);
       return {
         ...semester,
+        ...meta,
         type: query.type,
-        latePoints,
         rows: await publicRows(semester, query.type, orgs, query.college),
       };
     },
 
     /** Both boards of a semester: what the stream sends on connect and on every change. */
     async boards(semester: SemesterKey): Promise<LeaderboardEvent> {
-      const [orgs, latePoints] = await Promise.all([organizationsById(), settings.latePoints()]);
+      const [orgs, meta] = await Promise.all([organizationsById(), leaderboard.meta(semester)]);
       const boards = {} as LeaderboardEvent['boards'];
       for (const type of LEADERBOARD_TYPES) {
         boards[type] = await publicRows(semester, type, orgs);
       }
-      return { ...semester, latePoints, boards };
+      return { ...semester, ...meta, boards };
     },
   };
 }

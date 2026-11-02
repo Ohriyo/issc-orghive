@@ -471,9 +471,20 @@ describe('/system/settings', () => {
       .get('/api/v1/system/settings')
       .set(bearer(accessToken))
       .expect(200);
-    expect(before.body).toEqual({ leaderboardLatePoints: 0.5, updatedAt: null });
+    expect(before.body).toMatchObject({
+      leaderboardLatePoints: 0.5,
+      updatedAt: null,
+      nearDuplicateBits: 6,
+      checksUpdatedAt: null,
+    });
 
-    for (const bad of [{}, { leaderboardLatePoints: 2 }, { leaderboardLatePoints: 0.333 }]) {
+    for (const bad of [
+      {},
+      { leaderboardLatePoints: 2 },
+      { leaderboardLatePoints: 0.333 },
+      { nearDuplicateBits: 1.5 },
+      { taskKeywords: { PROPOSAL: ['x'] } },
+    ]) {
       await request(app)
         .patch('/api/v1/system/settings')
         .set(bearer(accessToken))

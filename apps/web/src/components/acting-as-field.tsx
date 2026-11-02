@@ -5,6 +5,8 @@ import { TextField } from './text-field';
 export interface ActingAsFieldProps extends Omit<ComponentProps<'input'>, 'id'> {
   /** The organization whose shared account is signed in, e.g. "JPICE". */
   orgAcronym: string;
+  /** What the name is saved with: "the file" (uploads), "the decision" (a council's). */
+  savedWith?: string;
   error?: string;
 }
 
@@ -12,11 +14,16 @@ export interface ActingAsFieldProps extends Omit<ComponentProps<'input'>, 'id'> 
  * "Acting as": the officer using the organization's shared account. Saved with the file or
  * action, shown only to the organization itself, and remembered on this device.
  */
-export function ActingAsField({ orgAcronym, error, ...input }: ActingAsFieldProps) {
+export function ActingAsField({
+  orgAcronym,
+  savedWith = 'the file',
+  error,
+  ...input
+}: ActingAsFieldProps) {
   return (
     <TextField
       label="Acting as"
-      hint={`Your name, as the ${orgAcronym} officer using this account. Saved with the file and shown only to ${orgAcronym}. Remembered on this device.`}
+      hint={`Your name, as the ${orgAcronym} officer using this account. Saved with ${savedWith} and shown only to ${orgAcronym}. Remembered on this device.`}
       error={error}
       autoComplete="name"
       maxLength={ACTING_AS_MAX_LENGTH}

@@ -12,12 +12,13 @@ import { createOpenApiDocument } from '#src/openapi';
 import { adminRouter } from '#src/routes/admin.routes';
 import { announcementsRouter } from '#src/routes/announcements.routes';
 import { complianceOverviewRouter } from '#src/routes/compliance-overview.routes';
+import { taskFileDecisionsRouter } from '#src/routes/task-file-decisions.routes';
 import { appealsRouter } from '#src/routes/appeals.routes';
 import { authRouter } from '#src/routes/auth.routes';
 import { collegesRouter } from '#src/routes/colleges.routes';
 import { documentsRouter } from '#src/routes/documents.routes';
 import { healthRouter } from '#src/routes/health.routes';
-import { leaderboardRouter } from '#src/routes/leaderboard.routes';
+import { leaderboardRouter, semestersRouter } from '#src/routes/leaderboard.routes';
 import { demoRouter } from '#src/routes/demo.routes';
 import { meRouter } from '#src/routes/me.routes';
 import { organizationsRouter } from '#src/routes/organizations.routes';
@@ -35,6 +36,7 @@ import type { AccountRequestService } from '#src/services/account-request.servic
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { AnnouncementService } from '#src/services/announcement.service';
 import type { ComplianceOverviewService } from '#src/services/compliance-overview.service';
+import type { TaskFileDecisionService } from '#src/services/task-file-decision.service';
 import type { ConstitutionService } from '#src/services/constitution.service';
 import type { AppealService } from '#src/services/appeal.service';
 import type { AuthService } from '#src/services/auth.service';
@@ -50,7 +52,10 @@ import type { MyStandingService } from '#src/services/my-standing.service';
 import type { ProfileService } from '#src/services/profile.service';
 import type { HandbookService } from '#src/services/handbook.service';
 import type { ProjectService } from '#src/services/project.service';
+import type { TaskTemplateService } from '#src/services/task-template.service';
+import type { DisqualificationService } from '#src/services/disqualification.service';
 import type { PublicLeaderboardService } from '#src/services/public-leaderboard.service';
+import type { SemesterCalendarService } from '#src/services/semester-calendar.service';
 import type { ReportService } from '#src/services/report.service';
 import type { RevealService } from '#src/services/reveal.service';
 import type { SearchService } from '#src/services/search.service';
@@ -79,6 +84,10 @@ export interface AppServices {
   access: AccessService;
   dashboard: DashboardService;
   projects: ProjectService;
+  /** Project task templates with their QR codes (spec section 6). */
+  taskTemplates: TaskTemplateService;
+  /** Governing bodies clear a task file's warnings or flag it invalid (spec section 6). */
+  taskFileDecisions: TaskFileDecisionService;
   appeals: AppealService;
   notifications: NotificationService;
   reports: ReportService;
@@ -102,6 +111,10 @@ export interface AppServices {
   financialFigures: FinancialFiguresService;
   /** /system/settings, such as the leaderboard's late value. */
   systemSettings: SystemSettingsService;
+  /** GET /semesters and /admin/semesters: the semester calendar (spec 5B). */
+  semesters: SemesterCalendarService;
+  /** /admin/disqualifications: the ISSC account's penalty (spec 5B). */
+  disqualifications: DisqualificationService;
   /** GET /leaderboard: the public boards (spec section 5). */
   leaderboard: PublicLeaderboardService;
   /** GET /leaderboard/stream: the open SSE streams of this instance. */
@@ -169,6 +182,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
   v1.use('/organizations', organizationsRouter(services.organizations));
   v1.use('/handbook', handbookRouter(services.handbook));
   v1.use('/demo-status', demoRouter(services.demoData));
+  v1.use('/semesters', semestersRouter(services.semesters));
   v1.use(
     '/leaderboard',
     leaderboardRouter({ leaderboard: services.leaderboard, stream: services.leaderboardStream }),
@@ -195,12 +209,17 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     complianceOverviewRouter({ overview: services.complianceOverview, tokens: services.tokens }),
   );
   v1.use(
+    taskFileDecisionsRouter({ decisions: services.taskFileDecisions, tokens: services.tokens }),
+  );
+  v1.use(
     '/admin',
     adminRouter({
       organizations: services.adminOrganizations,
       accountRequests: services.accountRequests,
       figures: services.financialFigures,
       handbook: services.handbook,
+      semesters: services.semesters,
+      disqualifications: services.disqualifications,
       access: services.access,
       tokens: services.tokens,
     }),
@@ -234,6 +253,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
     projectsRouter({
       projects: services.projects,
       figures: services.financialFigures,
+      templates: services.taskTemplates,
       access: services.access,
       tokens: services.tokens,
     }),

@@ -60,7 +60,7 @@ type StorageConfig = Pick<
 >;
 
 /** RFC 6266 file name for Content-Disposition, safe for any characters. */
-function disposition(type: 'attachment' | 'inline', filename: string): string {
+export function disposition(type: 'attachment' | 'inline', filename: string): string {
   const ascii = filename.replace(/[^\x20-\x7e]|["\\]/g, '_');
   return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }

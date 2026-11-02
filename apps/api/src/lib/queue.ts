@@ -13,6 +13,11 @@ export const REPORT_QUEUE = 'reports';
  * pages each), so apart from the scans, which must never wait behind them.
  */
 export const PREVIEW_QUEUE = 'previews';
+/**
+ * Integrity checks of project task files (docs/PROJECT_WORKFLOW_SPEC.md, section 6): QR
+ * codes, page hashes and OCR. CPU-heavy, so apart from the scans, like the previews.
+ */
+export const INTEGRITY_QUEUE = 'integrity';
 /** Leaderboard recomputes (docs/PROJECT_WORKFLOW_SPEC.md, section 5), one at a time. */
 export const LEADERBOARD_QUEUE = 'leaderboard';
 
@@ -32,6 +37,13 @@ export type DocumentJob =
   | { name: 'check-compliance'; data: Record<string, never> };
 
 export type PreviewJob = { name: 'render-preview'; data: { versionId: string } };
+
+export type IntegrityJob = { name: 'check-integrity'; data: { versionId: string } };
+
+/** Who queues a task file's integrity checks: the scan, once the file is clean. */
+export interface IntegrityQueue {
+  enqueueIntegrity(versionId: string): Promise<void>;
+}
 
 export type NotificationJob = { name: 'send-email'; data: { notificationId: string } };
 
@@ -115,6 +127,21 @@ export function createBullQueue(connection: Redis): JobQueue & AttachmentQueue &
         'process-appeal-attachment',
         { attachmentId },
         { jobId: `appeal-attachment-${attachmentId}`, ...RETRIES },
+      );
+    },
+  };
+}
+
+export function createBullIntegrityQueue(connection: Redis): IntegrityQueue & { queue: Queue } {
+  const queue = new Queue(INTEGRITY_QUEUE, { connection });
+  return {
+    queue,
+    async enqueueIntegrity(versionId) {
+      // One job per version: a retried scan may ask again while it waits.
+      await queue.add(
+        'check-integrity',
+        { versionId },
+        { jobId: `integrity-${versionId}`, ...RETRIES },
       );
     },
   };

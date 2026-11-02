@@ -1,6 +1,7 @@
 import {
   academicYearOf,
   ErrorCode,
+  isCheckedTask,
   isMultiFileTask,
   PRE_EVENT_CHOICES,
   PROJECT_TASK_DOCUMENT_TYPES,
@@ -20,6 +21,8 @@ import {
 import { AppError } from '#src/errors/app-error';
 import type { AuditLogRepository } from '#src/repositories/audit-log.repository';
 import type { DocumentBrief, DocumentRepository } from '#src/repositories/document.repository';
+import type { IntegrityDocumentRecord } from '#src/repositories/integrity-select';
+import type { IntegrityRepository } from '#src/repositories/integrity.repository';
 import type { DocumentTypeRepository } from '#src/repositories/document-type.repository';
 import type { DocumentViewer } from '#src/repositories/document-visibility';
 import type { OrgFreezeRepository } from '#src/repositories/org-freeze.repository';
@@ -31,12 +34,16 @@ import {
   toFiguresView,
   type FinancialFiguresService,
 } from '#src/services/financial-figures.service';
+import { mayDecideIntegrity, taskFileStatus } from '#src/services/integrity-rules';
+import { USUAL_SEMESTER_READER, type SemesterReader } from '#src/services/semester-calendar.service';
 import { nextDeadline, planProject, type ProjectPlan } from '#src/services/project-rules';
 import type { LeaderboardRecompute } from '#src/services/leaderboard-recompute';
 import { factsOf, type ProjectSync } from '#src/services/project-sync.service';
 import type { UploadService } from '#src/services/upload.service';
 
 export interface ProjectServiceDeps {
+  /** Until when figures can be corrected depends on the semester's real last day (spec 5D). */
+  semesters?: SemesterReader;
   projects: Pick<
     ProjectRepository,
     | 'create'
@@ -57,6 +64,8 @@ export interface ProjectServiceDeps {
   /** The Financial Report's totals (spec 5D), saved with its file. */
   figures: Pick<FinancialFiguresService, 'saveWithFile'>;
   audit: Pick<AuditLogRepository, 'record'>;
+  /** The short code typed with a task file whose QR is damaged (spec section 6). */
+  typedCodes: Pick<IntegrityRepository, 'recordTypedCode'>;
   /** A moved target date moves the project between semesters' standings (spec 5B). */
   leaderboard?: Pick<LeaderboardRecompute, 'forEventDates'>;
   now?: () => Date;
@@ -94,7 +103,9 @@ export function createProjectService({
   viewers,
   figures,
   audit,
+  typedCodes,
   leaderboard,
+  semesters = USUAL_SEMESTER_READER,
   now = () => new Date(),
 }: ProjectServiceDeps) {
   function toSummary(record: ProjectRecord, plan: ProjectPlan): ProjectSummary {
@@ -141,7 +152,19 @@ export function createProjectService({
       ...toSummary(record, plan),
       tasks: plan.tasks.map((task) => {
         const row = rows.get(task.type);
-        const brief = row?.documentId ? briefs.get(row.documentId) : undefined;
+        // A checked task's file carries its integrity (spec section 6); this page is read by
+        // the organization and its governing bodies only.
+        const withIntegrity = (
+          brief: DocumentBrief | undefined,
+          doc: IntegrityDocumentRecord | null | undefined,
+        ) =>
+          brief && {
+            ...brief,
+            integrity: isCheckedTask(task.type) && doc ? taskFileStatus(doc) : null,
+          };
+        const brief = row?.documentId
+          ? withIntegrity(briefs.get(row.documentId), row.document)
+          : undefined;
         return {
           type: task.type,
           status: task.status,
@@ -152,7 +175,7 @@ export function createProjectService({
           document: brief ?? null,
           // Only the files this viewer may see: the visibility rule applies to each.
           files: (row?.files ?? []).flatMap((f) => {
-            const file = briefs.get(f.documentId);
+            const file = withIntegrity(briefs.get(f.documentId), f.document);
             return file ? [{ label: f.label, document: file }] : [];
           }),
         };
@@ -160,9 +183,16 @@ export function createProjectService({
       // Extra files outside the checklist, only those this viewer may see.
       files: record.extraFiles.flatMap((f) => {
         const document = briefs.get(f.documentId);
-        return document ? [{ document }] : [];
+        return document ? [{ document: { ...document, integrity: null } }] : [];
       }),
-      financialFigures: toFiguresView(record),
+      financialFigures: toFiguresView(record, record.figures ? await semesters.load() : undefined),
+      // A governing body of the organization may clear or flag its task files (spec 6).
+      canDecideIntegrity:
+        viewer.kind === 'account' &&
+        mayDecideIntegrity(
+          { id: viewer.organizationId, type: viewer.organizationType, parentId: null },
+          record.organization,
+        ),
     };
   }
 
@@ -213,13 +243,14 @@ export function createProjectService({
     type: ProjectTaskType,
     row: ProjectRecord['tasks'][number] | undefined,
     input: CreateTaskDocumentRequest,
-  ): Promise<void> {
+  ): Promise<string> {
     if (input.documentId) {
       const file = row?.files.find((f) => f.documentId === input.documentId);
       if (!file || !file.document || file.document.deletedAt) {
         throw AppError.notFound('File not found in this task');
       }
-      const inProgress = file.document.status === 'scanning' || file.document.status === 'quarantined';
+      const inProgress =
+        file.document.status === 'scanning' || file.document.status === 'quarantined';
       if (inProgress && file.document.createdById !== actor.userId) {
         throw AppError.conflict(
           'Another officer’s copy of this file is still being checked. Try again once it is done.',
@@ -229,7 +260,7 @@ export function createProjectService({
         uploadKey: input.uploadKey,
         actingAs: input.actingAs,
       });
-      return;
+      return file.documentId;
     }
     const label = input.label!;
     const created = await createTaskDocument(
@@ -241,6 +272,7 @@ export function createProjectService({
       `${PROJECT_TASK_LABELS[type]}: ${label} (${record.name})`,
     );
     await projects.addTaskFile(record.id, type, created.id, label);
+    return created.id;
   }
 
   /** The task as the rules see it now; 404 if the project does not need it, 409 if locked. */
@@ -441,7 +473,8 @@ export function createProjectService({
       }
       const row = record.tasks.find((t) => t.type === type);
       if (isMultiFileTask(type)) {
-        await fileMultiTask(actor, org, record, type, row, input);
+        const documentId = await fileMultiTask(actor, org, record, type, row, input);
+        if (input.taskCode) await typedCodes.recordTypedCode(documentId, input.taskCode);
         const updated = await synced(id);
         return toDetail(await viewers.forUser(actor.userId), updated);
       }
@@ -459,6 +492,7 @@ export function createProjectService({
           uploadKey: input.uploadKey,
           actingAs: input.actingAs,
         });
+        if (input.taskCode) await typedCodes.recordTypedCode(current.documentId!, input.taskCode);
       } else {
         const created = await createTaskDocument(
           actor,
@@ -469,6 +503,8 @@ export function createProjectService({
           `${PROJECT_TASK_LABELS[type]}: ${record.name}`,
         );
         await projects.linkDocument(id, type, created.id);
+        // Kept with the version the worker checks next (its scan runs first).
+        if (input.taskCode) await typedCodes.recordTypedCode(created.id, input.taskCode);
       }
       // The scan may already have finished; the sync settles either way.
       const updated = await synced(id);

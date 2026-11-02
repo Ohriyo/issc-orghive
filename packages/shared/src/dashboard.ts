@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { semesterSummarySchema } from './compliance-overview';
 import { documentSummarySchema } from './document';
 import { officerInChargeSchema } from './auth';
+import { projectTaskTypeSchema } from './project';
 import { organizationSummarySchema } from './public-read';
 
 /** A term within this many days of ending is flagged on the dashboard. */
@@ -67,6 +68,20 @@ export const dashboardOrganizationSchema = z.object({
   activity: z.array(dashboardActivitySchema),
   /** This semester's projects and next deadlines. */
   semester: semesterSummarySchema.nullable(),
+  /**
+   * Task files filed before Orghive checked them (spec section 6E), oldest project first:
+   * they complete their tasks but count for the leaderboard only once re-uploaded on the
+   * task's template.
+   */
+  legacyTaskFiles: z.array(
+    z.object({
+      projectId: z.uuid(),
+      projectName: z.string(),
+      task: projectTaskTypeSchema,
+      /** A Communication Letter's label; null for one-file tasks. */
+      label: z.string().nullable(),
+    }),
+  ),
 });
 export type DashboardOrganization = z.infer<typeof dashboardOrganizationSchema>;
 

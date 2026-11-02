@@ -66,9 +66,18 @@ export const versionParamsSchema = z.object({ documentId: z.uuid(), versionId: z
 /**
  * Where a file is in processing: `pending` until the worker has checked it, `clean` once
  * it passed, `infected` if ClamAV flagged it, `invalid` if its bytes are not the type it
- * claimed. Only clean files can be downloaded.
+ * claimed. A project task's file is `checking` between the virus scan and its integrity
+ * checks, and `rejected` if a hard check failed (docs/PROJECT_WORKFLOW_SPEC.md, section 6).
+ * Only clean files can be downloaded.
  */
-export const SCAN_STATUSES = ['pending', 'clean', 'infected', 'invalid'] as const;
+export const SCAN_STATUSES = [
+  'pending',
+  'checking',
+  'clean',
+  'infected',
+  'invalid',
+  'rejected',
+] as const;
 export const scanStatusSchema = z.enum(SCAN_STATUSES);
 export type ScanStatus = z.infer<typeof scanStatusSchema>;
 

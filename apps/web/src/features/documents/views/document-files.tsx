@@ -19,9 +19,11 @@ function formatSize(bytes: number): string {
 
 const SCAN_LABEL: Record<DocumentVersion['scanStatus'], string> = {
   pending: 'Checking for viruses…',
+  checking: 'Checking the task file…',
   clean: 'Passed the virus scan',
   infected: 'Blocked: a virus was found',
   invalid: 'Blocked: not the file type it claimed',
+  rejected: 'Refused: it did not pass the task file checks',
 };
 
 /**
@@ -75,7 +77,9 @@ export function DocumentFiles({ files }: { files: DocumentFilesModel }) {
                   className={cn(
                     'mt-1 flex items-center gap-1.5 text-small',
                     version.scanStatus === 'clean' ? 'text-ink-muted' : 'font-medium text-ink',
-                    (version.scanStatus === 'infected' || version.scanStatus === 'invalid') &&
+                    (version.scanStatus === 'infected' ||
+                      version.scanStatus === 'invalid' ||
+                      version.scanStatus === 'rejected') &&
                       'text-destructive',
                   )}
                 >

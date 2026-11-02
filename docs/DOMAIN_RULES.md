@@ -30,6 +30,8 @@ Decided by the project owner on 2026-10-17 (`docs/PROJECT_WORKFLOW_SPEC.md`, sec
 
 - No document is sent to an adviser, council or anyone else for approval before others can see it. There are no review statuses, no approve/reject endpoints, no review queue and no reviewer dashboard for documents.
 - The only approvals in Orghive are **appeals** to unblock a project or lift an organization's freeze (F11, spec section 3).
+- **Leaderboard penalty** (2026-11-02, spec 5B). The ISSC account can disqualify an organization from a semester's leaderboard, with a reason, and lift it with a reason, until the standings are final. This is not a review of documents: files, projects and who sees them are not affected. The organization is told the reason; the public board shows only the rule.
+- **Task file checks are not review** (2026-10-31, spec section 6). Project task files are checked automatically, and an organization's governing bodies can clear a file's warnings or flag it invalid. That decides only whether the file counts for the leaderboard; it never changes who sees it, and nothing waits for it before others can see a file.
 
 ### Lifecycle
 
@@ -76,8 +78,8 @@ Enforced in one place: `apps/api/src/repositories/document-visibility.ts`. Servi
 - **NOM and MOM:** exist only when the organization marks them as needed; locked until the proposal is submitted; no deadline. One that already has a file cannot be dropped.
 - **Communication Letter and Attendance Sheet (2026-10-21):** ticked per project like the NOM and MOM, locked until the proposal is submitted. The letter is due at the end of the event day and holds several labelled files (one per office); the Attendance Sheet is due with the ACR. Late or missing ones lower the project's points (spec 5C) but never block or freeze. **Other pre-event documents** are optional, labelled, never due. All three default to `private`.
 - **ACR and Financial Report:** locked until the target date (Manila), then due 14 days after it. *Changed from the earlier provisional answer* ("once the proposal is complete and the target date has arrived"): the project owner's F10b brief unlocks them on the target date alone, so a late proposal does not hold back the reports.
-- A task is **submitted** once its file passed the virus scan. Nobody reviews it. Its file is an ordinary Paperworks document (types `project-proposal`, `notice-of-meeting`, `minutes-of-meeting`, `activity-completion-report`, `financial-report`) with the visibility the organization chose; re-uploads are new versions. The proposal and the financial report default to `private`, the others to `public`.
-- Task files must be **PDF, JPG or PNG** (the Semestral End Report merges them).
+- A task is **submitted** once its file passed the virus scan and, for checked tasks, the hard checks of spec section 6 (a PDF of the task's own template, its QR code or typed code matching). Nobody reviews it. Its file is an ordinary Paperworks document (types `project-proposal`, `notice-of-meeting`, `minutes-of-meeting`, `activity-completion-report`, `financial-report`) with the visibility the organization chose; re-uploads are new versions. The proposal and the financial report default to `private`, the others to `public`.
+- Task files must be **PDF** for the checked tasks (every task but other pre-event documents, spec section 6), and **PDF, JPG or PNG** for other pre-event documents (the Semestral End Report merges them).
 - A project is **completed** once every task it needs is submitted. `blocked` is set by the compliance rules (below): a blocked project's tasks are locked and refuse uploads.
 - While a task's file is still being scanned, it cannot be replaced.
 
@@ -128,7 +130,7 @@ Answers to `docs/PROJECT_WORKFLOW_SPEC.md` section 6 (open questions) and F11's 
 - **Built with F11, chosen by the developer (confirm):** a blocked project does not also freeze its organization (its reports are locked, so it could not file them); unblocking moves a post-event deadline that would come first; a new due date must be after today.
 - **Task file formats (built):** images become PDF pages in the Semestral End Report.
 - **Blocked projects and frozen organizations (not built yet):** a blocked project can be soft-deleted (audited), which ends its block. A project that caused an open freeze cannot be deleted. (Projects cannot be deleted at all yet.)
-- **Semesters (built, replaces the earlier `academic_terms` plan until an academic calendar exists):** fixed ranges, the academic year starting in August: 1st semester Aug 1 – Dec 31, 2nd semester Jan 1 – May 31, midyear Jun 1 – Jul 31 (`semesterRange` in `packages/shared/src/report.ts`). Midyear counts as a semester for the report. A project's semester is the one containing its target date.
+- **Semesters (built 2026-11-02, replaces the earlier `academic_terms` plan):** the ISSC account sets each semester's first and last day at `/admin/semesters` (`semester_dates`, audited with "Acting as"). A semester it has not set keeps its usual dates, the academic year starting in August: 1st semester Aug 1 – Dec 31, 2nd semester Jan 1 – May 31, midyear Jun 1 – Jul 31 (`semesterRange` in `packages/shared/src/report.ts`). Midyear counts as a semester for the report. A project's semester is the one containing its target date; a date in a break belongs to the semester after it (`semesterCalendar`, `packages/shared/src/semester-calendar.ts`; services read it through `SemesterReader`). A semester's dates are locked once its standings are final. Files keep the academic year label from `academicYearOf` (August start), which is a filter label only.
 - **"Accomplishment report"** stays a separate document type from the ACR until the school says they are the same.
 - **Uploads** (from 2026-10-16): tags are free-form (at most 10, lowercased).
 
@@ -142,7 +144,7 @@ Answers to `docs/PROJECT_WORKFLOW_SPEC.md` section 6 (open questions) and F11's 
 ## Updates and compliance overview (chosen by the project owner on 2026-10-18)
 
 - **Updates** (announcements) are posted by the ISSC and CSC accounts; SBOs do not post. Anyone can read them, signed in or not. Posting publishes at once; the posting council's account can edit or delete (soft) an update later. There are no drafts. The body is plain text.
-- **Compliance overview** (read-only, from the F11 project data; no new required-document rules): a CSC's account sees its college's SBOs; the ISSC account sees every CSC and SBO. For each organization: active projects, next deadline, overdue tasks, blocked projects, freeze status and open appeals. Projects count toward a semester when their target date falls in it (`semesterRange`); freezes and open appeals are shown whatever the semester. "Most overdue" sorts by the oldest overdue task first, then by the number of overdue tasks.
+- **Compliance overview** (from the F11 project data; no new required-document rules). Since 2026-10-31 it also lists **task files to look at** (warnings nobody cleared, files flagged invalid; never private ones), with "Clear warning" and "Flag invalid" (spec section 6D). Otherwise it is read-only: a CSC's account sees its college's SBOs; the ISSC account sees every CSC and SBO. For each organization: active projects, next deadline, overdue tasks, blocked projects, freeze status and open appeals. Projects count toward a semester when their target date falls in it (`semesterRange`); freezes and open appeals are shown whatever the semester. "Most overdue" sorts by the oldest overdue task first, then by the number of overdue tasks.
 - **"This semester"** on the dashboard: the account's organization's projects in the current semester by status, and its next three task deadlines.
 
 ## Notifications (chosen by the project owner on 2026-10-18)
@@ -177,5 +179,5 @@ Answers to `docs/PROJECT_WORKFLOW_SPEC.md` section 6 (open questions) and F11's 
 
 ### Appeals and reports
 - Answered provisionally on 2026-10-17 (confirm with the school): rejections need written remarks; each freeze is appealed and lifted on its own.
-- Answered provisionally on 2026-10-17: midyear counts as a semester for the Semestral End Report; semesters are the fixed ranges above. Does the school's academic calendar use other dates?
+- Answered on 2026-10-17 and 2026-11-02: midyear counts as a semester for the Semestral End Report; the university's calendar varies, so the ISSC account sets the dates.
 - Are the provisional answers above what the school wants?

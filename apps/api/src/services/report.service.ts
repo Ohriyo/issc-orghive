@@ -3,11 +3,11 @@ import {
   REPORT_DOCUMENT_TYPE,
   reportTitle,
   SEMESTER_LABELS,
-  semesterRange,
   type GenerateReportRequest,
   type SemestralReport,
   type SemestralReportListResponse,
 } from '@orghive/shared';
+import { USUAL_SEMESTER_READER, type SemesterReader } from '#src/services/semester-calendar.service';
 import { AppError } from '#src/errors/app-error';
 import { type Cache, invalidateDocuments } from '#src/lib/cache';
 import type { PreviewQueue, ReportQueue } from '#src/lib/queue';
@@ -64,6 +64,7 @@ export interface ReportServiceDeps {
   audit: Pick<AuditLogRepository, 'record'>;
   cache: Pick<Cache, 'deleteMatching' | 'bump'>;
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
+  semesters?: SemesterReader;
   now?: () => Date;
 }
 
@@ -155,6 +156,7 @@ export function createReportService({
   audit,
   cache,
   logger,
+  semesters = USUAL_SEMESTER_READER,
   now = () => new Date(),
 }: ReportServiceDeps) {
   /** The report's own pages and the merge order, from the plan and the loaded files. */
@@ -247,7 +249,7 @@ export function createReportService({
     if (!docType)
       throw new Error(`Document type ${REPORT_DOCUMENT_TYPE.slug} is missing; run the migrations`);
 
-    const range = semesterRange(rec.academicYear, rec.semester);
+    const range = (await semesters.load()).spanOf(rec);
     const records = await reports.projectsBetween(org.id, range.start, range.end);
     const { projects, parts } = planReport(records.map(toReportProject));
     await progress(5);

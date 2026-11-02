@@ -6,7 +6,12 @@ import { SelectField } from '@/components/form-fields';
 import { PillButton } from '@/components/pill-button';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
+import { IntegrityLine } from '@/features/projects/views/integrity-line';
 import { DeadlineBadge } from '@/features/projects/views/project-badges';
+import {
+  DecisionButtons,
+  TaskFileDecisionDialog,
+} from '@/features/projects/views/task-file-decision';
 import { cn } from '@/lib/utils';
 import { OriginLink } from '@/navigation/origin-link';
 import type { ComplianceRowView, OverviewSort } from '../presenters/compliance-format';
@@ -184,8 +189,56 @@ function Totals({ totals }: { totals: Ready['totals'] }) {
 }
 
 /**
+ * Task files the council should look at (spec section 6): warnings nobody cleared, and files
+ * flagged invalid. Only files shared with the council are listed; private ones never are.
+ */
+function AttentionFiles({ model }: { model: Ready }) {
+  return (
+    <section aria-labelledby="attention-heading" className="mt-10 flex flex-col gap-4">
+      <TaskFileDecisionDialog model={model.decision} />
+      <div>
+        <h2 id="attention-heading" className="text-h2 font-bold text-ink">
+          Task files to look at
+        </h2>
+        <p className="mt-1 max-w-prose text-body text-ink-muted">
+          Files whose checks warn, and files flagged invalid. A cleared file counts as verified; a
+          flagged one stops counting for the leaderboard until it is uploaded again.
+        </p>
+      </div>
+      {model.attention.length === 0 ? (
+        <p className="rounded-2xl bg-white/70 px-4 py-3 text-body text-ink-muted ring-1 ring-ink/10 md:px-5">
+          Nothing to look at: every task file shared with your council passed its checks.
+        </p>
+      ) : (
+        <ul className="grid gap-4 md:grid-cols-2">
+          {model.attention.map((file) => (
+            <li
+              key={file.key}
+              className="flex min-w-0 flex-col gap-2 rounded-2xl bg-white p-4 text-small ring-1 ring-ink/10 md:p-5"
+            >
+              <p className="text-body font-semibold break-words text-ink">
+                {file.acronym} · {file.what}
+              </p>
+              <OriginLink to={file.projectHref} className={cn(TEXT_LINK, '-my-2 self-start')}>
+                {file.projectName}
+              </OriginLink>
+              <OriginLink to={file.href} className={cn(TEXT_LINK, '-my-2 self-start')}>
+                {file.title}
+              </OriginLink>
+              <IntegrityLine status={file.status} />
+              <DecisionButtons actions={file.decide} name={file.target.name} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
  * /dashboard/compliance: each organization a council oversees, with its projects this
- * semester, deadlines, blocks, freeze and open appeals. Read-only: nothing here decides.
+ * semester, deadlines, blocks, freeze and open appeals; and the task files it may clear or
+ * flag (spec section 6). Nothing else here decides.
  */
 export function ComplianceOverviewView({ model }: { model: ComplianceOverviewModel }) {
   return (
@@ -291,6 +344,7 @@ export function ComplianceOverviewView({ model }: { model: ComplianceOverviewMod
                 </>
               )}
             </section>
+            {model.status === 'ready' ? <AttentionFiles model={model} /> : null}
           </>
         )}
       </Container>

@@ -124,9 +124,37 @@ const READY: Extract<BoardState, { status: 'ready' }> = {
   semester: { academicYear: '2026-2027', semester: 'first' },
   ...splitBoard([lbRow('iecep', 1), lbRow('psme', 2), lbRow('jpice', 3), lbRow('uapsa', 4)]),
   note: 'Ranked by points (1 per implemented project, 0.5 if any of its reports was late), then by net profit reported in submitted Financial Reports.',
+  rule: 'The ISSC can disqualify an organization from a semester’s leaderboard, with a reason.',
+  standings: { final: false, label: 'Provisional until Jan 7, 2027, then final.' },
   bursts: 0,
   sample: false,
 };
+
+describe('LeaderboardView: provisional or final, and the penalty rule (spec 5B)', () => {
+  it('says the standings are provisional, and shows the rule', () => {
+    inRouter(<LeaderboardView model={page(READY)} />);
+    expect(screen.getByText('Provisional until Jan 7, 2027, then final.')).toBeInTheDocument();
+    expect(screen.getByText(READY.rule)).toBeInTheDocument();
+  });
+
+  it('says the standings are final', () => {
+    inRouter(
+      <LeaderboardView
+        model={page({
+          ...READY,
+          standings: { final: true, label: 'Final standings. They no longer change.' },
+        })}
+      />,
+    );
+    expect(screen.getByText('Final standings. They no longer change.')).toBeInTheDocument();
+  });
+
+  it('still shows both on an empty board', () => {
+    inRouter(<LeaderboardView model={page({ ...READY, podium: [], list: [] })} />);
+    expect(screen.getByText(/Provisional until/)).toBeInTheDocument();
+    expect(screen.getByText(READY.rule)).toBeInTheDocument();
+  });
+});
 
 describe('LeaderboardView', () => {
   it('shows the podium, the rest of the board, the Live state and the scoring note', () => {
@@ -246,6 +274,8 @@ describe('StandingCard', () => {
   ): MyStandingModel => ({
     status: 'ready',
     semester: '1st semester 2026–2027',
+    finality: 'Provisional until Jan 7, 2027, then final.',
+    disqualifiedFor: null,
     board: 'Student Body Organizations',
     standing: toStandingView(lbRow('jpice', 3)),
     outOf: 'of 6 Student Body Organizations',
@@ -270,6 +300,21 @@ describe('StandingCard', () => {
       'href',
       '/leaderboard',
     );
+  });
+
+  it('tells a disqualified organization why, in place of its rank and hints', () => {
+    inRouter(
+      <StandingCard model={ready({ disqualifiedFor: 'The attendance sheets were falsified.' })} />,
+    );
+    expect(screen.getByText('Disqualified this semester')).toBeInTheDocument();
+    expect(screen.getByText(/The attendance sheets were falsified\./)).toBeInTheDocument();
+    expect(screen.queryByText('What would move you up')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /See the full leaderboard/ })).toBeInTheDocument();
+  });
+
+  it('says whether the standings are provisional', () => {
+    inRouter(<StandingCard model={ready()} />);
+    expect(screen.getByText(/Provisional until Jan 7, 2027/)).toBeInTheDocument();
   });
 
   it('explains how to get ranked, and when nothing is waiting', () => {

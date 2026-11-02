@@ -5,6 +5,7 @@ import {
   type AppealAttachment,
   type AppealListResponse,
   type AppealQueueQuery,
+  type AttachmentScanStatus,
   type AttachmentDownloadResponse,
   type DecideAppealRequest,
   type OrganizationCompliance,
@@ -73,13 +74,23 @@ function seatName(org: AppellantRecord): string {
   return `the ${org.parent?.acronym ?? 'parent council'} account`;
 }
 
+/**
+ * Attachments share the scan statuses of document versions, but only task files are ever
+ * `checking` or `rejected` (integrity checks); this keeps the attachment API to its four.
+ */
+function attachmentScanStatusOf(status: AttachmentRecord['scanStatus']): AttachmentScanStatus {
+  if (status === 'checking') return 'pending';
+  if (status === 'rejected') return 'invalid';
+  return status;
+}
+
 function toAttachment(a: AttachmentRecord): AppealAttachment {
   return {
     id: a.id,
     filename: a.originalFilename,
     contentType: a.mimeType,
     sizeBytes: a.sizeBytes,
-    scanStatus: a.scanStatus,
+    scanStatus: attachmentScanStatusOf(a.scanStatus),
   };
 }
 

@@ -18,6 +18,7 @@ import type { MyStandingModel } from '@/features/leaderboard/presenters/use-my-s
 import { StandingCard } from '@/features/leaderboard/views/standing-card';
 import type { DashboardModel, SelectedOrganization } from '../presenters/use-dashboard';
 import {
+  LegacyNotice,
   NeedsAttention,
   RecentActivity,
   RolePanels,
@@ -215,6 +216,7 @@ function OrganizationDashboard({
       ) : (
         <div className="mt-8 flex flex-col gap-12">
           <StatTiles tiles={org.tiles} />
+          {org.legacy ? <LegacyNotice notice={org.legacy} /> : null}
           {org.semester ? <ThisSemester semester={org.semester} /> : null}
           {standing}
           {projects}

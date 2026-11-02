@@ -6,6 +6,7 @@ import {
   documentVisibilitySchema,
   type DocumentVisibility,
 } from './document';
+import { isCheckedTask, taskCodeSchema, taskFileIntegritySchema } from './integrity';
 import { financialFiguresSchema, projectFinancialFiguresSchema } from './leaderboard';
 import { manilaDate } from './manila-time';
 import { organizationTypeSchema, slugSchema } from './organization';
@@ -131,6 +132,17 @@ export const TASK_UPLOAD_CONTENT_TYPES = [
 ] as const satisfies UploadContentType[];
 export const TASK_UPLOAD_ACCEPT = '.pdf,.jpg,.jpeg,.png';
 
+/**
+ * A checked task's file (every task but the optional other pre-event documents) is a PDF
+ * scan of its template, so its QR code and pages can be checked (spec section 6).
+ */
+export function taskUploadContentTypesFor(type: ProjectTaskType): readonly UploadContentType[] {
+  return isCheckedTask(type) ? ['application/pdf'] : TASK_UPLOAD_CONTENT_TYPES;
+}
+export function taskUploadAcceptFor(type: ProjectTaskType): string {
+  return isCheckedTask(type) ? '.pdf' : TASK_UPLOAD_ACCEPT;
+}
+
 const nameSchema = z.string().trim().min(3, 'Use at least 3 characters').max(200);
 const shortTextSchema = (what: string) =>
   z.string().trim().min(2, `Enter the ${what}`).max(300, `Keep the ${what} under 300 characters`);
@@ -185,6 +197,15 @@ export const taskUploadUrlRequestSchema = uploadUrlRequestSchema.refine(
   { path: ['contentType'], message: 'Task files must be PDF, JPG or PNG' },
 );
 
+/** The upload-url body for one task: a checked task takes a PDF only. */
+export function taskUploadUrlRequestSchemaFor(type: ProjectTaskType) {
+  if (!isCheckedTask(type)) return taskUploadUrlRequestSchema;
+  return uploadUrlRequestSchema.refine((body) => body.contentType === 'application/pdf', {
+    path: ['contentType'],
+    message: 'Upload the signed template as a PDF scan',
+  });
+}
+
 /**
  * POST /projects/:projectId/tasks/:type/documents: the uploaded file and who can see it. In
  * a multi-file task (MULTI_FILE_TASK_TYPES) a new file needs its `label`; `documentId`
@@ -196,6 +217,8 @@ export const createTaskDocumentRequestSchema = z.strictObject({
   actingAs: actingAsSchema,
   label: taskFileLabelSchema.optional(),
   documentId: z.uuid().optional(),
+  /** The short code under the QR, typed when the QR is damaged; the text must contain it. */
+  taskCode: taskCodeSchema.optional(),
 });
 export type CreateTaskDocumentRequest = z.infer<typeof createTaskDocumentRequestSchema>;
 
@@ -247,6 +270,11 @@ const taskDocumentBriefSchema = z.object({
   title: z.string(),
   status: documentStatusSchema,
   visibility: documentVisibilitySchema,
+  /**
+   * The integrity checks of its current file (spec section 6), for the organization and its
+   * governing bodies; null for anyone else and for unchecked tasks.
+   */
+  integrity: taskFileIntegritySchema.nullable(),
 });
 
 export const projectTaskSchema = z.object({
@@ -314,6 +342,11 @@ export const projectDetailSchema = projectSummarySchema
     files: z.array(projectFileSchema),
     /** The Financial Report's totals, once entered (spec 5D); public on the leaderboard. */
     financialFigures: projectFinancialFiguresSchema.nullable(),
+    /**
+     * The viewer is one of the organization's governing bodies: it may clear a task file's
+     * warnings or flag it invalid (spec section 6). Absent means no.
+     */
+    canDecideIntegrity: z.boolean().optional(),
   })
   .meta({ id: 'ProjectDetail' });
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;

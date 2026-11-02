@@ -21,17 +21,18 @@ import { testDb } from './db';
 import { buildTestApp, TEST_ASSET_BASE_URL } from './helpers';
 
 const FIRST = { academicYear: '2026-2027', semester: 'first' as const };
+const META = { status: 'provisional' as const, provisionalUntil: '2027-01-07' };
 
 function board(rows: LeaderboardResponse['rows'] = []): LeaderboardResponse {
-  return { ...FIRST, type: 'SBO', latePoints: 0.5, rows };
+  return { ...FIRST, type: 'SBO', latePoints: 0.5, ...META, rows };
 }
 
 function stubbed() {
   const leaderboard = {
     read: vi.fn(() => Promise.resolve(board())),
-    semesterOf: vi.fn(() => FIRST),
+    semesterOf: vi.fn(() => Promise.resolve<SemesterKey>(FIRST)),
     boards: vi.fn((semester: SemesterKey) =>
-      Promise.resolve({ ...semester, latePoints: 0.5, boards: { SBO: [], CSC: [] } }),
+      Promise.resolve({ ...semester, latePoints: 0.5, ...META, boards: { SBO: [], CSC: [] } }),
     ),
   };
   const stream = createLeaderboardStream({
@@ -189,7 +190,6 @@ describe('the public board, from the database (spec 5F)', () => {
       leaderboard: createPublicLeaderboardService({
         leaderboard,
         organizations: leaderboardReads,
-        settings,
         cache: memoryCache(),
         publicUrl: createPublicUrl(TEST_ASSET_BASE_URL),
         now,

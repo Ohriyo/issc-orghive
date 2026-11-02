@@ -36,16 +36,27 @@ describe('loadConfig', () => {
   it('needs MFA_ENCRYPTION_KEY (32 bytes) in production only', () => {
     const key = Buffer.alloc(32, 7).toString('base64');
     expect(loadConfig(validEnv).MFA_ENCRYPTION_KEY).toBeUndefined();
-    expect(configErrorFrom({ ...validEnv, NODE_ENV: 'production' }).issues).toEqual([
+    const production = { ...validEnv, NODE_ENV: 'production', TASK_QR_SECRET: key };
+    expect(configErrorFrom(production).issues).toEqual([
       expect.stringMatching(/^MFA_ENCRYPTION_KEY: is required in production/),
     ]);
     expect(configErrorFrom({ ...validEnv, MFA_ENCRYPTION_KEY: 'c2hvcnQ=' }).message).toContain(
       'MFA_ENCRYPTION_KEY',
     );
-    expect(
-      loadConfig({ ...validEnv, NODE_ENV: 'production', MFA_ENCRYPTION_KEY: key })
-        .MFA_ENCRYPTION_KEY,
-    ).toBe(key);
+    expect(loadConfig({ ...production, MFA_ENCRYPTION_KEY: key }).MFA_ENCRYPTION_KEY).toBe(key);
+  });
+
+  it('needs TASK_QR_SECRET (32 bytes) in production only (spec section 6)', () => {
+    const key = Buffer.alloc(32, 9).toString('base64');
+    expect(loadConfig(validEnv).TASK_QR_SECRET).toBeUndefined();
+    const production = { ...validEnv, NODE_ENV: 'production', MFA_ENCRYPTION_KEY: key };
+    expect(configErrorFrom(production).issues).toEqual([
+      expect.stringMatching(/^TASK_QR_SECRET: is required in production/),
+    ]);
+    expect(configErrorFrom({ ...validEnv, TASK_QR_SECRET: 'c2hvcnQ=' }).message).toContain(
+      'TASK_QR_SECRET',
+    );
+    expect(loadConfig({ ...production, TASK_QR_SECRET: key }).TASK_QR_SECRET).toBe(key);
   });
 
   it('parses a valid env and applies defaults', () => {

@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CollegeListResponse, LeaderboardResponse, MyStanding } from '@orghive/shared';
-import { lbRow, LB_SEMESTER } from '@/test/leaderboard';
+import { lbRow, LB_SEMESTER, LB_STATUS } from '@/test/leaderboard';
 import { hintText, toMyStandingModel } from './use-my-standing';
 import { useLeaderboardPage, useTop3Celebrations } from './use-leaderboard-views';
 
@@ -33,7 +33,7 @@ const COLLEGES: CollegeListResponse = {
 };
 
 function board(type: 'SBO' | 'CSC', rows = [lbRow('jpice', 1)]): LeaderboardResponse {
-  return { ...LB_SEMESTER, latePoints: 0.5, type, rows };
+  return { ...LB_SEMESTER, ...LB_STATUS, latePoints: 0.5, type, rows };
 }
 
 /** The URL's query string, as the router last rendered it. */
@@ -151,14 +151,22 @@ describe('the dashboard standing', () => {
       projectId: '0195f3c0-0000-7000-8000-0000000000c3',
       projectName: 'Tree Planting',
     };
-    expect(hintText({ ...base, kind: 'submit_reports', missing: ['ACR'] })).toBe(
+    expect(hintText({ ...base, kind: 'submit_reports', missing: ['ACR'], held: [] })).toBe(
       'Submit the ACR for “Tree Planting” to count it.',
     );
     expect(
-      hintText({ ...base, kind: 'submit_reports', missing: ['ACR', 'FINANCIAL_REPORT'] }),
+      hintText({ ...base, kind: 'submit_reports', missing: ['ACR', 'FINANCIAL_REPORT'], held: [] }),
     ).toBe('Submit the ACR and Financial Report for “Tree Planting” to count it.');
-    expect(hintText({ ...base, kind: 'check_figures', missing: [] })).toBe(
+    expect(hintText({ ...base, kind: 'check_figures', missing: [], held: [] })).toBe(
       '1 report under review: check the figures for “Tree Planting”.',
+    );
+    expect(
+      hintText({ ...base, kind: 'verify_tasks', missing: [], held: ['PROPOSAL', 'ACR'] }),
+    ).toBe(
+      'The Project Proposal and ACR for “Tree Planting” don’t count yet: re-upload them on their templates or share them.',
+    );
+    expect(hintText({ ...base, kind: 'verify_tasks', missing: [], held: ['ACR'] })).toBe(
+      'The ACR for “Tree Planting” doesn’t count yet: re-upload it on its template or share it.',
     );
   });
 
@@ -166,12 +174,15 @@ describe('the dashboard standing', () => {
     const standing: MyStanding = {
       ...LB_SEMESTER,
       latePoints: 0.5,
+      ...LB_STATUS,
+      disqualifiedFor: null,
       type: 'CSC',
       boardSize: 7,
       row: lbRow('csc-cea', 2),
       hints: [
         {
           kind: 'check_figures',
+          held: [],
           projectId: '0195f3c0-0000-7000-8000-0000000000c3',
           projectName: 'Tree Planting',
           missing: [],

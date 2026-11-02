@@ -5,6 +5,7 @@ import {
   Check,
   CheckCircle2,
   Circle,
+  FileDown,
   FilePlus,
   FileUp,
   Lock,
@@ -12,7 +13,7 @@ import {
   MapPin,
   Users,
 } from 'lucide-react';
-import { TASK_UPLOAD_ACCEPT, type ProjectTaskStatus } from '@orghive/shared';
+import type { ProjectTaskStatus } from '@orghive/shared';
 import { OriginLink } from '@/navigation/origin-link';
 import { ActingAsField } from '@/components/acting-as-field';
 import { Container } from '@/components/container';
@@ -29,14 +30,17 @@ import type {
   TaskFileItem,
   TaskItem,
   TaskUploadState,
+  TemplateModel,
 } from '../presenters/use-project';
 import type { PreEventChoicesModel } from '../presenters/use-pre-event-choices';
-import { TASK_FILE_TYPES_LABEL } from '../presenters/upload-task-file';
+import type { IntegrityStatus } from '../presenters/task-integrity';
+import { IntegrityLine } from './integrity-line';
 import type { FiguresModel } from '../presenters/use-figures-draft';
 import type { CorrectFiguresModel } from '../presenters/use-correct-figures';
 import { FormAlert } from '@/features/auth/views/auth-layout';
 import { OVERLAY, PANEL, SECONDARY } from '@/features/system/views/system-dialogs';
 import { DeadlineBadge, LockedNote, ProjectStatusChip } from './project-badges';
+import { DecisionButtons, TaskFileDecisionDialog } from './task-file-decision';
 
 export type ProjectViewProps = Exclude<ProjectPageState, { status: 'not-found' }> & {
   /** The block or freeze banner with "Submit appeal" (spec section 3). */
@@ -90,6 +94,7 @@ function ProjectDetails({
 }) {
   return (
     <article className="mt-6">
+      {project.decision ? <TaskFileDecisionDialog model={project.decision} /> : null}
       <ProjectStatusChip status={project.status} label={project.statusLabel} />
       <h1 className="mt-3 text-h1 font-bold text-pretty break-words text-ink">{project.name}</h1>
       <dl className="mt-5 grid gap-3 text-body text-ink sm:grid-cols-2">
@@ -167,7 +172,10 @@ function ProjectFiles({ project }: { project: ProjectPageModel }) {
       {project.files.length > 0 ? (
         <ul className="mt-4 flex flex-col gap-3">
           {project.files.map((file) => (
-            <li key={file.href} className="rounded-2xl bg-white px-4 py-2 ring-1 ring-ink/10 md:px-5">
+            <li
+              key={file.href}
+              className="rounded-2xl bg-white px-4 py-2 ring-1 ring-ink/10 md:px-5"
+            >
               <TaskFile file={file} />
             </li>
           ))}
@@ -382,7 +390,7 @@ function TaskCard({ task }: { task: TaskItem }) {
           <ul className="flex flex-col gap-3">
             {task.files.map((file) => (
               <li key={file.href}>
-                <LabelledFile file={file} taskLabel={task.label} />
+                <LabelledFile file={file} taskLabel={task.label} accept={task.accept} />
               </li>
             ))}
           </ul>
@@ -398,21 +406,44 @@ function TaskCard({ task }: { task: TaskItem }) {
 }
 
 /** One labelled file of a multi-file task ("Letter to the Dean"), with its own new version. */
-function LabelledFile({ file, taskLabel }: { file: TaskFileItem; taskLabel: string }) {
+function LabelledFile({
+  file,
+  taskLabel,
+  accept,
+}: {
+  file: TaskFileItem;
+  taskLabel: string;
+  accept: string;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const busy = file.upload.status === 'uploading' || file.upload.status === 'saving';
+  const newVersion = (
+    <PillButton
+      size="md"
+      variant={file.integrity?.reupload ? 'forest' : 'light'}
+      disabled={busy}
+      onClick={() => input.current?.click()}
+      className="self-start max-sm:w-full"
+    >
+      <FileUp aria-hidden="true" />
+      {file.integrity?.reupload ? 'Upload again' : 'New version'}
+      <span className="sr-only">
+        : {taskLabel}, {file.label}
+      </span>
+    </PillButton>
+  );
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-surface p-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="flex flex-col gap-3 rounded-xl bg-surface p-3">
       <div className="min-w-0">
         <p className="text-small font-semibold break-words text-ink">{file.label}</p>
         <TaskFile file={file} />
       </div>
       {file.uploadVersion ? (
-        <div className="flex flex-col gap-1 sm:items-end">
+        <div className="flex flex-col gap-2">
           <input
             ref={input}
             type="file"
-            accept={TASK_UPLOAD_ACCEPT}
+            accept={accept}
             className="sr-only"
             tabIndex={-1}
             aria-hidden="true"
@@ -422,27 +453,32 @@ function LabelledFile({ file, taskLabel }: { file: TaskFileItem; taskLabel: stri
               if (picked) file.uploadVersion?.(picked);
             }}
           />
-          <PillButton
-            size="md"
-            variant="light"
-            disabled={busy}
-            onClick={() => input.current?.click()}
-            className="max-sm:w-full"
-          >
-            <FileUp aria-hidden="true" />
-            New version
-            <span className="sr-only">
-              : {taskLabel}, {file.label}
-            </span>
-          </PillButton>
-          <UploadProgress state={file.upload} label={`${taskLabel}, ${file.label}`} quiet />
+          {file.template ? (
+            // One wrapping row: this letter's template, then its new version.
+            <TemplateButtons template={file.template} label={`${taskLabel}, ${file.label}`}>
+              {newVersion}
+            </TemplateButtons>
+          ) : (
+            newVersion
+          )}
+          <UploadProgress
+            state={file.upload}
+            label={`${taskLabel}, ${file.label}`}
+            quiet
+            checked={file.template !== null}
+          />
         </div>
       ) : null}
     </div>
   );
 }
 
-function TaskFile({ file }: { file: NonNullable<TaskItem['file']> }) {
+type FileLinkModel = Omit<NonNullable<TaskItem['file']>, 'integrity' | 'decide'> & {
+  integrity?: IntegrityStatus | null;
+  decide?: TaskItem['files'][number]['decide'];
+};
+
+function TaskFile({ file }: { file: FileLinkModel }) {
   return (
     <div className="flex flex-col text-small text-ink">
       {/* Its own 44px row: a small-text link alone is shorter than a tap target. */}
@@ -452,11 +488,64 @@ function TaskFile({ file }: { file: NonNullable<TaskItem['file']> }) {
       >
         {file.title}
       </OriginLink>
-      {file.state === 'scanning' ? (
+      {file.integrity ? (
+        <IntegrityLine status={file.integrity} />
+      ) : file.state === 'scanning' ? (
         <span className="text-ink-muted">Checking for viruses…</span>
       ) : file.state === 'quarantined' ? (
         <span className="font-medium text-destructive">
           The virus scan refused this file. Upload a clean copy.
+        </span>
+      ) : null}
+      {file.decide ? (
+        <div className="mt-2">
+          <DecisionButtons actions={file.decide} name={file.title} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** "Download template": Word to fill in, or a PDF to print. `children` join the same row. */
+function TemplateButtons({
+  template,
+  label,
+  children,
+}: {
+  template: TemplateModel;
+  label: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2">
+        <PillButton
+          size="md"
+          variant="light"
+          disabled={template.busy !== null}
+          onClick={() => template.download('docx')}
+          className="max-sm:w-full"
+        >
+          <FileDown aria-hidden="true" />
+          {template.busy === 'docx' ? 'Preparing…' : 'Template (Word)'}
+          <span className="sr-only">: {label}</span>
+        </PillButton>
+        <PillButton
+          size="md"
+          variant="light"
+          disabled={template.busy !== null}
+          onClick={() => template.download('pdf')}
+          className="max-sm:w-full"
+        >
+          <FileDown aria-hidden="true" />
+          {template.busy === 'pdf' ? 'Preparing…' : 'Template (PDF)'}
+          <span className="sr-only">: {label}</span>
+        </PillButton>
+        {children}
+      </div>
+      {template.error ? (
+        <span role="alert" className="text-small font-medium text-destructive">
+          {template.error}
         </span>
       ) : null}
     </div>
@@ -618,6 +707,7 @@ function TaskUpload({ task }: { task: TaskItem }) {
   const busy = state.status === 'uploading' || state.status === 'saving';
   // A multi-file task always adds another file; the others replace their one file.
   const replacing = !task.multiFile && (task.status === 'submitted' || task.file !== null);
+  const reupload = !task.multiFile && task.file?.integrity?.reupload === true;
   return (
     <div className="flex flex-col gap-4 border-t border-border pt-4">
       {task.figures?.editable ? <FiguresFields figures={task.figures} disabled={busy} /> : null}
@@ -637,8 +727,53 @@ function TaskUpload({ task }: { task: TaskItem }) {
           onChange={(event) => task.newLabel?.onChange(event.target.value)}
         />
       ) : null}
-      <TaskUploadRow task={task} input={input} replacing={replacing} />
+      {task.template ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-small text-ink">
+            {task.multiFile
+              ? 'Name the letter, then download its template: each letter has its own QR code. '
+              : 'Download this task’s template: it is filled in for this project and carries its QR code. '}
+            Complete it, sign it, and upload it as a PDF.
+          </p>
+          <TemplateButtons template={task.template} label={task.label} />
+        </div>
+      ) : null}
+      <TaskUploadRow task={task} input={input} replacing={replacing} reupload={reupload} />
+      {task.taskCode ? <TaskCodeField task={task} field={task.taskCode} disabled={busy} /> : null}
     </div>
+  );
+}
+
+/** The short code under a damaged QR, typed by hand: the file's text must show it too. */
+function TaskCodeField({
+  task,
+  field,
+  disabled,
+}: {
+  task: TaskItem;
+  field: NonNullable<TaskItem['taskCode']>;
+  disabled: boolean;
+}) {
+  return (
+    <details open={field.error ? true : undefined} className="group text-small">
+      <summary className="inline-flex min-h-11 cursor-pointer items-center font-medium text-ink underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf">
+        QR code damaged? Type its code
+      </summary>
+      <TextField
+        className="mt-2 md:max-w-sm"
+        label="Code under the QR"
+        aria-label={`Code under the QR: ${task.label}`}
+        hint="Like OH-7K3P-ACR. It must also be readable on the page you upload."
+        autoComplete="off"
+        autoCapitalize="characters"
+        spellCheck={false}
+        maxLength={20}
+        value={field.value}
+        error={field.error}
+        disabled={disabled}
+        onChange={(event) => field.onChange(event.target.value)}
+      />
+    </details>
   );
 }
 
@@ -647,10 +782,15 @@ function UploadProgress({
   state,
   label,
   quiet = false,
+  checked = false,
+  fileTypes,
 }: {
   state: TaskUploadState;
   label: string;
   quiet?: boolean;
+  /** A checked task: its file is also checked after the virus scan. */
+  checked?: boolean;
+  fileTypes?: string;
 }) {
   const busy = state.status === 'uploading' || state.status === 'saving';
   return (
@@ -675,13 +815,17 @@ function UploadProgress({
           </span>
         </div>
       ) : state.status === 'done' ? (
-        <span className="text-ink">Uploaded. It counts once the virus scan passes.</span>
+        <span className="text-ink">
+          {checked
+            ? 'Uploaded. It counts once the virus scan and the file checks pass.'
+            : 'Uploaded. It counts once the virus scan passes.'}
+        </span>
       ) : state.status === 'error' ? (
         <span role="alert" className="font-medium text-destructive">
           {state.message}
         </span>
       ) : quiet ? null : (
-        <span className="text-ink-muted">{TASK_FILE_TYPES_LABEL}</span>
+        <span className="text-ink-muted">{fileTypes}</span>
       )}
     </div>
   );
@@ -691,28 +835,37 @@ function TaskUploadRow({
   task,
   input,
   replacing,
+  reupload,
 }: {
   task: TaskItem;
   input: React.RefObject<HTMLInputElement | null>;
   replacing: boolean;
+  /** The file was refused, flagged, has warnings or is legacy: upload it again. */
+  reupload: boolean;
 }) {
   const state = task.upload;
   const busy = state.status === 'uploading' || state.status === 'saving';
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-5">
-      <VisibilitySelect
-        className="md:w-60"
-        value={task.visibility}
-        documentTitle={task.label}
-        disabled={busy}
-        onChange={task.setVisibility}
-      />
+      <div className="flex flex-col gap-2 md:w-60">
+        <VisibilitySelect
+          value={task.visibility}
+          documentTitle={task.label}
+          disabled={busy}
+          onChange={task.setVisibility}
+        />
+        {task.rankingNote ? (
+          <p role="note" className="text-small text-caution">
+            {task.rankingNote}
+          </p>
+        ) : null}
+      </div>
       {/* md:pt-8 lines the button up with the select, below its label. */}
       <div className="flex min-w-0 flex-col gap-2 md:flex-1 md:pt-8">
         <input
           ref={input}
           type="file"
-          accept={TASK_UPLOAD_ACCEPT}
+          accept={task.accept}
           className="sr-only"
           tabIndex={-1}
           aria-hidden="true"
@@ -724,7 +877,7 @@ function TaskUploadRow({
         />
         <PillButton
           size="md"
-          variant={replacing ? 'light' : 'forest'}
+          variant={replacing && !reupload ? 'light' : 'forest'}
           disabled={busy}
           onClick={() => {
             if (task.prepareUpload()) input.current?.click();
@@ -736,12 +889,19 @@ function TaskUploadRow({
             ? task.files.length > 0
               ? 'Add another file'
               : 'Upload file'
-            : replacing
-              ? 'Upload a new version'
-              : 'Upload file'}
+            : reupload
+              ? 'Upload again'
+              : replacing
+                ? 'Upload a new version'
+                : 'Upload file'}
           <span className="sr-only">: {task.label}</span>
         </PillButton>
-        <UploadProgress state={state} label={task.label} />
+        <UploadProgress
+          state={state}
+          label={task.label}
+          checked={task.checked}
+          fileTypes={task.fileTypes}
+        />
       </div>
     </div>
   );

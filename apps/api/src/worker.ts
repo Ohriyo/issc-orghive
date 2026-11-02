@@ -15,6 +15,7 @@ import { createRedisLeaderboardEvents } from '#src/lib/leaderboard-events';
 import { createRedisLeaderboardStore } from '#src/lib/leaderboard-store';
 import { createSmtpMailer } from '#src/lib/mailer';
 import {
+  createBullIntegrityQueue,
   createBullLeaderboardQueue,
   createBullNotificationQueue,
   createBullPreviewQueue,
@@ -23,11 +24,13 @@ import {
   createQueueConnection,
   DOCUMENT_QUEUE,
   EMAILS_PER_SECOND,
+  INTEGRITY_QUEUE,
   LEADERBOARD_QUEUE,
   NOTIFICATION_QUEUE,
   PREVIEW_QUEUE,
   REPORT_QUEUE,
   type DocumentJob,
+  type IntegrityJob,
   type LeaderboardJob,
   type NotificationJob,
   type PreviewJob,
@@ -36,6 +39,11 @@ import {
 import { createChromiumRenderer } from '#src/lib/report-pdf';
 import { createS3Storage } from '#src/lib/storage';
 import { createLogger } from '#src/logger';
+import { analyzePdf, createOcr, textOf } from '#src/lib/integrity-pages';
+import { createTaskQr } from '#src/lib/task-qr';
+import { createIntegrityRepository } from '#src/repositories/integrity.repository';
+import { createTaskCodeRepository } from '#src/repositories/task-code.repository';
+import { createIntegrityService } from '#src/services/integrity.service';
 import { createAppealRepository } from '#src/repositories/appeal.repository';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createDocumentRepository } from '#src/repositories/document.repository';
@@ -55,6 +63,8 @@ import { createUploadIntentRepository } from '#src/repositories/upload-intent.re
 import { createCompliance } from '#src/services/compliance.service';
 import { createLeaderboardRecompute, openSemesters } from '#src/services/leaderboard-recompute';
 import { createLeaderboardService } from '#src/services/leaderboard.service';
+import { createSemesterReader } from '#src/services/semester-calendar.service';
+import { createSemesterDatesRepository } from '#src/repositories/semester-dates.repository';
 import {
   createNotificationMailer,
   createNotificationService,
@@ -132,10 +142,15 @@ const documents = createDocumentRepository(db);
 const audit = createAuditLogRepository(db);
 const storage = createS3Storage(config);
 const scanner = createClamavScanner({ host: config.CLAMAV_HOST, port: config.CLAMAV_PORT });
+const semesters = createSemesterReader({
+  dates: createSemesterDatesRepository(db),
+  cache: createRedisCache(redis, logger),
+});
 const leaderboardQueue = createBullLeaderboardQueue(connection);
 const projectRepo = createProjectRepository(db);
 const recompute = createLeaderboardRecompute({
   queue: leaderboardQueue,
+  semesters,
   projects: projectRepo,
   logger,
 });
@@ -160,6 +175,39 @@ const projectSync = createProjectSync({
 });
 
 const previewQueue = createBullPreviewQueue(connection);
+const integrityQueue = createBullIntegrityQueue(connection);
+const integrityReads = createIntegrityRepository(db);
+const ocr = createOcr();
+if (!config.TASK_QR_SECRET) {
+  logger.warn('TASK_QR_SECRET is not set: every project task file will fail its code check');
+}
+// The super admin's keywords and near-duplicate threshold (/system/settings).
+const systemSettings = createSystemSettingsService({
+  settings: createSystemSettingRepository(db),
+  audit,
+});
+const integrity = createIntegrityService({
+  integrity: integrityReads,
+  codes: createTaskCodeRepository(db),
+  documents,
+  storage,
+  tools: {
+    analyze: analyzePdf,
+    text: (analysis) => textOf(analysis, ocr),
+    ocrPage: (png) => ocr.recognize(png),
+  },
+  qr: config.TASK_QR_SECRET ? createTaskQr(config.TASK_QR_SECRET) : null,
+  previews: previewQueue,
+  audit,
+  cache: createRedisCache(redis, logger),
+  logger,
+  notifications,
+  onAccepted: (documentId) => projectSync.documentScanned(documentId),
+  settings: {
+    keywords: () => systemSettings.taskKeywords(),
+    nearDuplicateBits: () => systemSettings.nearDuplicateBits(),
+  },
+});
 const previews = createPreviewService({
   documents,
   storage,
@@ -175,6 +223,7 @@ const processing = createProcessingService({
   scanner,
   tools,
   previews: previewQueue,
+  integrity: integrityQueue,
   audit,
   cache: createRedisCache(redis, logger),
   logger,
@@ -206,7 +255,8 @@ const mail = createNotificationMailer({
 });
 const leaderboard = createLeaderboardService({
   leaderboard: createLeaderboardRepository(db),
-  settings: createSystemSettingsService({ settings: createSystemSettingRepository(db), audit }),
+  settings: systemSettings,
+  semesters,
   store: createRedisLeaderboardStore(redis, logger),
   events: createRedisLeaderboardEvents(redis, logger),
 });
@@ -218,6 +268,7 @@ const reports = createReportService({
   storage,
   queue: reportQueue,
   renderer: () => createChromiumRenderer(config.CHROMIUM_EXECUTABLE_PATH),
+  semesters,
   previews: previewQueue,
   sha256: tools.sha256Hex,
   notifications,
@@ -248,10 +299,16 @@ async function handle(job: Job<DocumentJob['data'], unknown, DocumentJob['name']
         { documents, queue: previewQueue },
         { before: staleBefore, max: PREVIEWS_PER_SWEEP },
       );
-      if (removed || requeued || previewsQueued) {
-        logger.info({ removed, requeued, previewsQueued }, 'Upload sweep');
+      // Task files whose integrity job was lost are checked again.
+      const stuck = await integrityReads.listStuck(staleBefore, PREVIEWS_PER_SWEEP);
+      for (const id of stuck) await integrityQueue.enqueueIntegrity(id);
+      if (removed || requeued || previewsQueued || stuck.length) {
+        logger.info(
+          { removed, requeued, previewsQueued, checksQueued: stuck.length },
+          'Upload sweep',
+        );
       }
-      return { removed, requeued, previewsQueued };
+      return { removed, requeued, previewsQueued, checksQueued: stuck.length };
     }
     case 'check-compliance': {
       const checked = await projectSync.syncAll();
@@ -287,14 +344,20 @@ async function handleLeaderboard(
       return parsed.data;
     }
     case 'daily': {
-      const semesters = openSemesters(new Date());
-      for (const semester of semesters) await leaderboard.compute(semester);
-      logger.info({ semesters }, 'Leaderboard daily recompute');
-      return semesters;
+      const open = openSemesters(new Date(), await semesters.load());
+      for (const semester of open) await leaderboard.compute(semester);
+      logger.info({ semesters: open }, 'Leaderboard daily recompute');
+      return open;
     }
     default:
       throw new UnrecoverableError(`Unknown job ${String(job.name)}`);
   }
+}
+
+async function handleIntegrity(job: Job<IntegrityJob['data'], unknown, IntegrityJob['name']>) {
+  const { versionId } = job.data as { versionId?: unknown };
+  if (typeof versionId !== 'string') throw new UnrecoverableError('Job has no versionId');
+  return integrity.checkVersion(versionId);
 }
 
 async function handlePreview(job: Job<PreviewJob['data'], unknown, PreviewJob['name']>) {
@@ -326,12 +389,24 @@ const reportWorker = new Worker(REPORT_QUEUE, handleReport, {
 });
 // One preview at a time: each renders up to 500 pages, and scans must never wait behind it.
 const previewWorker = new Worker(PREVIEW_QUEUE, handlePreview, { connection, concurrency: 1 });
+// OCR is the slowest step; one file at a time keeps the worker responsive.
+const integrityWorker = new Worker(INTEGRITY_QUEUE, handleIntegrity, {
+  connection,
+  concurrency: 1,
+});
 // One recompute at a time: each reads every project of a semester.
 const leaderboardWorker = new Worker(LEADERBOARD_QUEUE, handleLeaderboard, {
   connection,
   concurrency: 1,
 });
-for (const w of [worker, mailWorker, previewWorker, reportWorker, leaderboardWorker]) {
+for (const w of [
+  worker,
+  mailWorker,
+  previewWorker,
+  integrityWorker,
+  reportWorker,
+  leaderboardWorker,
+]) {
   w.on('failed', (job, err) => {
     logger.error({ err, jobId: job?.id, attempts: job?.attemptsMade }, 'Job failed');
   });
@@ -356,7 +431,14 @@ await leaderboardQueue.queue.upsertJobScheduler(
 );
 logger.info(
   {
-    queues: [DOCUMENT_QUEUE, NOTIFICATION_QUEUE, PREVIEW_QUEUE, REPORT_QUEUE, LEADERBOARD_QUEUE],
+    queues: [
+      DOCUMENT_QUEUE,
+      NOTIFICATION_QUEUE,
+      PREVIEW_QUEUE,
+      INTEGRITY_QUEUE,
+      REPORT_QUEUE,
+      LEADERBOARD_QUEUE,
+    ],
   },
   'Worker started',
 );
@@ -367,6 +449,7 @@ async function shutdown(signal: string) {
     worker.close(),
     mailWorker.close(),
     previewWorker.close(),
+    integrityWorker.close(),
     reportWorker.close(),
     leaderboardWorker.close(),
   ]);
@@ -374,6 +457,8 @@ async function shutdown(signal: string) {
     jobs.queue.close(),
     notificationQueue.queue.close(),
     previewQueue.queue.close(),
+    integrityQueue.queue.close(),
+    ocr.terminate(),
     reportQueue.queue.close(),
     leaderboardQueue.queue.close(),
     connection.quit(),

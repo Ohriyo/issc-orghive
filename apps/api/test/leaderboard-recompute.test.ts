@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SemesterKey } from '@orghive/shared';
+import { semesterCalendar, type SemesterKey } from '@orghive/shared';
 import {
   createLeaderboardRecompute,
   openSemesters,
@@ -8,6 +8,7 @@ import {
 const FIRST = { academicYear: '2026-2027', semester: 'first' };
 const SECOND = { academicYear: '2026-2027', semester: 'second' };
 const MIDYEAR_BEFORE = { academicYear: '2025-2026', semester: 'midyear' };
+const SECOND_BEFORE = { academicYear: '2025-2026', semester: 'second' };
 
 function setup({
   targetDate = null as Date | null,
@@ -46,6 +47,54 @@ describe('leaderboardRecompute.forEventDates', () => {
   });
 });
 
+describe('leaderboardRecompute.forSemesters', () => {
+  it('queues exactly those semesters', async () => {
+    const { recompute, queued } = setup();
+    await recompute.forSemesters(FIRST as SemesterKey, SECOND as SemesterKey);
+    expect(queued).toEqual([FIRST, SECOND]);
+  });
+});
+
+describe('leaderboardRecompute with the ISSC’s dates', () => {
+  it('queues the semester the dates put an event in', async () => {
+    const queued: SemesterKey[] = [];
+    const recompute = createLeaderboardRecompute({
+      queue: {
+        enqueueRecompute: (key: SemesterKey) => {
+          queued.push(key);
+          return Promise.resolve();
+        },
+      },
+      projects: { targetDateOfDocument: () => Promise.resolve(null) },
+      logger: { warn: vi.fn() },
+      semesters: {
+        load: () =>
+          Promise.resolve(
+            semesterCalendar([
+              { ...FIRST, semester: 'first', start: '2026-08-10', end: '2026-12-15' },
+            ]),
+          ),
+      },
+    });
+    // After the 1st semester's real last day, in the break: it counts for the next one.
+    await recompute.forEventDates('2026-12-20');
+    expect(queued).toEqual([SECOND]);
+  });
+
+  it('logs and swallows a calendar that cannot be read', async () => {
+    const logger = { warn: vi.fn() };
+    const recompute = createLeaderboardRecompute({
+      queue: { enqueueRecompute: vi.fn() },
+      projects: { targetDateOfDocument: () => Promise.resolve(null) },
+      logger,
+      semesters: { load: () => Promise.reject(new Error('database down')) },
+    });
+    await expect(recompute.forEventDates('2026-12-20')).resolves.toBeUndefined();
+    await expect(recompute.forOpenSemesters()).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('leaderboardRecompute.forDocument', () => {
   it('queues the semester of the project whose task holds the file', async () => {
     const { recompute, queued, projects } = setup({
@@ -71,16 +120,27 @@ describe('leaderboardRecompute.forDocument', () => {
 });
 
 describe('leaderboardRecompute.forOpenSemesters', () => {
-  it('queues the current semester and the previous one (Manila time)', async () => {
+  it('queues the current semester and the two before it (Manila time)', async () => {
     // 17:00 UTC on Jul 31 is already Aug 1 in Manila: the 1st semester of 2026-2027.
     const { recompute, queued } = setup({ now: new Date('2026-07-31T17:00:00Z') });
     await recompute.forOpenSemesters();
-    expect(queued).toEqual([FIRST, MIDYEAR_BEFORE]);
+    expect(queued).toEqual([FIRST, MIDYEAR_BEFORE, SECOND_BEFORE]);
   });
 });
 
 describe('openSemesters', () => {
-  it('is the current semester, then the one before', () => {
-    expect(openSemesters(new Date('2027-02-01T00:00:00Z'))).toEqual([SECOND, FIRST]);
+  it('is the current semester, then the two before', () => {
+    expect(openSemesters(new Date('2027-02-01T00:00:00Z'))).toEqual([
+      SECOND,
+      FIRST,
+      MIDYEAR_BEFORE,
+    ]);
+  });
+
+  it('reads the ISSC’s dates: a first semester ending in January is still current', () => {
+    const calendar = semesterCalendar([
+      { ...FIRST, semester: 'first', start: '2026-08-10', end: '2027-01-15' },
+    ]);
+    expect(openSemesters(new Date('2027-01-10T00:00:00Z'), calendar)[0]).toEqual(FIRST);
   });
 });

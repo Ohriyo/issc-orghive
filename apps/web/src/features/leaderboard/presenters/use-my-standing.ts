@@ -1,10 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
-import { myStandingResponseSchema, type MyStanding, type StandingHint } from '@orghive/shared';
+import {
+  myStandingResponseSchema,
+  PROJECT_TASK_LABELS,
+  type MyStanding,
+  type StandingHint,
+} from '@orghive/shared';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import {
   BOARD_LABELS,
   semesterLabel,
+  standingsLabel,
   toStandingView,
   type StandingView,
 } from './leaderboard-model';
@@ -27,6 +33,15 @@ export function hintText(hint: StandingHint): string {
   if (hint.kind === 'check_figures') {
     return `1 report under review: check the figures for ${project}.`;
   }
+  if (hint.kind === 'verify_tasks') {
+    // Spec section 6: legacy, flagged, warned or private files hold the project back.
+    const tasks = hint.held
+      .map((type) => REPORT_NAMES[type as keyof typeof REPORT_NAMES] ?? PROJECT_TASK_LABELS[type])
+      .join(' and ');
+    return hint.held.length > 1
+      ? `The ${tasks} for ${project} don’t count yet: re-upload them on their templates or share them.`
+      : `The ${tasks} for ${project} doesn’t count yet: re-upload it on its template or share it.`;
+  }
   const reports = hint.missing.map((type) => REPORT_NAMES[type]).join(' and ');
   return `Submit the ${reports} for ${project} to count it.`;
 }
@@ -39,6 +54,10 @@ export type MyStandingModel =
       status: 'ready';
       /** "1st semester 2026–2027". */
       semester: string;
+      /** "Provisional until Dec 25, 2026, then final." */
+      finality: string;
+      /** The ISSC's reason when it disqualified the organization this semester (spec 5B). */
+      disqualifiedFor: string | null;
       /** "Student Body Organizations". */
       board: string;
       /** Its row; null while it has no implemented project. */
@@ -56,6 +75,8 @@ export function toMyStandingModel(
   return {
     status: 'ready',
     semester: semesterLabel(standing),
+    finality: standingsLabel(standing.status, standing.provisionalUntil),
+    disqualifiedFor: standing.disqualifiedFor,
     board: BOARD_LABELS[standing.type].long,
     standing: row,
     outOf: `of ${standing.boardSize} ${BOARD_LABELS[standing.type].long}`,

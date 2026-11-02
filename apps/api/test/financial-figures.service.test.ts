@@ -54,6 +54,16 @@ function setup(found: ProjectRecord | null = record(), now = OPEN) {
   const notifications = { notify: vi.fn(() => Promise.resolve()) };
   const audit = { record: vi.fn(() => Promise.resolve()) };
   const leaderboard = { forEventDates: vi.fn(() => Promise.resolve()) };
+  // The filed report read ₱700.00 in and ₱200.00 out when it was checked.
+  const integrity = {
+    findFinancialCheck: vi.fn(() =>
+      Promise.resolve({
+        versionId: 'v1',
+        details: { read: { incomeCentavos: 70_000, expensesCentavos: 20_000 } },
+      }),
+    ),
+    updateCheck: vi.fn(() => Promise.resolve()),
+  };
   const service = createFinancialFiguresService({
     figures: figures as never,
     projects,
@@ -61,9 +71,10 @@ function setup(found: ProjectRecord | null = record(), now = OPEN) {
     notifications,
     audit,
     leaderboard,
+    integrity,
     now: () => now,
   });
-  return { service, figures, projects, recipients, notifications, audit, leaderboard };
+  return { service, figures, projects, recipients, notifications, audit, leaderboard, integrity };
 }
 
 describe('toFiguresView', () => {
@@ -163,6 +174,29 @@ describe('financialFiguresService.correct', () => {
         },
       }),
     );
+  });
+
+  it('works the report’s totals check out again against the corrected figures', async () => {
+    const { service, integrity } = setup();
+    await service.correct(ACTOR, JPICE, 'p1', body);
+    expect(integrity.findFinancialCheck).toHaveBeenCalledWith('p1');
+    expect(integrity.updateCheck).toHaveBeenCalledWith('v1', 'financial_totals', {
+      result: 'pass',
+      message: 'The report’s totals match the figures entered.',
+    });
+    await service.correct(ACTOR, JPICE, 'p1', { ...body, incomeCentavos: 200_000 });
+    expect(integrity.updateCheck).toHaveBeenLastCalledWith(
+      'v1',
+      'financial_totals',
+      expect.objectContaining({ result: 'warn' }),
+    );
+  });
+
+  it('leaves a report checked before its totals were read alone', async () => {
+    const { service, integrity } = setup();
+    integrity.findFinancialCheck.mockResolvedValueOnce({ versionId: 'v1', details: null } as never);
+    await service.correct(ACTOR, JPICE, 'p1', body);
+    expect(integrity.updateCheck).not.toHaveBeenCalled();
   });
 
   it('404s a project of another organization', async () => {

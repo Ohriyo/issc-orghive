@@ -17,7 +17,7 @@ import { createRecipients } from '#src/services/recipients.service';
 import { createDemoDataRepository } from '#src/repositories/demo-data.repository';
 import { memoryLeaderboardStore } from '#src/lib/leaderboard-store';
 import { testDb } from './db';
-import { buildDemoService, buildDemoWorld, DEMO_NOW, tableCounts } from './demo-fixtures';
+import { buildDemoService, buildDemoWorld, DEMO_NOW, demoQr, tableCounts } from './demo-fixtures';
 
 const db = testDb();
 const SEMESTER = { academicYear: '2026-2027', semester: 'first' as const };
@@ -45,14 +45,14 @@ describe('seed', () => {
       '#5 iecep',
       '#6 uapsa',
       '#7 psme',
-      '#8 jiiee',
+      // JIIEE's files are legacy (DEMO_LEGACY_ORGS): its project is held, so it is unranked.
     ]);
     const tag = sbo.find(([slug]) => slug === 'tag')![1];
     expect(tag.lateCount).toBe(1);
 
     // Rows 4 and below moved since the earlier snapshot, both ways.
     const changes = sbo.slice(3).map(([, r]) => r.rankChange);
-    expect(changes).toEqual([1, -1, 1, -1, 0]);
+    expect(changes).toEqual([1, -1, 1, -1]);
     expect(boards.CSC).toHaveLength(5);
 
     // A fresh read through the real leaderboard service agrees (and keeps the arrows).
@@ -154,6 +154,52 @@ describe('seed', () => {
     expect(storage.objects.size).toBe(docs.length);
     // Demo notifications count as emailed, so the worker never sends them.
     expect(await db.notification.count({ where: { isDemo: true, emailedAt: null } })).toBe(0);
+  });
+
+  it('files checked tasks on their templates with valid QR codes, JIIEE’s as legacy (spec 6)', async () => {
+    const { service, templated } = buildDemoService(db);
+    await service.seed();
+    const asit = await db.organization.findUniqueOrThrow({ where: { slug: 'asit' } });
+    const files = await db.versionIntegrity.findMany({
+      where: { isDemo: true },
+      select: {
+        legacy: true,
+        matchedBy: true,
+        taskCode: { select: { code: true, taskId: true } },
+        version: {
+          select: {
+            checks: { select: { result: true } },
+            document: { select: { organization: { select: { slug: true } } } },
+          },
+        },
+      },
+    });
+    const bySlug = (slug: string) =>
+      files.filter((f) => f.version.document.organization.slug === slug);
+    for (const slug of ['asit', 'tag', 'iso', 'csc-ccis']) {
+      expect(bySlug(slug).length).toBeGreaterThan(0);
+      for (const file of bySlug(slug)) {
+        expect(file).toMatchObject({ legacy: false, matchedBy: 'qr' });
+        expect(file.version.checks.every((c) => c.result === 'pass')).toBe(true);
+      }
+    }
+    expect(bySlug('jiiee').length).toBeGreaterThan(0);
+    expect(bySlug('jiiee').every((f) => f.legacy && f.taskCode === null)).toBe(true);
+
+    // Each template's QR is signed for its own task and organization.
+    const proposal = templated.find(
+      (f) => f.organization.acronym === 'ASIT' && f.type === 'PROPOSAL',
+    )!;
+    const payload = demoQr.verify(proposal.qrContent)!;
+    expect(payload.organizationId).toBe(asit.id);
+    expect(files.find((f) => f.taskCode?.code === proposal.code)?.taskCode?.taskId).toBe(
+      payload.taskId,
+    );
+    // The Financial Report prints the figures entered, so its totals check passes.
+    expect(templated.find((f) => f.type === 'FINANCIAL_REPORT')?.totals).toEqual({
+      incomeCentavos: expect.any(Number) as number,
+      expensesCentavos: expect.any(Number) as number,
+    });
   });
 
   it('creates a missing SBO (and its account) as demo data, and removes it again', async () => {

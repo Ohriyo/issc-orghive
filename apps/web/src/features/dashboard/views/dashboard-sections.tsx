@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import {
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   CheckCircle2,
@@ -24,6 +25,7 @@ import type {
   ActivityItem,
   SemesterView,
   AttentionItem,
+  LegacyNotice as LegacyNoticeModel,
   RecentDocument,
   RolePanel,
   StatTile,
@@ -154,6 +156,44 @@ function ReviseControl({
 }
 
 /** The user's own uploads the virus scan blocked, with a way to upload a clean copy. */
+/**
+ * Task files filed before Orghive checked them (spec section 6E): they still complete their
+ * tasks, but count for the leaderboard only once re-uploaded on the task's template.
+ */
+export function LegacyNotice({ notice }: { notice: LegacyNoticeModel }) {
+  return (
+    <section
+      aria-labelledby="legacy-heading"
+      className="flex flex-col gap-3 rounded-2xl bg-caution-surface p-5 ring-1 ring-caution/20 md:p-6"
+    >
+      <h2
+        id="legacy-heading"
+        className="flex items-start gap-2 text-body-lg font-bold text-caution"
+      >
+        <AlertTriangle aria-hidden="true" className="mt-1 size-5 shrink-0" />
+        {notice.title}
+      </h2>
+      <p className="max-w-prose text-body text-ink">
+        They were filed before Orghive checked task files, so they still complete their tasks but
+        are not verified. Open each project, download the task’s template, and upload the signed
+        file again to count it.
+      </p>
+      <ul className="flex flex-col">
+        {notice.items.map((item) => (
+          <li key={item.key}>
+            <OriginLink to={item.href} className={cn(TEXT_LINK, 'flex min-h-11 items-center')}>
+              {item.text}
+            </OriginLink>
+          </li>
+        ))}
+      </ul>
+      {notice.more > 0 ? (
+        <p className="text-small text-ink-muted">And {notice.more} more on your projects.</p>
+      ) : null}
+    </section>
+  );
+}
+
 export function NeedsAttention({
   items,
   canRevise,

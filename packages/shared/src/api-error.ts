@@ -34,6 +34,8 @@ export const ErrorCode = {
   REVEAL_GONE: 'REVEAL_GONE',
   CONFLICT: 'CONFLICT',
   RATE_LIMITED: 'RATE_LIMITED',
+  /** 503: a feature this server is not configured for (e.g. task templates without a key). */
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 

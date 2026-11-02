@@ -1,4 +1,4 @@
-import { ArrowRight, Check } from 'lucide-react';
+import { ArrowRight, Ban, Check } from 'lucide-react';
 import { SectionError } from '@/components/section-error';
 import { Skeleton } from '@/components/skeleton';
 import { OriginLink } from '@/navigation/origin-link';
@@ -22,7 +22,9 @@ export function StandingCard({ model }: { model: MyStandingModel }) {
           Leaderboard
         </h2>
         {model.status === 'ready' ? (
-          <p className="text-small text-ink-muted">{model.semester}</p>
+          <p className="text-small text-ink-muted">
+            {model.semester}. {model.finality}
+          </p>
         ) : null}
       </div>
       {model.status === 'loading' ? (
@@ -37,6 +39,24 @@ export function StandingCard({ model }: { model: MyStandingModel }) {
           message="Your standing could not be loaded. Check your connection and try again."
           onRetry={model.retry}
         />
+      ) : model.disqualifiedFor ? (
+        <div className="mt-6 max-w-prose">
+          <p className="flex items-center gap-2 text-lead font-semibold text-ink">
+            <Ban aria-hidden="true" className="size-5 shrink-0 text-destructive" />
+            Disqualified this semester
+          </p>
+          <p className="mt-2 text-body break-words text-ink">
+            The ISSC left your organization off this semester&apos;s leaderboard: “
+            {model.disqualifiedFor}” Your files and projects are not affected.
+          </p>
+          <OriginLink
+            to={model.leaderboardHref}
+            className="tap-area mt-4 inline-flex items-center gap-1.5 text-body font-semibold text-ink underline-offset-4 hover:underline focus-visible:underline"
+          >
+            See the full leaderboard
+            <ArrowRight aria-hidden="true" className="size-4" />
+          </OriginLink>
+        </div>
       ) : (
         <div className="mt-6 grid gap-8 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:gap-10">
           <div>

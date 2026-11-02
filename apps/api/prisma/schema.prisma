@@ -46,9 +46,39 @@ enum Semester {
 /// the declared type (magic-byte check). Only clean files can be downloaded.
 enum ScanStatus {
   pending
+  /// A project task's file passed the virus scan; its integrity checks are running
+  /// (docs/PROJECT_WORKFLOW_SPEC.md, section 6). Its document stays `scanning` meanwhile.
+  checking
   clean
   infected
   invalid
+  /// A project task's file failed a hard integrity check (no valid task code, blank, an exact
+  /// duplicate of another task's file). Refused like a virus: moved to quarantine/.
+  rejected
+}
+
+/// docs/PROJECT_WORKFLOW_SPEC.md, section 6. The first four are hard checks.
+enum IntegrityCheckKind {
+  format
+  task_code
+  blank
+  exact_duplicate
+  near_duplicate
+  keywords
+  financial_totals
+}
+
+enum IntegrityResult {
+  pass
+  warn
+  fail
+}
+
+/// How a task file's code was found: the QR, or the short code typed at upload (then found
+/// in the file's text).
+enum TaskCodeMatch {
+  qr
+  typed
 }
 
 /// A version's view-only preview (watermarked page images), rendered after the scan.
@@ -163,6 +193,19 @@ enum AuditAction {
   /// The ISSC account put a Financial Report's figures under review, or cleared it (spec 5D).
   financial_figures_flag
   financial_figures_unflag
+  /// A governing body cleared a task file's warnings (spec section 6); metadata has
+  /// `versionId`, `task`, `warnings` and `note`.
+  task_file_clear_warnings
+  /// A governing body flagged a task file invalid (spec section 6); metadata has `versionId`,
+  /// `task` and `reason`.
+  task_file_flag
+  /// The ISSC account set a semester's dates (spec 5B); metadata has `before` and `after`.
+  semester_dates_change
+  /// The ISSC account disqualified an organization from a semester's leaderboard (spec 5B);
+  /// metadata has `academicYear`, `semester` and `reason`.
+  leaderboard_disqualify
+  /// The ISSC account lifted a disqualification; metadata has the semester and `reason`.
+  leaderboard_disqualification_lift
   /// A super admin changed a system setting; metadata has `key`, `before` and `after`.
   system_setting_change
   /// A super admin removed the demo data (db:unseed:demo's logic); metadata has the counts.
@@ -229,6 +272,12 @@ enum NotificationKind {
   account_request_declined
   /// The ISSC put the organization's Financial Report figures under review, or cleared them.
   figures_review
+  /// A task file was checked: verified, needs attention, or refused (spec section 6).
+  task_file_checked
+  /// A governing body flagged a task file invalid (spec section 6).
+  task_file_flagged
+  /// The ISSC disqualified the organization from a semester's leaderboard, or lifted it (spec 5B).
+  leaderboard_penalty
 }
 
 /// requested -> created (the super admin made the account) | declined (with a reason).
@@ -274,41 +323,42 @@ model College {
 /// ISSC, CSCs and SBOs in one table. ISSC: no parent, no college. CSC: parent ISSC.
 /// SBO: parent CSC. The database enforces this with a CHECK constraint (see migrations).
 model Organization {
-  id                     String           @id @default(uuid(7)) @db.Uuid
+  id                           String                        @id @default(uuid(7)) @db.Uuid
+  leaderboardDisqualifications LeaderboardDisqualification[]
   /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
-  isDemo                 Boolean          @default(false) @map("is_demo")
-  type                   OrganizationType
-  slug                   String           @unique
-  acronym                String
-  name                   String
-  description            String?
+  isDemo                       Boolean                       @default(false) @map("is_demo")
+  type                         OrganizationType
+  slug                         String                        @unique
+  acronym                      String
+  name                         String
+  description                  String?
   /// Object-storage key under `logos/`; that prefix is public-read and served via PUBLIC_ASSET_BASE_URL.
-  logoKey                String?          @map("logo_key")
+  logoKey                      String?                       @map("logo_key")
   /// Widths of the resized variants stored next to logoKey as `<key without .webp>-<w>.webp`,
   /// for srcset. Empty when only the original exists.
-  logoWidths             Int[]            @default([]) @map("logo_widths")
-  parentId               String?          @map("parent_id") @db.Uuid
-  collegeId              String?          @map("college_id") @db.Uuid
+  logoWidths                   Int[]                         @default([]) @map("logo_widths")
+  parentId                     String?                       @map("parent_id") @db.Uuid
+  collegeId                    String?                       @map("college_id") @db.Uuid
   /// Carousel order among its siblings (an SBO within its college). Set by admins.
-  position               Int              @default(0)
+  position                     Int                           @default(0)
   /// Profile fields the organization's own account edits (/dashboard/profile). Name,
   /// acronym, type and college stay with the ISSC account (/admin).
-  mission                String?
-  vision                 String?
-  contactEmail           String?          @map("contact_email") @db.VarChar(254)
-  facebookUrl            String?          @map("facebook_url") @db.VarChar(300)
+  mission                      String?
+  vision                       String?
+  contactEmail                 String?                       @map("contact_email") @db.VarChar(254)
+  facebookUrl                  String?                       @map("facebook_url") @db.VarChar(300)
   /// Cover image key, also under the public-read `logos/` prefix (`logos/covers/…`).
-  coverKey               String?          @map("cover_key")
-  coverWidths            Int[]            @default([]) @map("cover_widths")
+  coverKey                     String?                       @map("cover_key")
+  coverWidths                  Int[]                         @default([]) @map("cover_widths")
   /// Its Constitution & By-laws: one document, always public, amended by new versions and
   /// never archived or deleted (docs/DOMAIN_RULES.md, "Constitution & By-laws").
-  constitutionDocumentId String?          @unique @map("constitution_document_id") @db.Uuid
+  constitutionDocumentId       String?                       @unique @map("constitution_document_id") @db.Uuid
   /// Set while an admin has deactivated it: hidden from browsing, no uploads or new
   /// projects. Unlike deletedAt, its documents stay visible (docs/DOMAIN_RULES.md).
-  deactivatedAt          DateTime?        @map("deactivated_at")
-  deletedAt              DateTime?        @map("deleted_at")
-  createdAt              DateTime         @default(now()) @map("created_at")
-  updatedAt              DateTime         @updatedAt @map("updated_at")
+  deactivatedAt                DateTime?                     @map("deactivated_at")
+  deletedAt                    DateTime?                     @map("deleted_at")
+  createdAt                    DateTime                      @default(now()) @map("created_at")
+  updatedAt                    DateTime                      @updatedAt @map("updated_at")
 
   parent          Organization?         @relation("OrganizationHierarchy", fields: [parentId], references: [id])
   constitution    Document?             @relation("OrganizationConstitution", fields: [constitutionDocumentId], references: [id])
@@ -369,38 +419,41 @@ model OrganizationLink {
 }
 
 model User {
-  id                 String     @id @default(uuid(7)) @db.Uuid
+  semesterDatesUpdated     SemesterDates[]               @relation("SemesterDatesUpdatedBy")
+  disqualificationsCreated LeaderboardDisqualification[] @relation("DisqualificationCreatedBy")
+  disqualificationsLifted  LeaderboardDisqualification[] @relation("DisqualificationLiftedBy")
+  id                       String                        @id @default(uuid(7)) @db.Uuid
   /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
-  isDemo             Boolean    @default(false) @map("is_demo")
-  email              String     @unique
-  name               String
+  isDemo                   Boolean                       @default(false) @map("is_demo")
+  email                    String                        @unique
+  name                     String
   /// Argon2id
-  passwordHash       String     @map("password_hash")
+  passwordHash             String                        @map("password_hash")
   /// New accounts sign in with a temporary password and must replace it first.
-  mustChangePassword Boolean    @default(true) @map("must_change_password")
-  passwordChangedAt  DateTime?  @map("password_changed_at")
-  disabledAt         DateTime?  @map("disabled_at")
+  mustChangePassword       Boolean                       @default(true) @map("must_change_password")
+  passwordChangedAt        DateTime?                     @map("password_changed_at")
+  disabledAt               DateTime?                     @map("disabled_at")
   /// Only the create-super-admin command sets SUPER_ADMIN; never seed data or signup.
-  systemRole         SystemRole @default(NONE) @map("system_role")
+  systemRole               SystemRole                    @default(NONE) @map("system_role")
   /// TOTP secret, AES-256-GCM encrypted with MFA_ENCRYPTION_KEY (lib/secret-box.ts).
-  mfaSecret          String?    @map("mfa_secret")
+  mfaSecret                String?                       @map("mfa_secret")
   /// Set once the super admin confirms the secret with a code; null while pending.
-  mfaEnabledAt       DateTime?  @map("mfa_enabled_at")
+  mfaEnabledAt             DateTime?                     @map("mfa_enabled_at")
   /// The last accepted TOTP time step: the same code (or an older one) never works twice.
-  mfaLastTimeStep    Int?       @map("mfa_last_time_step")
+  mfaLastTimeStep          Int?                          @map("mfa_last_time_step")
   /// The organization this shared account belongs to (docs/DOMAIN_RULES.md, "Accounts").
   /// Null only for SUPER_ADMIN. At most one active (not disabled) account per organization:
   /// a partial unique index in the migration, which Prisma cannot express.
-  organizationId     String?    @map("organization_id") @db.Uuid
+  organizationId           String?                       @map("organization_id") @db.Uuid
   /// A temporary hold (end of term, security): no sign-in until unlocked. Not deactivation.
-  lockedAt           DateTime?  @map("locked_at")
-  lockReason         String?    @map("lock_reason")
-  lastLoginAt        DateTime?  @map("last_login_at")
+  lockedAt                 DateTime?                     @map("locked_at")
+  lockReason               String?                       @map("lock_reason")
+  lastLoginAt              DateTime?                     @map("last_login_at")
   /// Access tokens issued before this (in whole seconds) are refused: a reset, a forced
   /// sign-out, a lock or a deactivation ends live sessions at once, not when they expire.
-  sessionsRevokedAt  DateTime?  @map("sessions_revoked_at")
-  createdAt          DateTime   @default(now()) @map("created_at")
-  updatedAt          DateTime   @updatedAt @map("updated_at")
+  sessionsRevokedAt        DateTime?                     @map("sessions_revoked_at")
+  createdAt                DateTime                      @default(now()) @map("created_at")
+  updatedAt                DateTime                      @updatedAt @map("updated_at")
 
   organization            Organization?            @relation(fields: [organizationId], references: [id])
   officerTerms            OfficerTerm[]
@@ -425,6 +478,8 @@ model User {
   accountRequestsCreated  AccountRequest[]         @relation("AccountRequestAccount")
   reportsRequested        SemestralReport[]
   figuresFlagged          FinancialFigures[]       @relation("FiguresFlaggedBy")
+  integrityCleared        VersionIntegrity[]       @relation("IntegrityWarningsClearedBy")
+  integrityFlagged        VersionIntegrity[]       @relation("IntegrityFlaggedBy")
   settingsUpdated         SystemSetting[]          @relation("SystemSettingUpdatedBy")
 
   @@index([systemRole])
@@ -580,8 +635,13 @@ model DocumentVersion {
   pageTexts  DocumentPageText[]
   currentOf  Document?          @relation("CurrentVersion")
   uploadedBy User               @relation(fields: [uploadedById], references: [id])
+  integrity  VersionIntegrity?
+  checks     IntegrityCheck[]
+  pageHashes PageHash[]
 
   @@unique([documentId, version])
+  /// Exact duplicates of a task's file (docs/PROJECT_WORKFLOW_SPEC.md, section 6).
+  @@index([sha256])
   @@map("document_versions")
 }
 
@@ -764,6 +824,7 @@ model ProjectTask {
   project  Project           @relation(fields: [projectId], references: [id])
   document Document?         @relation(fields: [documentId], references: [id])
   files    ProjectTaskFile[]
+  codes    TaskCode[]
 
   @@unique([projectId, type])
   @@index([status, dueAt])
@@ -785,9 +846,106 @@ model ProjectTaskFile {
 
   task     ProjectTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   document Document    @relation(fields: [documentId], references: [id])
+  code     TaskCode?
 
   @@index([taskId, createdAt])
   @@map("project_task_files")
+}
+
+/// A task's short code and QR (docs/PROJECT_WORKFLOW_SPEC.md, section 6), made when its
+/// template is first downloaded. A one-file task has one; each Communication Letter has its
+/// own, labelled, bound to its file once that file passes the checks.
+model TaskCode {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo     Boolean  @default(false) @map("is_demo")
+  taskId     String   @map("task_id") @db.Uuid
+  /// e.g. "OH-7K3P-ACR" (packages/shared/src/integrity.ts).
+  code       String   @unique @db.VarChar(16)
+  /// A Communication Letter's label, e.g. "Letter to the Dean"; null for one-file tasks.
+  label      String?  @db.VarChar(80)
+  /// The letter whose file carries this code; set when that file first passes the checks.
+  taskFileId String?  @unique @map("task_file_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  task      ProjectTask        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskFile  ProjectTaskFile?   @relation(fields: [taskFileId], references: [id], onDelete: SetNull)
+  integrity VersionIntegrity[]
+
+  @@index([taskId])
+  @@map("task_codes")
+}
+
+/// One integrity check of a project task file's version. A check that runs again (the
+/// Financial Report's totals after a correction) replaces its row.
+model IntegrityCheck {
+  id        String             @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo    Boolean            @default(false) @map("is_demo")
+  versionId String             @map("version_id") @db.Uuid
+  kind      IntegrityCheckKind
+  result    IntegrityResult
+  /// One sentence for the organization and its governing bodies.
+  message   String             @db.VarChar(300)
+  /// What the check found (matched code, the duplicate's version, totals read). Never public.
+  details   Json?
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+
+  version DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, kind])
+  @@map("integrity_checks")
+}
+
+/// Where a project task file's version stands (docs/PROJECT_WORKFLOW_SPEC.md, section 6):
+/// the code it carried, whether it predates the checks, and its governing bodies' decisions,
+/// each with the acting officer's name (also audited).
+model VersionIntegrity {
+  versionId               String         @id @map("version_id") @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo                  Boolean        @default(false) @map("is_demo")
+  /// The short code typed at upload when the QR was damaged.
+  typedCode               String?        @map("typed_code") @db.VarChar(16)
+  /// The code the file carried, once the task code check passed.
+  taskCodeId              String?        @map("task_code_id") @db.Uuid
+  matchedBy               TaskCodeMatch? @map("matched_by")
+  /// Filed before the checks existed: complete, but unverified until re-uploaded on a template.
+  legacy                  Boolean        @default(false)
+  /// An earlier version of the same file was flagged invalid: this one counts for lateness
+  /// from its own check (rankingSubmittedAt, integrity-rules.ts).
+  replacesFlagged         Boolean        @default(false) @map("replaces_flagged")
+  checkedAt               DateTime?      @map("checked_at")
+  warningsClearedAt       DateTime?      @map("warnings_cleared_at")
+  warningsClearedById     String?        @map("warnings_cleared_by_id") @db.Uuid
+  warningsClearedActingAs String?        @map("warnings_cleared_acting_as") @db.VarChar(80)
+  warningsClearedNote     String?        @map("warnings_cleared_note") @db.VarChar(500)
+  flaggedAt               DateTime?      @map("flagged_at")
+  flaggedById             String?        @map("flagged_by_id") @db.Uuid
+  flaggedActingAs         String?        @map("flagged_acting_as") @db.VarChar(80)
+  flagReason              String?        @map("flag_reason") @db.VarChar(500)
+
+  version           DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  taskCode          TaskCode?       @relation(fields: [taskCodeId], references: [id], onDelete: SetNull)
+  warningsClearedBy User?           @relation("IntegrityWarningsClearedBy", fields: [warningsClearedById], references: [id])
+  flaggedBy         User?           @relation("IntegrityFlaggedBy", fields: [flaggedById], references: [id])
+
+  @@map("version_integrity")
+}
+
+/// A perceptual hash of one page of a checked task file (64-bit difference hash), to find
+/// near-duplicates across every task, project and organization.
+model PageHash {
+  versionId String  @map("version_id") @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo    Boolean @default(false) @map("is_demo")
+  page      Int
+  hash      BigInt
+
+  version DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@id([versionId, page])
+  @@map("page_hashes")
 }
 
 /// An extra file of a project, outside its checklist (docs/PROJECT_WORKFLOW_SPEC.md, 2C):
@@ -1064,9 +1222,56 @@ model LeaderboardSnapshot {
   /// The ranked rows (apps/api/src/services/leaderboard-rules.ts, Standing[]).
   rows         Json
   computedAt   DateTime         @default(now()) @map("computed_at")
+  /// The frozen final standings (spec 5B): one per board by a partial unique index. Once a
+  /// semester has them, nothing recomputes it.
+  isFinal      Boolean          @default(false) @map("is_final")
+  /// The late value a final board was computed with, as a later change must not reword it.
+  latePoints   Float?           @map("late_points")
 
   @@index([academicYear, semester, type, computedAt])
   @@map("leaderboard_snapshots")
+}
+
+/// A semester's first and last day, set by the ISSC account (spec 5B). A semester without a row
+/// keeps its usual dates (semesterRange in packages/shared/src/report.ts).
+model SemesterDates {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  academicYear String   @map("academic_year")
+  semester     Semester
+  start        DateTime @db.Date
+  end          DateTime @db.Date
+  updatedById  String   @map("updated_by_id") @db.Uuid
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  updatedBy User @relation("SemesterDatesUpdatedBy", fields: [updatedById], references: [id])
+
+  @@unique([academicYear, semester])
+  @@map("semester_dates")
+}
+
+/// The ISSC account disqualified an organization from a semester's leaderboard (spec 5B). One
+/// standing per organization and semester, by a partial unique index; a lifted one stays as
+/// the record.
+model LeaderboardDisqualification {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  academicYear   String    @map("academic_year")
+  semester       Semester
+  reason         String
+  actingAs       String    @map("acting_as")
+  createdById    String    @map("created_by_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  liftedAt       DateTime? @map("lifted_at")
+  liftReason     String?   @map("lift_reason")
+  liftActingAs   String?   @map("lift_acting_as")
+  liftedById     String?   @map("lifted_by_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("DisqualificationCreatedBy", fields: [createdById], references: [id])
+  liftedBy     User?        @relation("DisqualificationLiftedBy", fields: [liftedById], references: [id])
+
+  @@index([academicYear, semester])
+  @@map("leaderboard_disqualifications")
 }
 
 /// One edition of the Student Handbook per academic year, filed as a public, view-only

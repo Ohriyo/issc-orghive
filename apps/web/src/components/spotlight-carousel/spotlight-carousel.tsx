@@ -164,86 +164,104 @@ export function SpotlightCarousel({
       // Slide sizes follow the carousel's own width, so it works in narrow columns too.
       className={cn('@container relative', className)}
     >
-      {hasControls && (
-        <>
-          <p id={hintId} className="sr-only">
-            Use the left and right arrow keys to browse, Home and End to jump to the ends.
-          </p>
-          {/* Controls come before the slides so keyboard users reach them first. */}
-          <ChevronButton
-            direction="prev"
-            onClick={prev}
-            disabled={!canPrev}
-            label={`Previous ${itemNoun}`}
-            controls={viewportId}
-          />
-          <ChevronButton
-            direction="next"
-            onClick={next}
-            disabled={!canNext}
-            label={`Next ${itemNoun}`}
-            controls={viewportId}
-          />
-        </>
-      )}
+      {/* Slides are capped by the screen height (--slide-max), and so is this frame:
+          it is never wider than the slides at their desktop basis, so short screens
+          (1366x768) show the same composition, scaled down, and always have enough
+          slides to loop instead of leaving one side empty. */}
       <div
-        ref={emblaRef}
-        id={viewportId}
-        tabIndex={hasControls ? 0 : undefined}
-        role="group"
-        aria-label="Slides"
-        aria-describedby={hasControls ? hintId : undefined}
-        className="overflow-hidden rounded-sm focus-visible:outline-offset-4"
+        className={cn(
+          'relative mx-auto',
+          variant === 'tower'
+            ? '[--slide-max:max(10rem,calc((100dvh-var(--header-h)-14rem)*0.42))] max-w-[calc(var(--slide-max)/0.21)]'
+            : '[--slide-max:max(10rem,calc((100dvh-var(--header-h)-14.5rem)*0.52))] max-w-[calc(var(--slide-max)/0.31)]',
+        )}
       >
-        <div className={cn('flex touch-pan-y', variant === 'tower' ? 'pt-6' : 'pt-4')}>
-          {items.map((item, index) => {
-            const isSelected = index === selected;
-            return (
-              <div
-                key={item.id}
-                role="group"
-                aria-roledescription="slide"
-                aria-label={`${index + 1} of ${items.length}: ${item.name}`}
-                aria-current={isSelected || undefined}
-                onClick={(event) => onSlideClick(event, index, item)}
-                className={cn(
-                  'relative min-w-0 shrink-0 grow-0 cursor-pointer',
-                  // Width follows the carousel; max-w also caps it by the screen height
-                  // (a slide is about 2.4x as tall as wide for towers, 1.9x for hexagons),
-                  // so on short laptop screens (1366x768) the selected slide and its
-                  // Proceed button stay above the fold. It has no effect on phones in
-                  // portrait or on screens 1080px tall and up.
-                  variant === 'tower'
-                    ? 'max-w-[max(10rem,calc((100dvh-var(--header-h)-11rem)*0.42))] basis-[56%] @xl:basis-[40%] @3xl:basis-[36%] @5xl:basis-[21%]'
-                    : 'max-w-[max(10rem,calc((100dvh-var(--header-h)-14.5rem)*0.52))] basis-[50%] @xl:basis-[50%] @3xl:basis-[48%] @5xl:basis-[31%]',
-                )}
-              >
-                <div
-                  data-spotlight-tween
-                  className={cn(
-                    'will-change-transform',
-                    variant === 'tower' ? 'origin-bottom' : 'origin-top',
-                  )}
-                >
-                  {variant === 'tower' ? (
-                    <TowerSlide
-                      item={item}
-                      isSelected={isSelected}
-                      reduced={reduced}
-                      proceedLabel={proceedLabel}
-                    />
-                  ) : (
-                    <HexSlide
-                      item={item}
-                      isSelected={isSelected}
-                      reduced={reduced}
-                      proceedLabel={proceedLabel}
-                    />
-                  )}
-                </div>
-              </div>
-            );
-          })}
+        {hasControls && (
+          <>
+            <p id={hintId} className="sr-only">
+              Use the left and right arrow keys to browse, Home and End to jump to the ends.
+            </p>
+            {/* Controls come before the slides so keyboard users reach them first. */}
+            <ChevronButton
+              direction="prev"
+              onClick={prev}
+              disabled={!canPrev}
+              label={`Previous ${itemNoun}`}
+              controls={viewportId}
+            />
+            <ChevronButton
+              direction="next"
+              onClick={next}
+              disabled={!canNext}
+              label={`Next ${itemNoun}`}
+              controls={viewportId}
+            />
+          </>
+        )}
+        <div
+          id={viewportId}
+          tabIndex={hasControls ? 0 : undefined}
+          role="group"
+          aria-label="Slides"
+          aria-describedby={hasControls ? hintId : undefined}
+          className="rounded-sm focus-visible:outline-offset-4"
+        >
+          {/* From lg up the outer slides fade out at the frame's edges instead of being cut
+              off. The mask sits inside the focusable element so it doesn't hide the outline. */}
+          <div ref={emblaRef} className="overflow-hidden lg:mask-x-from-88%">
+            <div className={cn('flex touch-pan-y', variant === 'tower' ? 'pt-6' : 'pt-4')}>
+              {items.map((item, index) => {
+                const isSelected = index === selected;
+                return (
+                  <div
+                    key={item.id}
+                    role="group"
+                    aria-roledescription="slide"
+                    aria-label={`${index + 1} of ${items.length}: ${item.name}`}
+                    aria-current={isSelected || undefined}
+                    onClick={(event) => onSlideClick(event, index, item)}
+                    className={cn(
+                      'relative max-w-(--slide-max) min-w-0 shrink-0 grow-0 cursor-pointer',
+                      // Width follows the carousel; --slide-max also caps it by the screen
+                      // height (a slide is about 2.3x as tall as wide for towers, 1.9x for
+                      // hexagons), so on short laptop screens the selected slide and its
+                      // Proceed button stay above the fold. It has no effect on phones in
+                      // portrait or on screens 1080px tall and up.
+                      variant === 'tower'
+                        ? 'basis-[56%] @xl:basis-[40%] @3xl:basis-[36%] @5xl:basis-[21%]'
+                        : 'basis-[50%] @xl:basis-[50%] @3xl:basis-[48%] @5xl:basis-[31%]',
+                    )}
+                  >
+                    <div
+                      data-spotlight-tween
+                      className={cn(
+                        'will-change-transform',
+                        // Towers fill the slide, which is as tall as the tallest tower, so
+                        // every tower (and its Proceed) ends at the same line.
+                        variant === 'tower' ? 'h-full origin-bottom' : 'origin-top',
+                      )}
+                    >
+                      {variant === 'tower' ? (
+                        <TowerSlide
+                          item={item}
+                          isSelected={isSelected}
+                          reduced={reduced}
+                          proceedLabel={proceedLabel}
+                        />
+                      ) : (
+                        <HexSlide
+                          item={item}
+                          isSelected={isSelected}
+                          reduced={reduced}
+                          proceedLabel={proceedLabel}
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -371,7 +389,8 @@ function Details({
           “{item.motto}”
         </motion.p>
       )}
-      <motion.div variants={variants} className="mt-5">
+      {/* mt-auto pins Proceed to the bottom of a tower, whatever the name's length. */}
+      <motion.div variants={variants} className="mt-auto pt-4">
         <PillButton asChild variant={proceedVariant}>
           <OriginLink to={item.href}>
             {proceedLabel}
@@ -386,16 +405,18 @@ function Details({
 /**
  * CSC tower: a pointy hexagon roof on a tall banner. The roof height is the hexagon's
  * half-side (0.2887 x width), expressed in container units so it tracks the width exactly.
+ * The banner is at least 2.05x as tall as wide and grows when a long name needs more room;
+ * name and motto sit under the logo and Proceed is pinned to the bottom.
  */
 function TowerSlide(props: SlideProps) {
   const { item } = props;
   const band = 7;
   return (
-    <div className="@container -mx-[6%] w-[112%]">
-      <div className="drop-shadow-hex" style={{ aspectRatio: '1 / 2.05' }}>
+    <div className="@container -mx-[6%] h-full w-[112%]">
+      <div className="drop-shadow-hex flex h-full min-h-[205cqw] flex-col">
         <div
           data-surface="forest"
-          className="flex size-full flex-col items-center bg-linear-to-b from-forest-500 to-forest-900"
+          className="flex flex-1 flex-col items-center bg-linear-to-b from-forest-500 to-forest-900"
           style={{
             clipPath: 'polygon(50% 0, 100% 28.87cqw, 100% 100%, 0 100%, 0 28.87cqw)',
             padding: `${band * (2 / Math.sqrt(3))}% ${band}% ${band}%`,
@@ -406,12 +427,12 @@ function TowerSlide(props: SlideProps) {
             band={false}
             ringWidth={3.8}
             shadow={false}
-            className="w-full"
+            className="w-full shrink-0"
             contentClassName="p-[14%]"
           >
             <Logo item={item} className="size-full" />
           </HexFrame>
-          <Details {...props} proceedVariant="light" className="mt-[8%] px-[6%]" />
+          <Details {...props} proceedVariant="light" className="mt-[4%] flex-1 px-[6%]" />
         </div>
       </div>
     </div>
@@ -436,7 +457,7 @@ function HexSlide(props: SlideProps) {
           {item.name}
         </p>
       </HexFrame>
-      <Details {...props} proceedVariant="forest" className="-mt-1 [&_h3]:sr-only [&_p]:sr-only" />
+      <Details {...props} proceedVariant="forest" className="[&_h3]:sr-only [&_p]:sr-only" />
     </div>
   );
 }

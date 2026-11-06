@@ -30,7 +30,11 @@ import {
   readFinancialTotals,
   textHasCode,
   verdictOf,
+  isNearDuplicate,
 } from './integrity-rules';
+
+/** At most this many near duplicates are named in a warning. */
+const NEAR_DUPLICATE_MATCHES = 5;
 import type { NotificationService } from './notification.service';
 
 /** What the checks read from a PDF (lib/integrity-pages.ts in production, fakes in tests). */
@@ -363,27 +367,33 @@ export function createIntegrityService({
           : pass('exact_duplicate', 'No other task has this exact file.'),
       );
 
-      // Near duplicates: pages with content only (blank pages all hash alike).
+      // Near duplicates: pages with content only (blank pages all hash alike) that look like
+      // another file's, and whose words mostly match too (isNearDuplicate): every file on the
+      // same template looks alike.
+      const fileText = await textOf();
       const pageHashes = pdf.pages.flatMap((p, i) =>
         p.ink >= BLANK_INK_RATIO * 3 ? [{ page: i + 1, hash: p.hash }] : [],
       );
-      const near = await integrity.nearDuplicates(
+      const lookAlikes = await integrity.nearDuplicates(
         pageHashes.map((p) => p.hash),
         rec.document.id,
         await settings.nearDuplicateBits(),
       );
+      const near = lookAlikes
+        .filter((n) => isNearDuplicate(fileText, n.contentText))
+        .slice(0, NEAR_DUPLICATE_MATCHES)
+        .map(({ contentText: _text, ...place }) => place);
       checks.push(
         near[0]
           ? warn(
               'near_duplicate',
-              `A page looks almost the same as a page of ${placeText(near[0], own)}.`,
+              `A page looks almost the same as a page of ${placeText(near[0], own)}, and most of the words match.`,
               { matches: near.map((n) => ({ ...n })) },
             )
           : pass('near_duplicate', 'No other task’s file looks the same.'),
       );
 
       // Keywords, the project's name and the organization's acronym in the text (warn only).
-      const fileText = await textOf();
       const keywords = (await settings.keywords())[checked.type] ?? [];
       const missing = fileText.trim()
         ? missingKeywords(fileText, { keywords, projectName: task.project.name, acronym: own })

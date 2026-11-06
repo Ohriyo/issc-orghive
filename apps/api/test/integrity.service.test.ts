@@ -92,7 +92,7 @@ function setup({
   codes = [CODE] as TaskCodeRecord[],
   analyzeFails = false,
   twin = null as TaskFilePlace | null,
-  near = [] as (TaskFilePlace & { page: number; distance: number })[],
+  near = [] as (TaskFilePlace & { page: number; distance: number; contentText: string | null })[],
   withQr = true,
   ocrPageText = '',
 } = {}) {
@@ -197,6 +197,8 @@ describe('integrityService.checkVersion: accepted', () => {
           acronym: 'ISO',
           page: 1,
           distance: 2,
+          // Neither file has enough words to compare: the look decides.
+          contentText: null,
         },
       ],
     });
@@ -209,11 +211,47 @@ describe('integrityService.checkVersion: accepted', () => {
     // Another organization's project is never named to the uploader.
     expect(byKind.near_duplicate).toMatchObject({
       result: 'warn',
-      message: 'A page looks almost the same as a page of a task file of another organization.',
+      message:
+        'A page looks almost the same as a page of a task file of another organization, and most of the words match.',
     });
     expect(s.notifications.notify).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'acr-scan.pdf needs attention' }),
     );
+  });
+
+  describe('near duplicates compare the words too (every file on a template looks alike)', () => {
+    const OURS = `${ACR_TEXT} We planted two hundred mahogany seedlings along the riverbank with forty volunteers from Barangay San Pablo, and the barangay council promised to water them weekly.`;
+    const lookAlike = (contentText: string) => ({
+      versionId: 'x',
+      documentId: 'dx',
+      taskType: 'ACR' as const,
+      projectName: 'Coastal Cleanup',
+      acronym: 'ISO',
+      page: 1,
+      distance: 0,
+      contentText,
+    });
+
+    it('passes a file on the same template with its own words', async () => {
+      const theirs =
+        'OFFICE OF THE STUDENT BODY ORGANIZATIONS Form 7 – Accomplishment Report Information Systems Organization (ISO) Project: Coastal Cleanup. Sixty students collected plastic waste on the shore of Catbalogan and sorted it for the city recycling program before noon.';
+      const s = setup({ text: OURS, near: [lookAlike(theirs)] });
+      await s.service.checkVersion('v2');
+      expect(saved(s.integrity).byKind.near_duplicate).toMatchObject({ result: 'pass' });
+    });
+
+    it('warns on another file’s words with the names changed', async () => {
+      const copied = OURS.replace(
+        'The Animation Guild (TAG)',
+        'Information Systems Organization (ISO)',
+      );
+      const s = setup({ text: OURS, near: [lookAlike(copied)] });
+      await s.service.checkVersion('v2');
+      const check = saved(s.integrity).byKind.near_duplicate;
+      expect(check).toMatchObject({ result: 'warn', details: { matches: [{ versionId: 'x' }] } });
+      // The other file's words stay out of the stored check.
+      expect(JSON.stringify(check)).not.toContain('contentText');
+    });
   });
 
   it('compares a Financial Report’s totals with the figures entered', async () => {

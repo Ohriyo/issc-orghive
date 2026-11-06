@@ -166,6 +166,49 @@ export function normalizeText(text: string): string {
 }
 
 /**
+ * How much of two files' wording matches for their look-alike pages to count as a near
+ * duplicate (spec section 6B). Every file on the same template looks alike, so the page hash
+ * alone flags them all; a copied file keeps the other's words, a filled-in one has its own.
+ */
+export const NEAR_DUPLICATE_TEXT_MIN = 0.7;
+/** Below this many words, a file's text says too little to compare. */
+const MIN_COMPARED_WORDS = 20;
+
+/** The file's three-word phrases, without its own task code (every file has a different one). */
+function phrasesOf(text: string): Set<string> | null {
+  const words = normalizeText(text)
+    .replace(/\boh-[a-z0-9]{4,}-[a-z]{2,4}\b/g, ' ')
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+  if (words.length < MIN_COMPARED_WORDS) return null;
+  const phrases = new Set<string>();
+  for (let i = 0; i + 2 < words.length; i++) phrases.add(words.slice(i, i + 3).join(' '));
+  return phrases;
+}
+
+/**
+ * The share of three-word phrases two files have in common (Jaccard), 0 to 1, or null when
+ * either text is too short to tell: a template's fixed wording is a few phrases among many.
+ */
+export function textSimilarity(a: string | null, b: string | null): number | null {
+  const left = a ? phrasesOf(a) : null;
+  const right = b ? phrasesOf(b) : null;
+  if (!left || !right) return null;
+  let shared = 0;
+  for (const phrase of left) if (right.has(phrase)) shared += 1;
+  return shared / (left.size + right.size - shared);
+}
+
+/**
+ * Whether a file whose pages look like another's is a near duplicate of it: only when their
+ * words mostly match too. Without readable text on either side, the look decides alone.
+ */
+export function isNearDuplicate(ownText: string | null, otherText: string | null): boolean {
+  const similarity = textSimilarity(ownText, otherText);
+  return similarity === null || similarity >= NEAR_DUPLICATE_TEXT_MIN;
+}
+
+/**
  * The expected phrases (`|` between alternatives) the text does not contain, as configured,
  * plus the project name and the organization's acronym when they are missing.
  */

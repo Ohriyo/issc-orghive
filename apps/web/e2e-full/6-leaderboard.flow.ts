@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
-import { eventually, LEADERBOARD_PROJECTS, SAMPLE_PDF, signIn, type Account } from './helpers';
+import { eventually, LEADERBOARD_PROJECTS, signIn, taskFile, type Account } from './helpers';
 
 /**
  * The live leaderboard (docs/LEADERBOARD_PHASES.md, Phase 4.2), nothing stubbed. The e2e seed
@@ -37,8 +37,10 @@ async function watchHomepage(browser: Browser, reducedMotion: 'reduce' | 'no-pre
 }
 
 /**
- * The SBO's account files its project's ACR and Financial Report through the real form and
- * waits for both to pass the scan. Returns when the officer sees both submitted.
+ * The SBO's account files its project's ACR and Financial Report through the real form, on
+ * their templates and shared with its governing bodies (private files never rank, spec 6C),
+ * and waits for both to pass the scan and the checks. Returns when the officer sees both
+ * submitted and verified.
  */
 async function fileReports(page: Page, slug: 'jpice' | 'jiiee', account: Account, income: string) {
   await signIn(page, account);
@@ -48,20 +50,22 @@ async function fileReports(page: Page, slug: 'jpice' | 'jiiee', account: Account
   await page.getByRole('textbox', { name: 'Acting as' }).first().fill('Juan Dela Cruz');
 
   const acr = page.getByRole('region', { name: 'Activity Completion Report' });
+  await acr.getByRole('combobox', { name: /Who can see it/ }).selectOption('governing');
   const [acrChooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     acr.getByRole('button', { name: /Upload file/ }).click(),
   ]);
-  await acrChooser.setFiles(SAMPLE_PDF);
+  await acrChooser.setFiles(taskFile(`${slug}-acr`));
 
   const report = page.getByRole('region', { name: 'Financial Report' });
   await report.getByRole('textbox', { name: 'Total income (₱)' }).fill(income);
   await report.getByRole('textbox', { name: 'Total expenses (₱)' }).fill('10,000.00');
+  await report.getByRole('combobox', { name: /Who can see it/ }).selectOption('governing');
   const [reportChooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     report.getByRole('button', { name: /Upload file/ }).click(),
   ]);
-  await reportChooser.setFiles(SAMPLE_PDF);
+  await reportChooser.setFiles(taskFile(`${slug}-financial-report`));
 
   for (const name of ['Activity Completion Report', 'Financial Report']) {
     await eventually(page, () =>
@@ -69,6 +73,7 @@ async function fileReports(page: Page, slug: 'jpice' | 'jiiee', account: Account
         page.getByRole('region', { name }).getByText('Submitted', { exact: true }),
       ).toBeVisible({ timeout: 2_000 }),
     );
+    await expect(page.getByRole('region', { name }).getByText('Verified ✓')).toBeVisible();
   }
 }
 

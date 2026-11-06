@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { E2E_PROJECT_NAME, eventually, expectAccessible, SAMPLE_PDF, signIn } from './helpers';
+import { E2E_PROJECT_NAME, eventually, expectAccessible, signIn, taskFile } from './helpers';
 
 /**
  * A missed deadline and its appeal (docs/PROJECT_WORKFLOW_SPEC.md, sections 2-3). The e2e seed
@@ -72,7 +72,8 @@ test('missed deadline → appeal → approved → unblocked → proposal filed',
     page.waitForEvent('filechooser'),
     proposal.getByRole('button', { name: /Upload file/ }).click(),
   ]);
-  await chooser.setFiles(SAMPLE_PDF);
+  // The template filled in, with this task's QR code: the worker's checks verify it.
+  await chooser.setFiles(taskFile('appeal-proposal'));
   await eventually(page, () =>
     expect(
       page
@@ -82,4 +83,7 @@ test('missed deadline → appeal → approved → unblocked → proposal filed',
       timeout: 2_000,
     }),
   );
+  await expect(
+    page.getByRole('region', { name: 'Project Proposal' }).getByText('Verified ✓'),
+  ).toBeVisible();
 });

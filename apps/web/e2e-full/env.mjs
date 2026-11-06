@@ -4,7 +4,8 @@
  * the dev data or a running `pnpm dev`.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 
@@ -15,6 +16,8 @@ export const WEB_PORT = 5174;
 export const WEB_ORIGIN = `http://localhost:${WEB_PORT}`;
 /** Seeded accounts all sign in with this (SEED_PASSWORD; CI sets it). */
 export const PASSWORD_ENV = 'SEED_PASSWORD';
+/** Where the e2e seed writes the filled-in task files the flows upload. */
+export const TASK_FILES_DIR = join(tmpdir(), 'orghive-e2e-task-files');
 
 // Read, not loaded into process.env: the API's NODE_ENV=development there must never leak into
 // anything else this process starts (a `vite build` under it bundles development React).
@@ -48,5 +51,6 @@ export function e2eEnv() {
     // Index 2: its own rate limits, caches and queues.
     REDIS_URL: withPath(base.REDIS_URL, '/2'),
     LOG_LEVEL: 'warn',
+    E2E_TASK_FILES_DIR: TASK_FILES_DIR,
   });
 }

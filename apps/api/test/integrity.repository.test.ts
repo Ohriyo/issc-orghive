@@ -77,7 +77,21 @@ describe('integrityRepository: duplicates across tasks, projects and organizatio
     const self = await acrFile('jpice', 'f'.repeat(64), [base]);
     const found = await repo.nearDuplicates([base], self.doc.id, 6);
     expect(found).toEqual([
-      expect.objectContaining({ versionId: near.versionId, acronym: 'PSME', page: 1, distance: 2 }),
+      expect.objectContaining({
+        versionId: near.versionId,
+        acronym: 'PSME',
+        page: 1,
+        distance: 2,
+        // Its words, for the service to compare (isNearDuplicate).
+        contentText: null,
+      }),
+    ]);
+    await db.document.update({
+      where: { id: near.doc.id },
+      data: { contentText: 'PSME seminar: what the file says' },
+    });
+    await expect(repo.nearDuplicates([base], self.doc.id, 6)).resolves.toEqual([
+      expect.objectContaining({ contentText: 'PSME seminar: what the file says' }),
     ]);
     // Signed 64-bit hashes (the top bit set) compare too.
     const negative = BigInt.asIntN(64, 0x8000_0000_0000_0001n);

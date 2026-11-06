@@ -9,12 +9,18 @@
 //    today, all on time, so they hold the SBO Top 3 by profit. JPICE and JIIEE each have a
 //    project whose event is today with its proposal in: filing their ACR and Financial Report
 //    in the suite moves them onto the podium.
-import { existsSync } from 'node:fs';
+// 4. The files those flows upload, written to E2E_TASK_FILES_DIR: each task's template filled
+//    in, with a real QR code for that task, so the worker's checks verify them (spec section 6).
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { academicYearOf, addDays, manilaDate } from '@orghive/shared';
-import type { ProjectTaskType } from '@orghive/shared';
+import type { CheckedTaskType, ProjectTaskType } from '@orghive/shared';
+import { createTaskQr, generateTaskCode } from '#src/lib/task-qr';
+import { filledTaskPdf, type FilledTaskFacts } from '#src/lib/task-template-pdf';
 import { createFinancialFiguresRepository } from '#src/repositories/financial-figures.repository';
 import { createProjectRepository } from '#src/repositories/project.repository';
 import { createDb, type Db } from '#src/repositories/prisma';
+import { createTaskCodeRepository } from '#src/repositories/task-code.repository';
 import { planProject } from '#src/services/project-rules';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
@@ -48,7 +54,8 @@ const TASK_DOCUMENT_TYPES: Partial<Record<ProjectTaskType, string>> = {
 
 /**
  * A project of `slug` created 5 days ago with its event today, whose `filed` tasks have a
- * clean, private file submitted an hour ago (on time). Skipped when it exists already.
+ * clean file shared with the governing bodies, submitted an hour ago (on time) and verified:
+ * what the leaderboard counts (spec 6C). Skipped when it exists already.
  */
 async function seedDoneProject(
   db: Db,
@@ -101,7 +108,7 @@ async function seedDoneProject(
         typeId: docType.id,
         title: `${name}: ${type}`,
         status: 'available',
-        visibility: 'private',
+        visibility: 'governing',
         academicYear: academicYearOf(fields.targetDate),
         createdById: account.id,
       },
@@ -123,6 +130,7 @@ async function seedDoneProject(
       where: { id: document.id },
       data: { currentVersionId: version.id },
     });
+    await db.versionIntegrity.create({ data: { versionId: version.id, checkedAt: submittedAt } });
     await projects.linkDocument(project.id, type, document.id);
     await db.projectTask.update({
       where: { projectId_type: { projectId: project.id, type } },
@@ -130,6 +138,56 @@ async function seedDoneProject(
     });
   }
   return project.id;
+}
+
+/**
+ * Writes a task's template, filled in with a new code for that task, as `<file>.pdf`: what an
+ * officer scans and uploads.
+ */
+async function writeTaskFile(
+  db: Db,
+  file: string,
+  project: { slug: string; name: string },
+  type: CheckedTaskType,
+  totals?: FilledTaskFacts['totals'],
+) {
+  const secret = process.env.TASK_QR_SECRET;
+  const dir = process.env.E2E_TASK_FILES_DIR;
+  if (!secret || !dir) {
+    throw new Error('e2e seed: set TASK_QR_SECRET and E2E_TASK_FILES_DIR (keys:generate, env.mjs)');
+  }
+  const { id: projectId } = await db.project.findFirstOrThrow({
+    where: { name: project.name, organization: { slug: project.slug } },
+    select: { id: true },
+  });
+  const codes = createTaskCodeRepository(db);
+  const task = await codes.findTemplateTask(projectId, type);
+  if (!task) throw new Error(`e2e seed: ${project.name} has no ${type} task`);
+  const { code } = await codes.create({ taskId: task.id, label: null }, () =>
+    generateTaskCode(type),
+  );
+  const owner = task.project;
+  const pdf = await filledTaskPdf({
+    type,
+    organization: owner.organization,
+    college: owner.organization.college?.name ?? null,
+    project: {
+      name: owner.name,
+      targetDate: owner.targetDate.toISOString().slice(0, 10),
+      location: owner.location,
+      beneficiaries: owner.beneficiaries,
+    },
+    label: null,
+    code,
+    qrContent: createTaskQr(secret).contentOf({
+      code,
+      taskId: task.id,
+      organizationId: owner.organizationId,
+    }),
+    ...(totals ? { totals } : {}),
+  });
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${file}.pdf`), pdf);
 }
 
 const db = createDb(url);
@@ -185,8 +243,20 @@ try {
     await seedDoneProject(db, slug, name, ['PROPOSAL']);
   }
 
+  // What the appeal and leaderboard flows upload. The totals match what those flows type.
+  await writeTaskFile(db, 'appeal-proposal', { slug: 'jpice', name: E2E_PROJECT_NAME }, 'PROPOSAL');
+  const INCOME = { jpice: 5_000_000, jiiee: 9_000_000 };
+  for (const [slug, name] of Object.entries(LEADERBOARD_PROJECTS)) {
+    const project = { slug, name };
+    await writeTaskFile(db, `${slug}-acr`, project, 'ACR');
+    await writeTaskFile(db, `${slug}-financial-report`, project, 'FINANCIAL_REPORT', {
+      incomeCentavos: INCOME[slug as keyof typeof INCOME],
+      expensesCentavos: 1_000_000,
+    });
+  }
+
   console.log(
-    `e2e seed: ${count} accounts ready, JPICE project with a missed proposal deadline, leaderboard projects`,
+    `e2e seed: ${count} accounts ready, JPICE project with a missed proposal deadline, leaderboard projects, task files`,
   );
 } finally {
   await db.$disconnect();

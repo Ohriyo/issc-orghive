@@ -5,6 +5,7 @@ export declare const API_PORT: number;
 export declare const WEB_PORT: number;
 export declare const WEB_ORIGIN: string;
 export declare const PASSWORD_ENV: string;
+export declare const TASK_FILES_DIR: string;
 export declare function definedEnv(
   vars: Record<string, string | undefined>,
 ): Record<string, string>;

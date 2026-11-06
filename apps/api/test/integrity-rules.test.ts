@@ -5,6 +5,9 @@ import {
   fileCountsForRanking,
   fileFactsOf,
   hammingDistance,
+  isNearDuplicate,
+  NEAR_DUPLICATE_TEXT_MIN,
+  textSimilarity,
   mayDecideIntegrity,
   missingKeywords,
   rankingSubmittedAt,
@@ -238,5 +241,39 @@ describe('Financial Report totals', () => {
     expect(
       compareFinancialTotals(entered, { incomeCentavos: null, expensesCentavos: 1 }).result,
     ).toBe('warn');
+  });
+});
+
+describe('textSimilarity and isNearDuplicate (spec 6B)', () => {
+  const FORM =
+    'Form 7 Accomplishment Report Office of the Student Body Organizations Project Title Date Venue Participants Prepared by';
+  const OURS = `${FORM} We planted two hundred mahogany seedlings along the riverbank with forty volunteers from Barangay San Pablo and the council will water them weekly.`;
+  const THEIRS = `${FORM} Sixty students collected plastic waste on the shore of Catbalogan and sorted it for the city recycling program before the noon break ended.`;
+
+  it('is 1 for the same words and low for the same form filled differently', () => {
+    expect(textSimilarity(OURS, OURS)).toBe(1);
+    expect(textSimilarity(OURS, THEIRS)!).toBeLessThan(NEAR_DUPLICATE_TEXT_MIN);
+  });
+
+  it('ignores case, accents and the task code, which differs on every file', () => {
+    expect(
+      textSimilarity(
+        `${OURS} Task code: OH-7K3P-ACR`,
+        `${OURS.toUpperCase()} Task code: OH-Q2WX-ACR`,
+      ),
+    ).toBe(1);
+    expect(textSimilarity(OURS.replace('San Pablo', 'Sán Pablo'), OURS)).toBe(1);
+  });
+
+  it('cannot tell with too few words on either side', () => {
+    expect(textSimilarity('Minutes of the meeting', OURS)).toBeNull();
+    expect(textSimilarity(OURS, null)).toBeNull();
+  });
+
+  it('calls a copy with the names changed a near duplicate, an own filling not', () => {
+    expect(isNearDuplicate(OURS, OURS.replace('San Pablo', 'Santa Cruz'))).toBe(true);
+    expect(isNearDuplicate(OURS, THEIRS)).toBe(false);
+    // Without text to compare, the look decides alone.
+    expect(isNearDuplicate(null, THEIRS)).toBe(true);
   });
 });

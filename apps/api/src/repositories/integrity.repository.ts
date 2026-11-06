@@ -102,6 +102,12 @@ function placeOf(
 }
 
 /** The integrity checks' reads and results (docs/PROJECT_WORKFLOW_SPEC.md, section 6). */
+/**
+ * Look-alike files read for the near-duplicate check. Every file on the same template looks
+ * alike, so many can match; the service keeps those whose words match too.
+ */
+const LOOK_ALIKE_LIMIT = 200;
+
 export function createIntegrityRepository(db: Db) {
   return {
     findForCheck(versionId: string): Promise<CheckRecord | null> {
@@ -135,7 +141,7 @@ export function createIntegrityRepository(db: Db) {
       hashes: bigint[],
       documentId: string,
       maxBits: number,
-    ): Promise<(TaskFilePlace & { page: number; distance: number })[]> {
+    ): Promise<(TaskFilePlace & { page: number; distance: number; contentText: string | null })[]> {
       if (hashes.length === 0) return [];
       const rows = await db.$queryRaw<{ version_id: string; page: number; distance: number }[]>`
         SELECT DISTINCT ON (h.version_id) h.version_id, h.page,
@@ -149,17 +155,32 @@ export function createIntegrityRepository(db: Db) {
           AND d.deleted_at IS NULL
           AND bit_count((h.hash # q.hash)::bit(64)) <= ${maxBits}
         ORDER BY h.version_id, distance
-        LIMIT 5`;
+        LIMIT ${LOOK_ALIKE_LIMIT}`;
       if (rows.length === 0) return [];
       const versions = await db.documentVersion.findMany({
         where: { id: { in: rows.map((r) => r.version_id) } },
-        select: placeSelect,
+        // The document's text is its current version's: a look-alike older version has none.
+        select: {
+          ...placeSelect,
+          document: {
+            select: { ...placeSelect.document.select, contentText: true, currentVersionId: true },
+          },
+        },
       });
       return rows
         .flatMap((row) => {
           const v = versions.find((x) => x.id === row.version_id);
           const place = v && placeOf(v);
-          return place ? [{ ...place, page: row.page, distance: row.distance }] : [];
+          return place
+            ? [
+                {
+                  ...place,
+                  page: row.page,
+                  distance: row.distance,
+                  contentText: v.document.currentVersionId === v.id ? v.document.contentText : null,
+                },
+              ]
+            : [];
         })
         .sort((a, b) => a.distance - b.distance);
     },

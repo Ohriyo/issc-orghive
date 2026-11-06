@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Browser, type Page } from '@playwright/test';
-import { API_DIR, e2eEnv, PASSWORD_ENV } from './env.mjs';
+import { API_DIR, e2eEnv, PASSWORD_ENV, TASK_FILES_DIR } from './env.mjs';
 
 /**
  * The seeded shared organization accounts (apps/api/prisma/seed/data.ts, `accountEmail`):
@@ -34,6 +34,14 @@ export const SAMPLE_PDF = resolve(
   'assets',
   'jpice-barangay-water-survey-report.pdf',
 );
+
+/**
+ * A task's template filled in by the e2e seed, with its real QR code: a checked task refuses
+ * any other file (spec section 6).
+ */
+export function taskFile(name: string): string {
+  return resolve(TASK_FILES_DIR, `${name}.pdf`);
+}
 
 function password(): string {
   const value = e2eEnv()[PASSWORD_ENV];

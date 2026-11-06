@@ -150,7 +150,7 @@ Each check is stored per version (`integrity_checks`) with a result (pass, warn,
 | Task code | no QR code or short code found; a QR of another task, project or organization; a typed code missing from the text | |
 | Blank | every page blank | |
 | Exact duplicate | the same bytes (SHA-256) as another task file, of any task, project or organization | |
-| Near duplicate | | a page that looks like a page of another task file (perceptual hash within the threshold) |
+| Near duplicate | | a page that looks like a page of another task file (perceptual hash within the threshold) **and** whose file's words mostly match that file's (three-word phrases, Jaccard ≥ 0.7, `isNearDuplicate`). Every file on the same template looks alike (measured 2026-11-06: same task, two organizations, 0–4 bits apart), so the look alone would flag nearly every file; a copy with the names changed scores 0.77–0.92, files filled in by different organizations 0.41–0.60. Without enough words on either side (under 20), the look decides alone |
 | Keywords | | the task's expected words, the project name or the organization's acronym not found (English and Filipino OCR, or the PDF's text) |
 | Financial totals | | the totals read from the Financial Report differ from the figures entered by more than 5%, or were not found |
 

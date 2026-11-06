@@ -117,6 +117,51 @@ describe('refreshSession', () => {
   });
 });
 
+describe('the first check of the session on a page load', () => {
+  it('holds a read until it answers, so the read asks as the signed-in account', async () => {
+    let answer!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+    const refreshing = refreshSession();
+    const read = api.get('/documents/private');
+    await Promise.resolve();
+    // Only the refresh has gone out.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    answer(jsonResponse(session('restored')));
+    await refreshing;
+    expect(await read).toEqual({ ok: true });
+    expect(new Headers(lastRequest().headers).get('Authorization')).toBe('Bearer restored');
+  });
+
+  it('asks as a visitor once it finds no session', async () => {
+    let answer!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+    const refreshing = refreshSession();
+    const read = api.get('/colleges');
+    answer(jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'No session' } }, 401));
+    await refreshing;
+    expect(await read).toEqual({ ok: true });
+    expect(new Headers(lastRequest().headers).get('Authorization')).toBeNull();
+  });
+
+  it('never holds signing in behind it', async () => {
+    let answer!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    fetchMock.mockResolvedValueOnce(jsonResponse(session('signed-in')));
+
+    const refreshing = refreshSession();
+    await api.post('/auth/login', { email: 'a@b.test', password: 'x' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    answer(jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'No session' } }, 401));
+    await refreshing;
+  });
+});
+
 describe('refresh on 401', () => {
   const unauthorized = () =>
     jsonResponse({ error: { code: 'UNAUTHORIZED', message: 'Your session has expired' } }, 401);

@@ -124,6 +124,16 @@ async function send(path: string, init: RequestInit, json: unknown, raw?: Blob):
 
 /** Sends a request, refreshing the session once on a 401; a non-2xx answer throws ApiError. */
 async function request(path: string, init: RequestInit, json: unknown, raw?: Blob) {
+  // A page load gets its session back from the first refresh (main.tsx). Asking before that
+  // answers would ask as a visitor: the owner's private file reads as "not found", and nothing
+  // asks again.
+  if (
+    inFlightRefresh &&
+    authStore.getSnapshot().status === 'unknown' &&
+    !path.startsWith('/auth/')
+  ) {
+    await inFlightRefresh.catch(() => false);
+  }
   let response = await send(path, init, json, raw);
 
   // An expired access token: refresh once and retry. Auth routes answer 401 for wrong

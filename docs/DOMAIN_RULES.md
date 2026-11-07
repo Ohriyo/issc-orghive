@@ -171,6 +171,18 @@ Answers to `docs/PROJECT_WORKFLOW_SPEC.md` section 6 (open questions) and F11's 
 - **Contents and search:** the worker reads the PDF's bookmarks and each page's text, and renders small page thumbnails for editions without bookmarks. Search inside an edition matches words by prefix and opens the matching page.
 - **Site search:** a "Student Handbook" block above the results lists the matching pages of the current edition (unfiltered searches, first page only). The handbook is never among the ordinary document results.
 
+## Organization posts (chosen by the project owner on 2026-11-06)
+
+Every organization's shared account (ISSC, CSCs and SBOs) writes **updates** and **highlights** for its public page, `/orgs/:slug`. They are separate from council announcements (`/updates`), which keep notifying accounts.
+
+- **No approval.** A post is a draft, published at once, or scheduled (`publishAt`, picked in Manila time; the worker publishes it within a minute, and public reads already treat a due post as live). Publishing notifies nobody.
+- **Moderation, not approval.** The organization's appeal decider (`appeal-rules.ts`, through `post-rules.ts` `moderationAuthority`) may hide a live post with a reason: the parent CSC for an SBO, the ISSC for a CSC, and the ISSC for an SBO while its CSC seat is vacant (audited `admin_override`). Nobody hides the ISSC's posts. The organization is notified with the reason, sees the hidden post and the reason, and may edit it and publish it again.
+- **Highlights carousel:** up to 6 published or scheduled highlights are pinned, in order. A post that is unpublished, hidden or deleted loses its pin.
+- **Limits:** title 120 characters, summary 280, body 10,000 (limited Markdown, rendered and sanitized on the server), up to 10 gallery images; every image needs alt text.
+- **Images** are scanned, re-encoded to WebP without metadata and stored publicly under content-hashed, unguessable `logos/posts/<slug>/` keys (not signed URLs): a draft's image is reachable only by someone given its URL.
+- Every write is audited with "Acting as" (`post_change`, deletes `delete`). "Acting as" is never shown on public pages.
+- Coming next (Phase 2 of the page template): a tagline (up to 160 characters); a leaderboard rank badge for the Top 10 (never the ISSC), kept as "final" until the next semester starts; Contact uses the email and links only; Highlights come first in the page's section nav.
+
 ## Open questions
 
 ### Documents

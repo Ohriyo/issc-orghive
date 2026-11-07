@@ -11,6 +11,8 @@ import { SectionError } from '@/components/section-error';
 import { Seo } from '@/components/seo';
 import { Skeleton } from '@/components/skeleton';
 import { WaveDivider } from '@/components/wave-divider';
+import type { OrgPostSectionsState } from '@/features/posts/presenters/use-org-post-sections';
+import { OrgPostSections } from '@/features/posts/views/org-post-sections';
 import type { ConstitutionModel } from '../presenters/use-constitution';
 import type {
   OrganizationPageModel,
@@ -20,6 +22,8 @@ import { OrganizationRecord } from './organization-record';
 
 export type OrganizationViewProps = Exclude<OrganizationPageState, { status: 'not-found' }> & {
   constitution: ConstitutionModel;
+  /** Highlights and updates (features/posts); the profile editor's preview has none. */
+  posts?: OrgPostSectionsState;
 };
 
 const HEX = 'mx-auto w-full max-w-[14rem] sm:max-w-[20rem] lg:max-w-[35rem]';
@@ -43,6 +47,17 @@ export function OrganizationView(props: OrganizationViewProps) {
         <title>Organization | Orghive</title>
       )}
       <OrganizationHero {...props} />
+      {props.status === 'ready' && props.posts ? (
+        <OrgPostSections
+          state={props.posts}
+          org={{
+            acronym: props.page.acronym,
+            name: props.page.name,
+            logoSrc: props.page.logoSrc,
+            logoSrcSet: props.page.logoSrcSet,
+          }}
+        />
+      ) : null}
       {props.status === 'ready' ? (
         <OrganizationRecord page={props.page} constitution={props.constitution} />
       ) : null}

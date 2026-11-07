@@ -57,6 +57,18 @@ function pages(): RouteObject[] {
       }),
     },
     {
+      path: 'orgs/:slug/updates',
+      lazy: async () => ({
+        Component: (await import('@/features/posts/posts-pages')).OrgUpdatesPage,
+      }),
+    },
+    {
+      path: 'orgs/:slug/updates/:postSlug',
+      lazy: async () => ({
+        Component: (await import('@/features/posts/posts-pages')).OrgPostPage,
+      }),
+    },
+    {
       path: 'handbook',
       lazy: async () => ({ Component: (await handbookPages()).HandbookPage }),
     },
@@ -160,6 +172,24 @@ function dashboardRoutes(): RouteObject[] {
       path: 'dashboard/profile',
       lazy: async () => ({
         Component: (await import('@/features/profile/profile-page')).ProfilePage,
+      }),
+    },
+    {
+      path: 'dashboard/posts',
+      lazy: async () => ({
+        Component: (await import('@/features/posts/posts-pages')).ManagePostsPage,
+      }),
+    },
+    {
+      path: 'dashboard/posts/new',
+      lazy: async () => ({
+        Component: (await import('@/features/posts/posts-pages')).PostEditorPage,
+      }),
+    },
+    {
+      path: 'dashboard/posts/:postId',
+      lazy: async () => ({
+        Component: (await import('@/features/posts/posts-pages')).PostEditorPage,
       }),
     },
     {

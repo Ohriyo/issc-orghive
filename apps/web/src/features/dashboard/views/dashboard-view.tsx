@@ -159,9 +159,17 @@ function OrganizationDashboard({
             {org.profileHref ? (
               <OriginLink
                 to={org.profileHref}
-                className="tap-area ml-1 text-small font-medium text-ink underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf"
+                className="ml-1 inline-flex min-h-11 items-center text-small font-medium text-ink underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf"
               >
                 Edit profile
+              </OriginLink>
+            ) : null}
+            {org.postsHref ? (
+              <OriginLink
+                to={org.postsHref}
+                className="ml-1 inline-flex min-h-11 items-center text-small font-medium text-ink underline decoration-1 underline-offset-4 hover:decoration-leaf focus-visible:decoration-leaf"
+              >
+                Highlights and updates
               </OriginLink>
             ) : null}
           </div>

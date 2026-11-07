@@ -122,6 +122,28 @@ export const chrome = {
     };
   },
 
+  /** /orgs/:slug/updates → parent the organization. */
+  orgUpdates(slug: string, org: OrgPlace | null): PageChrome {
+    const orgCrumb = { label: org?.acronym ?? 'Organization', href: `/orgs/${slug}` };
+    return {
+      label: `${org?.acronym ?? 'Organization'} updates`,
+      section: sectionOf(org),
+      trail: [...(org ? orgCrumbs(org) : [HOME, orgCrumb]), here('Updates')],
+      parent: toDestination(orgCrumb),
+    };
+  },
+
+  /** /orgs/:slug/updates/:postSlug → parent the organization's updates. */
+  orgPost(slug: string, org: OrgPlace | null, title: string | null): PageChrome {
+    const updates = { label: `${org?.acronym ?? 'Organization'} updates`, href: `/orgs/${slug}/updates` };
+    const orgTrail = org ? orgCrumbs(org) : [HOME, { label: 'Organization', href: `/orgs/${slug}` }];
+    return {
+      section: sectionOf(org),
+      trail: [...orgTrail, { label: 'Updates', href: updates.href }, here(title ?? 'Post')],
+      parent: toDestination(updates),
+    };
+  },
+
   /** /orgs/:slug/paperworks → parent the organization. */
   paperworks(slug: string, org: OrgPlace | null): PageChrome {
     const orgCrumb = { label: org?.acronym ?? 'Organization', href: `/orgs/${slug}` };
@@ -207,6 +229,16 @@ export const chrome = {
       section: 'dashboard',
       trail: [DASHBOARD, ...orgCrumb, here(label)],
       parent: toDestination(DASHBOARD),
+    };
+  },
+
+  /** /dashboard/posts/new and /dashboard/posts/:id → parent the posts list. */
+  postEditor(label: string): PageChrome {
+    const list = { label: 'Highlights and updates', href: '/dashboard/posts' };
+    return {
+      section: 'dashboard',
+      trail: [DASHBOARD, list, here(label)],
+      parent: toDestination(list),
     };
   },
 

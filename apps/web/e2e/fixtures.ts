@@ -564,6 +564,41 @@ const PAGE_PNG = Buffer.from(
   'base64',
 );
 
+/** JPICE's posts (organization page highlights and updates). */
+export const POST_ID = '0195f3c0-0000-7000-8000-0000000000e1';
+const postCard = (n: number, type: 'HIGHLIGHT' | 'UPDATE', slug: string, title: string) => ({
+  id: `0195f3c0-0000-7000-8000-0000000000e${n}`,
+  slug,
+  type,
+  title,
+  summary:
+    'Five days of talks, a quiz bowl and the annual concrete-cylinder challenge for every civil engineering student.',
+  eventDate: '2026-09-14',
+  publishedAt: `2026-09-${10 + n}T02:00:00.000Z`,
+  cover: null,
+  externalLink: null,
+});
+const POST_CARDS = [
+  postCard(1, 'HIGHLIGHT', 'ce-week-2026', 'CE Week 2026'),
+  postCard(2, 'HIGHLIGHT', 'bridge-design-contest', 'Regional bridge-design contest, 2nd place'),
+  postCard(3, 'UPDATE', 'membership-fee-deadline', 'Membership fee deadline moved to Nov 20'),
+  postCard(4, 'UPDATE', 'autocad-workshop', 'AutoCAD workshop slots are open'),
+];
+const MANAGED_POST = {
+  ...POST_CARDS[0]!,
+  status: 'PUBLISHED' as const,
+  body: '## Five days\n\nTalks, a **quiz bowl** and more.',
+  cover: null,
+  gallery: [],
+  publishAt: null,
+  publishedAt: POST_CARDS[0]!.publishedAt,
+  pinned: true,
+  pinOrder: 1,
+  moderation: null,
+  actingAs: 'Maria Santos',
+  updatedAt: POST_CARDS[0]!.publishedAt,
+};
+
 export const PUBLIC_ROUTES = [
   '/',
   '/colleges',
@@ -572,6 +607,9 @@ export const PUBLIC_ROUTES = [
   '/orgs/jpice',
   '/orgs/issc',
   '/orgs/jpice/paperworks',
+  '/orgs/jpice/updates',
+  '/orgs/jpice/updates?type=highlight',
+  '/orgs/jpice/updates/ce-week-2026',
   '/search',
   '/search?q=bridge&college=cea',
   '/leaderboard',
@@ -609,6 +647,9 @@ export const SIGNED_IN_ROUTES = [
   '/dashboard/notifications',
   '/dashboard/notifications/settings',
   '/dashboard/profile',
+  '/dashboard/posts',
+  '/dashboard/posts/new',
+  `/dashboard/posts/${POST_ID}`,
 ] as const;
 
 /** JPICE's shared organization account. */
@@ -1618,6 +1659,7 @@ export async function stubApi(
           task_file_checked: true,
           task_file_flagged: true,
           leaderboard_penalty: true,
+          post_hidden: true,
           announcement_posted: false,
         },
       } satisfies NotificationPreferences);
@@ -1719,6 +1761,52 @@ export async function stubApi(
       } satisfies HandbookSearchResponse);
     }
     if (admin && path === '/admin/handbook') return json(route, ADMIN_HANDBOOK);
+    if (path === '/organizations/jpice/page') {
+      return json(route, {
+        organization: organizations.jpice,
+        highlights: POST_CARDS.filter((p) => p.type === 'HIGHLIGHT'),
+        updates: POST_CARDS.filter((p) => p.type === 'UPDATE'),
+        updatesTotal: 2,
+        viewer: { isOwner: signedIn, canModerate: false },
+      });
+    }
+    if (/^\/organizations\/[a-z0-9-]+\/page$/.test(path)) {
+      return json(route, {
+        organization: organizations[path.split('/')[2]!] ?? organizations.jpice,
+        highlights: [],
+        updates: [],
+        updatesTotal: 0,
+        viewer: { isOwner: false, canModerate: false },
+      });
+    }
+    if (path === '/organizations/jpice/posts') {
+      const type = url.searchParams.get('type')?.toUpperCase();
+      const items = POST_CARDS.filter((p) => !type || p.type === type);
+      return json(route, { items, page: 1, pageSize: 10, total: items.length, years: [2026] });
+    }
+    if (path === '/organizations/jpice/posts/ce-week-2026') {
+      return json(route, {
+        ...POST_CARDS[0],
+        status: 'PUBLISHED',
+        bodyHtml:
+          '<h2>Five days</h2><p>Talks, a <strong>quiz bowl</strong> and the cylinder challenge.</p><ul><li>Day one: opening</li><li>Day five: awarding</li></ul>',
+        gallery: [],
+        editedAt: null,
+        previous: null,
+        next: { slug: 'bridge-design-contest', title: 'Regional bridge-design contest, 2nd place' },
+        organization: { slug: 'jpice', acronym: 'JPICE', name: 'Junior Philippine Institute of Civil Engineers', logoUrl: null },
+        moderation: null,
+        viewer: { isOwner: false, canModerate: false },
+      });
+    }
+    if (signedIn && path === '/organizations/jpice/manage/posts') {
+      const type = url.searchParams.get('type');
+      const items = type === 'highlight' ? [MANAGED_POST] : [MANAGED_POST];
+      return json(route, { items, page: 1, pageSize: 10, total: items.length, pinnedCount: 1 });
+    }
+    if (signedIn && path === `/organizations/jpice/manage/posts/${POST_ID}`) {
+      return json(route, MANAGED_POST);
+    }
     if (path === '/organizations/jpice/constitution') return json(route, CONSTITUTION);
     if (/^\/organizations\/[a-z0-9-]+\/constitution$/.test(path)) {
       return json(route, { constitution: null } satisfies ConstitutionResponse);

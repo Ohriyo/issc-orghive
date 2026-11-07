@@ -239,3 +239,59 @@ describe('/orgs/:slug profile sections', () => {
     );
   });
 });
+
+describe('/orgs/:slug highlights and updates', () => {
+  const post = (n: number, type: 'HIGHLIGHT' | 'UPDATE') => ({
+    id: `0195f3c0-0000-7000-8000-00000000010${n}`,
+    slug: `post-${n}`,
+    type,
+    title: `${type === 'HIGHLIGHT' ? 'Highlight' : 'Update'} number ${n}`,
+    summary: 'A short summary.',
+    eventDate: null,
+    publishedAt: '2026-11-05T10:00:00.000Z',
+    cover: null,
+    externalLink: null,
+  });
+
+  function stub(highlights: unknown[], updates: unknown[]) {
+    fetchMock.mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith('/organizations/jpice/page')) {
+        return json({
+          organization: JPICE,
+          highlights,
+          updates,
+          updatesTotal: updates.length,
+          viewer: { isOwner: false, canModerate: false },
+        });
+      }
+      return json(JPICE);
+    });
+  }
+
+  it('shows the pinned highlights and the newest updates', async () => {
+    stub([post(1, 'HIGHLIGHT'), post(2, 'HIGHLIGHT')], [post(3, 'UPDATE')]);
+    renderAt('/orgs/jpice');
+    expect(await screen.findByRole('region', { name: 'JPICE highlights' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Highlight number 1' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Update number 3' })).toHaveAttribute(
+      'href',
+      '/orgs/jpice/updates/post-3',
+    );
+    expect(screen.getByRole('link', { name: /View all updates/ })).toHaveAttribute(
+      'href',
+      '/orgs/jpice/updates',
+    );
+  });
+
+  it('hides both sections when the organization has no posts', async () => {
+    stub([], []);
+    renderAt('/orgs/jpice');
+    await screen.findByRole('heading', { level: 1, name: /^JPICE/ });
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/v1/organizations/jpice/page', expect.anything()),
+    );
+    expect(screen.queryByRole('heading', { name: 'Highlights' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Updates' })).toBeNull();
+  });
+});

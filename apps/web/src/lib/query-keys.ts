@@ -57,6 +57,21 @@ export const queryKeys = {
     list: (org: string, viewer: string) => ['announcements', 'list', org, viewer] as const,
     detail: (id: string, viewer: string) => ['announcements', 'detail', id, viewer] as const,
   },
+  /**
+   * Organization posts (updates and highlights on /orgs/:slug). Reads that answer the
+   * viewer's own controls (isOwner, canModerate) carry the viewer in the key.
+   */
+  posts: {
+    all: ['posts'] as const,
+    page: (slug: string, viewer: string) => ['posts', 'page', slug, viewer] as const,
+    list: (slug: string, filters: { type?: string; year?: string; page?: string }) =>
+      ['posts', 'list', slug, filters] as const,
+    detail: (slug: string, postSlug: string, viewer: string) =>
+      ['posts', 'detail', slug, postSlug, viewer] as const,
+    manage: (slug: string, filters: { type?: string; status?: string; page?: string }) =>
+      ['posts', 'manage', slug, filters] as const,
+    managed: (slug: string, id: string) => ['posts', 'managed', slug, id] as const,
+  },
   /** Blocks, freezes and appeals (docs/PROJECT_WORKFLOW_SPEC.md, section 3). */
   appeals: {
     all: ['appeals'] as const,

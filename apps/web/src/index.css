@@ -412,3 +412,53 @@
     color: var(--color-ink);
   }
 }
+
+/* A post body (sanitized HTML from the API: h2-h4, p, lists, quotes, links, bold, italic). */
+@layer components {
+  .post-body > * + * {
+    margin-top: 1.25em;
+  }
+  .post-body h2 {
+    margin-top: 2em;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: 700;
+  }
+  .post-body h3,
+  .post-body h4 {
+    margin-top: 1.75em;
+    font-size: var(--text-body-lg);
+    font-weight: 700;
+  }
+  .post-body ul,
+  .post-body ol {
+    padding-left: 1.5em;
+  }
+  .post-body ul {
+    list-style: disc;
+  }
+  .post-body ol {
+    list-style: decimal;
+  }
+  .post-body li + li {
+    margin-top: 0.4em;
+  }
+  .post-body li::marker {
+    color: var(--color-leaf);
+  }
+  .post-body blockquote {
+    border-left: 3px solid var(--color-sage);
+    padding-left: 1.25em;
+    color: var(--color-ink-muted);
+  }
+  .post-body a {
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+  .post-body a:hover,
+  .post-body a:focus-visible {
+    text-decoration-color: var(--color-leaf);
+  }
+}

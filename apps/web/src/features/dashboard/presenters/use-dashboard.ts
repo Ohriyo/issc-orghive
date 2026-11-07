@@ -146,6 +146,8 @@ export interface SelectedOrganization {
   uploadHref: string | null;
   /** The organization's own account edits its public profile there. */
   profileHref: string | null;
+  /** Its highlights and updates (/dashboard/posts): the own account only, like the profile. */
+  postsHref: string | null;
   paperworksHref: string;
   documentsHref: string;
   canRevise: boolean;
@@ -408,6 +410,7 @@ export function selectOrganization(
     isEmpty: total === 0,
     uploadHref: isOfficer ? `/orgs/${org.slug}/paperworks/upload` : null,
     profileHref: isOfficer ? '/dashboard/profile' : null,
+    postsHref: isOfficer ? '/dashboard/posts' : null,
     paperworksHref: `/orgs/${org.slug}/paperworks`,
     documentsHref: documentsHref(org.slug),
     canRevise: isOfficer,

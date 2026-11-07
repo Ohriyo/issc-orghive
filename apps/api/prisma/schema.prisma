@@ -143,6 +143,9 @@ enum AuditAction {
   college_change
   /// An officer published or edited an update (announcement); deletes are `delete`.
   announcement_change
+  /// An organization post was created, edited, published, scheduled, unpublished, pinned or
+  /// hidden by a governing body (metadata.change says which); deletes are `delete`.
+  post_change
   /// The create-super-admin command created or promoted a super admin (actor: none).
   super_admin_create
   /// The create-super-admin command issued a new authenticator secret (--reset-mfa).
@@ -278,6 +281,8 @@ enum NotificationKind {
   task_file_flagged
   /// The ISSC disqualified the organization from a semester's leaderboard, or lifted it (spec 5B).
   leaderboard_penalty
+  /// A governing body hid one of the organization's posts, with a reason.
+  post_hidden
 }
 
 /// requested -> created (the super admin made the account) | declined (with a reason).
@@ -373,6 +378,8 @@ model Organization {
   uploadIntents   UploadIntent[]
   documents       Document[]
   announcements   Announcement[]
+  posts           OrgPost[]       @relation("OrgPostOrganization")
+  postsHidden     OrgPost[]       @relation("OrgPostHiddenBy")
   auditLogs       AuditLog[]
   projects        Project[]
   freezes         OrgFreeze[]
@@ -465,6 +472,7 @@ model User {
   passwordResetTokens     PasswordResetToken[]
   auditLogs               AuditLog[]
   announcements           Announcement[]
+  postsCreated            OrgPost[]                @relation("OrgPostCreatedBy")
   projectsCreated         Project[]
   appealsSubmitted        Appeal[]                 @relation("AppealSubmittedBy")
   appealsDecided          Appeal[]                 @relation("AppealDecidedBy")
@@ -732,6 +740,73 @@ model Announcement {
 
   @@index([organizationId, publishedAt])
   @@map("announcements")
+}
+
+enum OrgPostType {
+  UPDATE
+  HIGHLIGHT
+}
+
+/// DRAFT -> PUBLISHED (now) | SCHEDULED (publishAt; the worker publishes it) -> HIDDEN (a
+/// governing body hid it; the organization may edit and publish again). Deletes are soft.
+enum OrgPostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  HIDDEN
+}
+
+/// An organization's own update or highlight on its public page (docs/DOMAIN_RULES.md,
+/// "Organization posts"). Published without approval; separate from council announcements.
+model OrgPost {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  /// Demo data only (db:seed:demo), removed before deployment (docs/DEPLOYMENT.md).
+  isDemo         Boolean       @default(false) @map("is_demo")
+  organizationId String        @map("organization_id") @db.Uuid
+  createdById    String        @map("created_by_id") @db.Uuid
+  type           OrgPostType
+  title          String
+  /// Unique within the organization; kept when the title changes, so links stay valid.
+  slug           String
+  summary        String
+  /// Limited Markdown; rendered and sanitized on the server (lib/markdown.ts).
+  body           String        @default("")
+  /// Public `logos/posts/…` WebP key, its srcset widths and its required alt text.
+  coverKey       String?       @map("cover_key")
+  coverWidths    Int[]         @default([]) @map("cover_widths")
+  coverAlt       String?       @map("cover_alt")
+  /// Up to 10 images: [{ key, widths, alt }].
+  gallery        Json          @default("[]")
+  externalLink   String?       @map("external_link")
+  eventDate      DateTime?     @map("event_date") @db.Date
+  status         OrgPostStatus @default(DRAFT)
+  /// When a SCHEDULED post goes live.
+  publishAt      DateTime?     @map("publish_at")
+  /// When it first went live; lists sort by it.
+  publishedAt    DateTime?     @map("published_at")
+  /// Set when it is edited after it first went live.
+  editedAt       DateTime?     @map("edited_at")
+  /// Highlights only: pinned to the carousel (at most 6), in pinOrder.
+  pinned         Boolean       @default(false)
+  pinOrder       Int?          @map("pin_order")
+  /// Who last acted for the shared account. Never shown on public pages.
+  actingAs       String        @map("acting_as")
+  hiddenAt       DateTime?     @map("hidden_at")
+  hiddenReason   String?       @map("hidden_reason")
+  /// The governing body's organization that hid it.
+  hiddenByOrgId  String?       @map("hidden_by_org_id") @db.Uuid
+  deletedAt      DateTime?     @map("deleted_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization Organization  @relation("OrgPostOrganization", fields: [organizationId], references: [id])
+  createdBy    User          @relation("OrgPostCreatedBy", fields: [createdById], references: [id])
+  hiddenByOrg  Organization? @relation("OrgPostHiddenBy", fields: [hiddenByOrgId], references: [id])
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, status, publishedAt])
+  @@index([status, publishAt])
+  @@map("org_posts")
 }
 
 /// A pre-signed upload URL handed to an officer. Creating a document or version must name an

@@ -96,6 +96,7 @@ export function createAdminOrganizationService({
     await Promise.all([
       cache.deleteMatching('college:*'),
       orgSlug ? cache.deleteMatching(cacheKeys.organization(orgSlug)) : Promise.resolve(),
+      orgSlug ? cache.deleteMatching(cacheKeys.organizationPostsPattern(orgSlug)) : Promise.resolve(),
       cache.deleteMatching(cacheKeys.leaderboardOrganizations()),
     ]);
   }

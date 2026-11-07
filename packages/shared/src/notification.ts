@@ -30,6 +30,8 @@ export const NOTIFICATION_KINDS = [
   'task_file_flagged',
   /** The ISSC disqualified the organization from a semester's leaderboard, or lifted it (spec 5B). */
   'leaderboard_penalty',
+  /** A governing body hid one of the organization's posts, and said why. */
+  'post_hidden',
 ] as const;
 export const notificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
@@ -91,6 +93,10 @@ export const NOTIFICATION_KIND_INFO: Record<NotificationKind, { label: string; h
     label: 'Leaderboard disqualification',
     hint: 'The ISSC disqualified your organization from a semester’s leaderboard, or lifted it.',
   },
+  post_hidden: {
+    label: 'Hidden posts',
+    hint: 'Your CSC or the ISSC hid one of your organization’s posts, and said why.',
+  },
   password_reveal: {
     label: 'Temporary passwords to hand over',
     hint: 'A new account or password waits behind a one-time Reveal. The email never has the password.',
@@ -112,7 +118,7 @@ export const NOTIFICATION_KIND_GROUPS: { title: string; kinds: NotificationKind[
   },
   { title: 'Appeals', kinds: ['appeal_submitted', 'appeal_decided'] },
   { title: 'Files and reports', kinds: ['upload_quarantined', 'report_ready'] },
-  { title: 'Your organization', kinds: ['term_ending', 'announcement_posted'] },
+  { title: 'Your organization', kinds: ['term_ending', 'announcement_posted', 'post_hidden'] },
   { title: 'Accounts (ISSC)', kinds: ['password_reveal', 'account_request_declined'] },
 ];
 

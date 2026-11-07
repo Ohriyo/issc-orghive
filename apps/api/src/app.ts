@@ -11,6 +11,7 @@ import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
 import { createOpenApiDocument } from '#src/openapi';
 import { adminRouter } from '#src/routes/admin.routes';
 import { announcementsRouter } from '#src/routes/announcements.routes';
+import { orgPostsRouter } from '#src/routes/org-posts.routes';
 import { complianceOverviewRouter } from '#src/routes/compliance-overview.routes';
 import { taskFileDecisionsRouter } from '#src/routes/task-file-decisions.routes';
 import { appealsRouter } from '#src/routes/appeals.routes';
@@ -35,6 +36,7 @@ import type { AccountImportService } from '#src/services/account-import.service'
 import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { AnnouncementService } from '#src/services/announcement.service';
+import type { OrgPostService } from '#src/services/org-post.service';
 import type { ComplianceOverviewService } from '#src/services/compliance-overview.service';
 import type { TaskFileDecisionService } from '#src/services/task-file-decision.service';
 import type { ConstitutionService } from '#src/services/constitution.service';
@@ -94,6 +96,8 @@ export interface AppServices {
   search: SearchService;
   adminOrganizations: AdminOrganizationService;
   announcements: AnnouncementService;
+  /** Organization posts: updates and highlights on /orgs/:slug, and their moderation. */
+  posts: OrgPostService;
   complianceOverview: ComplianceOverviewService;
   system: SystemService;
   superAdmins: SuperAdminService;
@@ -203,6 +207,14 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       announcements: services.announcements,
       access: services.access,
       tokens: services.tokens,
+    }),
+  );
+  v1.use(
+    orgPostsRouter({
+      posts: services.posts,
+      access: services.access,
+      tokens: services.tokens,
+      webOrigin: config.WEB_ORIGIN,
     }),
   );
   v1.use(

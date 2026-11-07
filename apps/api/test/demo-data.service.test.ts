@@ -156,6 +156,30 @@ describe('seed', () => {
     expect(await db.notification.count({ where: { isDemo: true, emailedAt: null } })).toBe(0);
   });
 
+  it('writes ASIT, TAG and ISO posts, pins their highlights and stores the covers publicly', async () => {
+    const { service, storage } = buildDemoService(db, { postImages: true });
+    const seeded = await service.seed();
+    expect(seeded.counts.counts.orgPosts).toBe(10);
+    const asit = await db.orgPost.findMany({
+      where: { isDemo: true, organization: { slug: 'asit' }, pinned: true },
+      orderBy: { pinOrder: 'asc' },
+    });
+    expect(asit.map((p) => p.title)).toEqual([
+      'IT Days 2026: Enter the System',
+      'Engineers sweep the Phantoms 2–0 in Mobile Legends',
+      'Mix volleyball: Engineers win a three-set match',
+      'ASIT general assembly 2026',
+    ]);
+    expect(asit.filter((p) => p.coverKey).length).toBe(3);
+    expect(asit.every((p) => p.status === 'PUBLISHED' && p.coverAlt !== '')).toBe(true);
+    const covers = [...storage.objects.keys()].filter((k) => k.startsWith('logos/posts/asit/'));
+    expect(covers.length).toBeGreaterThanOrEqual(3);
+
+    await service.remove(null, null);
+    expect(await db.orgPost.count()).toBe(0);
+    expect([...storage.objects.keys()].filter((k) => k.startsWith('logos/posts/'))).toEqual([]);
+  });
+
   it('files checked tasks on their templates with valid QR codes, JIIEE’s as legacy (spec 6)', async () => {
     const { service, templated } = buildDemoService(db);
     await service.seed();

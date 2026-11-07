@@ -54,6 +54,9 @@ import { createDocumentService } from '#src/services/document.service';
 import { createPageTokenService } from '#src/services/page-token.service';
 import { createSearchService } from '#src/services/search.service';
 import { createAnnouncementService } from '#src/services/announcement.service';
+import { createOrgPostService } from '#src/services/org-post.service';
+import { createOrgPostRepository } from '#src/repositories/org-post.repository';
+import { createClamavScanner } from '#src/lib/clamav';
 import { createAnnouncementRepository } from '#src/repositories/announcement.repository';
 import { createComplianceOverviewService } from '#src/services/compliance-overview.service';
 import { createComplianceOverviewRepository } from '#src/repositories/compliance-overview.repository';
@@ -291,6 +294,20 @@ const announcements = createAnnouncementService({
   notifications,
   logger,
 });
+const orgPostRepository = createOrgPostRepository(db);
+const orgPosts = createOrgPostService({
+  posts: orgPostRepository,
+  organizations: createOrganizationService({ organizations, cache, publicUrl }),
+  accounts,
+  recipients,
+  notifications,
+  audit,
+  cache,
+  storage,
+  scanner: createClamavScanner({ host: config.CLAMAV_HOST, port: config.CLAMAV_PORT }),
+  publicUrl,
+  logger,
+});
 const taskFileDecisions = createTaskFileDecisionService({
   decisions: createTaskFileDecisionRepository(db),
   viewers,
@@ -520,6 +537,7 @@ const app = createApp({
     search,
     adminOrganizations,
     announcements,
+    posts: orgPosts,
     complianceOverview,
     taskFileDecisions,
     reveals,

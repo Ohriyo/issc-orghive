@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { ConfigError, loadConfig, type Config } from '#src/config';
 import { createRedis, createRedisCache } from '#src/lib/cache';
 import { createClamavScanner } from '#src/lib/clamav';
+import { createOrgPostRepository } from '#src/repositories/org-post.repository';
+import { createScheduledPostPublisher } from '#src/services/org-post.service';
 import * as tools from '#src/lib/file-processing';
 import { createGotenbergConverter } from '#src/lib/office-converter';
 import * as previewRenderer from '#src/lib/preview-render';
@@ -277,6 +279,13 @@ const reports = createReportService({
   logger,
 });
 
+/** Scheduled organization posts go live within a minute of publishAt (an instant; the editor picks it in Manila time). */
+const PUBLISH_DUE_POSTS_EVERY_MS = 60_000;
+const publishDuePosts = createScheduledPostPublisher({
+  posts: createOrgPostRepository(db),
+  cache: createRedisCache(redis, logger),
+});
+
 async function handle(job: Job<DocumentJob['data'], unknown, DocumentJob['name']>) {
   switch (job.name) {
     case 'process-version': {
@@ -317,6 +326,11 @@ async function handle(job: Job<DocumentJob['data'], unknown, DocumentJob['name']
       const revealsErased = await revealReads.purgeExpired(new Date());
       logger.info({ checked, termsEnding, revealsErased }, 'Compliance check');
       return { checked, termsEnding, revealsErased };
+    }
+    case 'publish-due-posts': {
+      const organizations = await publishDuePosts();
+      if (organizations) logger.info({ organizations }, 'Published scheduled posts');
+      return { organizations };
     }
     default:
       throw new UnrecoverableError(`Unknown job ${String(job.name)}`);
@@ -423,6 +437,11 @@ await jobs.queue.upsertJobScheduler(
   'check-compliance',
   { every: COMPLIANCE_EVERY_MS },
   { name: 'check-compliance', data: {} },
+);
+await jobs.queue.upsertJobScheduler(
+  'publish-due-posts',
+  { every: PUBLISH_DUE_POSTS_EVERY_MS },
+  { name: 'publish-due-posts', data: {} },
 );
 await leaderboardQueue.queue.upsertJobScheduler(
   'leaderboard-daily',

@@ -67,6 +67,11 @@ function fileFor(type: ProjectTaskType): Buffer {
   return body;
 }
 
+/** Demo post covers (the ASIT posters), by file name. */
+function postImageFor(file: string): Buffer {
+  return readFileSync(join(ASSETS, 'posts', file));
+}
+
 const logger = createLogger({ ...config, LOG_LEVEL: 'warn' });
 const db = createDb(config.DATABASE_URL);
 const redis = createRedis(config.REDIS_URL);
@@ -98,6 +103,7 @@ const demo = createDemoDataService({
     for (const semester of semesters.values()) await leaderboard.compute(semester);
   },
   fileFor,
+  postImageFor,
   // Checked tasks' files on their templates with real QR codes (spec section 6).
   templates: config.TASK_QR_SECRET
     ? { qr: createTaskQr(config.TASK_QR_SECRET), pdf: filledTaskPdf }

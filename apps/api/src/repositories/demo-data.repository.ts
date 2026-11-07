@@ -13,6 +13,7 @@ import type {
   ProjectTaskType,
 } from '#src/generated/prisma/client';
 import type { SnapshotKey, SnapshotRecord } from './leaderboard.repository';
+import { logoVariantKey } from '#src/lib/public-url';
 import type { Db } from './prisma';
 
 /*
@@ -40,6 +41,7 @@ async function countDemo(db: Client): Promise<DemoDataCounts> {
     freezes,
     notifications,
     announcements,
+    orgPosts,
     leaderboardSnapshots,
     auditLogs,
   ] = await Promise.all([
@@ -55,6 +57,7 @@ async function countDemo(db: Client): Promise<DemoDataCounts> {
     db.orgFreeze.count({ where }),
     db.notification.count({ where }),
     db.announcement.count({ where }),
+    db.orgPost.count({ where }),
     db.leaderboardSnapshot.count({ where }),
     db.auditLog.count({ where }),
   ]);
@@ -71,6 +74,7 @@ async function countDemo(db: Client): Promise<DemoDataCounts> {
     freezes,
     notifications,
     announcements,
+    orgPosts,
     leaderboardSnapshots,
     auditLogs,
   };
@@ -225,6 +229,8 @@ export interface DemoInsert {
     body: string;
     publishedAt: Date;
   }[];
+  /** Organization posts, published; covers already stored under logos/posts/. */
+  posts: Omit<Prisma.OrgPostCreateManyInput, 'isDemo'>[];
   audit: {
     action: AuditAction;
     actorId: string | null;
@@ -254,6 +260,20 @@ export interface DemoRemoval {
 const TRANSACTION = { timeout: 60_000, maxWait: 10_000 };
 
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
+
+/** A post's stored images: each original and its srcset variants. */
+function postImageKeys(post: { coverKey: string | null; coverWidths: number[]; gallery: unknown }) {
+  const images: { key: string; widths: number[] }[] = [];
+  if (post.coverKey) images.push({ key: post.coverKey, widths: post.coverWidths });
+  if (Array.isArray(post.gallery)) {
+    for (const item of post.gallery as { key?: unknown; widths?: unknown }[]) {
+      if (typeof item?.key === 'string') {
+        images.push({ key: item.key, widths: Array.isArray(item.widths) ? (item.widths as number[]) : [] });
+      }
+    }
+  }
+  return images.flatMap(({ key, widths }) => [key, ...widths.map((w) => logoVariantKey(key, w))]);
+}
 const asDate = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
 export function createDemoDataRepository(db: Db) {
@@ -359,6 +379,7 @@ export function createDemoDataRepository(db: Db) {
         await tx.announcement.createMany({
           data: rows.announcements.map((r) => ({ ...r, createdAt: r.publishedAt, isDemo })),
         });
+        await tx.orgPost.createMany({ data: rows.posts.map((r) => ({ ...r, isDemo })) });
         await tx.auditLog.createMany({
           data: rows.audit.map((r) => ({
             ...r,
@@ -493,6 +514,17 @@ export function createDemoDataRepository(db: Db) {
           where: flagged,
           select: { organization: { select: { slug: true } } },
         });
+        // Posts of demo organizations carry no flag of their own if an officer wrote them.
+        const posts = await tx.orgPost.findMany({
+          where: { OR: [flagged, { organizationId: { in: orgIds } }] },
+          select: {
+            id: true,
+            coverKey: true,
+            coverWidths: true,
+            gallery: true,
+            organization: { select: { slug: true } },
+          },
+        });
 
         // Notifications point at what they are about through their link or dedupe key.
         const referenced = [...projectIds, ...appeals, ...freezes];
@@ -541,6 +573,7 @@ export function createDemoDataRepository(db: Db) {
         await tx.announcement.deleteMany({
           where: { OR: [flagged, { organizationId: { in: orgIds } }] },
         });
+        await tx.orgPost.deleteMany({ where: { id: { in: ids(posts) } } });
         await tx.leaderboardSnapshot.deleteMany({
           where: {
             OR: [
@@ -581,6 +614,7 @@ export function createDemoDataRepository(db: Db) {
           storageKeys: [
             ...versions.flatMap((v) => [v.storageKey, ...(v.thumbnailKey ? [v.thumbnailKey] : [])]),
             ...attachments.map((a) => a.storageKey),
+            ...posts.flatMap(postImageKeys),
           ],
           documentIds,
           organizationSlugs: [
@@ -588,6 +622,7 @@ export function createDemoDataRepository(db: Db) {
               ...projects.map((p) => p.organization.slug),
               ...documents.map((d) => d.organization.slug),
               ...announcementOrgs.map((a) => a.organization.slug),
+              ...posts.map((p) => p.organization.slug),
             ]),
           ],
           eventDates: [...new Set(projects.map((p) => isoDate(p.targetDate)))],

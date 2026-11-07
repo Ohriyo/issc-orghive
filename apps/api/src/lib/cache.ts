@@ -26,6 +26,16 @@ export const cacheKeys = {
    */
   organization: (slug: string) => `org:${slug}:v2`,
   organizationDocuments: (slug: string, queryHash: string) => `org:${slug}:docs:${queryHash}`,
+  /** The organization page's post sections, post lists, one post and the RSS feed. */
+  organizationPostPage: (slug: string) => `org:${slug}:post-page`,
+  organizationPosts: (slug: string, queryHash: string) => `org:${slug}:posts:${queryHash}`,
+  organizationPost: (slug: string, postSlug: string) => `org:${slug}:post:${postSlug}`,
+  organizationPostFeed: (slug: string) => `org:${slug}:post-feed`,
+  /**
+   * Every cached post read of one organization. Delete it on any post write and any change
+   * to the organization itself (a post page shows its name and logo).
+   */
+  organizationPostsPattern: (slug: string) => `org:${slug}:post*`,
   /** Every cached document list of one organization. Delete it on any document write. */
   organizationDocumentsPattern: (slug: string) => `org:${slug}:docs:*`,
   /** Bumped on every document write; part of every cached search key. */

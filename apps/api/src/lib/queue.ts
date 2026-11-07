@@ -34,7 +34,9 @@ export type DocumentJob =
    * deadline reminders; also tells officers and advisers whose term ends soon (term-reminders).
    * Idempotent, so running it twice changes nothing.
    */
-  | { name: 'check-compliance'; data: Record<string, never> };
+  | { name: 'check-compliance'; data: Record<string, never> }
+  /** Every minute: scheduled organization posts whose time has come go live (idempotent). */
+  | { name: 'publish-due-posts'; data: Record<string, never> };
 
 export type PreviewJob = { name: 'render-preview'; data: { versionId: string } };
 

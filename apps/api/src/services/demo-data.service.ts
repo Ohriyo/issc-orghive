@@ -8,6 +8,7 @@ import {
   isCheckedTask,
   PROJECT_TASK_DOCUMENT_TYPES,
   PROJECT_TASK_LABELS,
+  postSlugFromTitle,
   type DemoDataPreview,
   type DemoStatus,
   type ProjectTaskType,
@@ -17,6 +18,7 @@ import { AppError } from '#src/errors/app-error';
 import { type Cache, cacheKeys, invalidateDocuments } from '#src/lib/cache';
 import type { LeaderboardEvents } from '#src/lib/leaderboard-events';
 import type { LeaderboardStore } from '#src/lib/leaderboard-store';
+import { LOGO_CACHE_CONTROL, processPostImage } from '#src/lib/logo';
 import type { Storage } from '#src/lib/storage';
 import type { FilledTaskFacts } from '#src/lib/task-template-pdf';
 import { generateTaskCode, type TaskQr } from '#src/lib/task-qr';
@@ -57,6 +59,11 @@ export interface DemoDataServiceDeps {
   standingsChanged: (eventDates: string[]) => Promise<void>;
   /** The demo PDF for a task's file (watermarked "SAMPLE — DEMO DATA"). */
   fileFor: (type: ProjectTaskType) => Buffer;
+  /**
+   * A demo post's cover, by file name (prisma/seed/demo-assets/posts/). Without it, demo
+   * posts have no covers and the page shows the organization's logo instead.
+   */
+  postImageFor?: (file: string) => Buffer;
   /**
    * Checked tasks' files on their templates, with real QR codes (spec section 6). Without it
    * (no TASK_QR_SECRET), every demo task file is the plain sample, legacy and unverified.
@@ -103,6 +110,7 @@ export function createDemoDataService({
   audit,
   standingsChanged,
   fileFor,
+  postImageFor,
   templates,
   textOf,
   showBadge,
@@ -122,6 +130,7 @@ export function createDemoDataService({
     for (const slug of new Set(slugs)) {
       await invalidateDocuments(cache, slug);
       await cache.deleteMatching(cacheKeys.organization(slug));
+      await cache.deleteMatching(cacheKeys.organizationPostsPattern(slug));
     }
     await Promise.all([
       cache.deleteMatching(STATUS_KEY),
@@ -221,6 +230,7 @@ export function createDemoDataService({
       appeals: [],
       notifications: [],
       announcements: [],
+      posts: [],
       audit: [],
     };
     const orgs = await organizationsFor(plan.organizations, rows);
@@ -437,6 +447,38 @@ export function createDemoDataService({
         title: a.title,
         body: a.body,
         publishedAt: a.publishedAt,
+      });
+    }
+
+    // Covers go through the same checks and WebP conversion as an officer's upload.
+    for (const p of plan.posts) {
+      const owner = org(p.org);
+      let cover: { key: string; widths: number[]; alt: string } | null = null;
+      if (p.cover && postImageFor) {
+        const image = await processPostImage(owner.slug, postImageFor(p.cover.file));
+        for (const file of image.files) {
+          await storage.put(file.key, file.body, 'image/webp', LOGO_CACHE_CONTROL);
+        }
+        cover = { key: image.key, widths: image.widths, alt: p.cover.alt };
+      }
+      rows.posts.push({
+        organizationId: owner.id,
+        createdById: owner.accountId,
+        type: p.type,
+        title: p.title,
+        slug: postSlugFromTitle(p.title),
+        summary: p.summary,
+        body: p.body,
+        coverKey: cover?.key ?? null,
+        coverWidths: cover?.widths ?? [],
+        coverAlt: cover?.alt ?? null,
+        eventDate: p.eventDate ? new Date(`${p.eventDate}T00:00:00Z`) : null,
+        status: 'PUBLISHED',
+        publishedAt: p.publishedAt,
+        pinned: p.pinOrder !== null,
+        pinOrder: p.pinOrder,
+        actingAs: ACTING_AS,
+        createdAt: p.publishedAt,
       });
     }
 

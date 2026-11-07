@@ -3,8 +3,10 @@ import { z } from 'zod';
 /*
  * Demo data (pnpm --filter api db:seed:demo): sample activity so empty features can be shown
  * during development and demos. Every demo row has is_demo = true and every demo file sits
- * under DEMO_STORAGE_PREFIX; all of it is removed before deployment (db:unseed:demo, or the
- * super admin console), and the API refuses to start in production while any remains.
+ * under DEMO_STORAGE_PREFIX (except demo post covers, which must be public: they sit under
+ * logos/posts/ and are removed through their rows); all of it is removed before deployment
+ * (db:unseed:demo, or the super admin console), and the API refuses to start in production
+ * while any remains.
  */
 
 /** Where demo files are stored. Nothing else is ever written under it. */
@@ -24,6 +26,7 @@ export const DEMO_DATA_KINDS = [
   'freezes',
   'notifications',
   'announcements',
+  'orgPosts',
   'leaderboardSnapshots',
   'auditLogs',
 ] as const;
@@ -42,6 +45,7 @@ export const DEMO_DATA_LABELS: Record<DemoDataKind, string> = {
   freezes: 'Freezes',
   notifications: 'Notifications',
   announcements: 'Announcements',
+  orgPosts: 'Organization posts',
   leaderboardSnapshots: 'Leaderboard snapshots',
   auditLogs: 'Audit log entries',
 };

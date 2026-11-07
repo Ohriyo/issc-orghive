@@ -99,6 +99,13 @@ const PUBLIC: Record<string, string> = {
   'get /api/v1/handbook/:year/search': 'search inside one public edition',
   'get /api/v1/announcements': 'updates are public (DOMAIN_RULES.md)',
   'get /api/v1/announcements/:announcementId': 'updates are public (DOMAIN_RULES.md)',
+  'get /api/v1/organizations/:slug/page':
+    'the organization page; live posts only (visibility filter in the repository)',
+  'get /api/v1/organizations/:slug/posts':
+    'organization posts are public once live (DOMAIN_RULES.md); repository filter',
+  'get /api/v1/organizations/:slug/posts/rss.xml': 'RSS feed of live posts',
+  'get /api/v1/organizations/:slug/posts/:postSlug':
+    'one live post; the own account also sees its unpublished ones (optional session)',
   'get /api/v1/leaderboard': 'leaderboard is public (spec 5F); public fields only',
   'get /api/v1/leaderboard/stream': 'live leaderboard (SSE), public fields only; capped per IP',
   'get /api/v1/demo-status':

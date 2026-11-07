@@ -104,3 +104,35 @@ export function collegeSeo(college: CollegeSeoInput): PageSeo {
     imageAlt: logo && college.csc ? `${college.csc.name} logo` : DEFAULT_IMAGE_ALT,
   };
 }
+
+/** /orgs/:slug/updates: the organization's news, from facts only. */
+export function orgUpdatesSeo(org: { slug: string; acronym: string; name: string }): PageSeo {
+  return {
+    title: pageTitle(`${org.acronym} updates and highlights`),
+    description: truncateDescription(
+      `News, highlights and achievements from ${org.name} (${org.acronym}), on ${SITE_NAME}.`,
+    ),
+    path: `/orgs/${org.slug}/updates`,
+    image: DEFAULT_OG_IMAGE_PATH,
+    imageAlt: DEFAULT_IMAGE_ALT,
+  };
+}
+
+/** /orgs/:slug/updates/:postSlug. The image is the cover, else the organization's logo. */
+export function orgPostSeo(post: {
+  slug: string;
+  title: string;
+  summary: string;
+  cover: { url: string; alt: string } | null;
+  organization: { slug: string; acronym: string; name: string; logoUrl: string | null };
+}): PageSeo {
+  const org = post.organization;
+  const image = post.cover?.url ?? org.logoUrl;
+  return {
+    title: pageTitle(`${post.title} · ${org.acronym}`),
+    description: truncateDescription(post.summary),
+    path: `/orgs/${org.slug}/updates/${post.slug}`,
+    image: image ?? DEFAULT_OG_IMAGE_PATH,
+    imageAlt: post.cover?.alt ?? (org.logoUrl ? `${org.name} logo` : DEFAULT_IMAGE_ALT),
+  };
+}

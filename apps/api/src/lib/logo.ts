@@ -1,7 +1,13 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { fileTypeFromBuffer } from 'file-type';
 import sharp from 'sharp';
-import { COVER_MIN_WIDTH, LOGO_MIME_TYPES, LOGO_MIN_WIDTH } from '@orghive/shared';
+import {
+  COVER_MIN_WIDTH,
+  LOGO_MIME_TYPES,
+  LOGO_MIN_WIDTH,
+  POST_IMAGE_MIN_WIDTH,
+  POST_IMAGE_WIDTHS,
+} from '@orghive/shared';
 import { logoVariantKey } from './public-url';
 
 /** Widths for srcset. Never larger than the source: upscaling adds bytes, not detail. */
@@ -104,5 +110,22 @@ export function processCover(slug: string, body: Buffer): Promise<ProcessedLogo>
     label: 'cover image',
     widths: (w) => [...COVER_WIDTHS.filter((c) => c < w), Math.min(w, COVER_WIDTHS.at(-1)!)],
     maxWidth: COVER_WIDTHS.at(-1),
+  });
+}
+
+/**
+ * A post image (cover or gallery): same byte checks as a cover, re-encoded to WebP (which
+ * drops EXIF and every other metadata block, GPS included), at most 1920px wide, with the
+ * POST_IMAGE_WIDTHS it is wide enough for. The key has a random part, so nobody can guess a
+ * draft's image: `logos/posts/<slug>/<24 hex>-<12 hex>.webp`.
+ */
+export function processPostImage(slug: string, body: Buffer): Promise<ProcessedLogo> {
+  const maxWidth = POST_IMAGE_WIDTHS.at(-1)!;
+  return processPublicImage(body, {
+    keyBase: `logos/posts/${slug}/${randomBytes(12).toString('hex')}`,
+    minWidth: POST_IMAGE_MIN_WIDTH,
+    label: 'image',
+    widths: (w) => POST_IMAGE_WIDTHS.filter((size) => size <= w),
+    maxWidth,
   });
 }

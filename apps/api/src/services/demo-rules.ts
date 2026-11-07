@@ -152,6 +152,21 @@ export interface DemoAuditEntry {
   createdAt: Date;
 }
 
+/** An organization post (update or highlight) on its public page, with an optional cover. */
+export interface DemoPost {
+  org: string;
+  type: 'UPDATE' | 'HIGHLIGHT';
+  title: string;
+  summary: string;
+  body: string;
+  /** A file in prisma/seed/demo-assets/posts/, or none (the page then shows the logo). */
+  cover: { file: string; alt: string } | null;
+  eventDate: string | null;
+  publishedAt: Date;
+  /** Highlights only: place on the carousel. */
+  pinOrder: number | null;
+}
+
 export interface DemoPlan {
   /** Every organization the plan touches. */
   organizations: string[];
@@ -159,6 +174,7 @@ export interface DemoPlan {
   freezes: DemoFreeze[];
   appeals: DemoAppeal[];
   announcements: DemoAnnouncement[];
+  posts: DemoPost[];
   notifications: DemoNotification[];
   audit: DemoAuditEntry[];
   /** The earlier standings the rank arrows compare against: the boards as they stood then. */
@@ -546,6 +562,134 @@ export function planDemoData(now: Date): DemoPlan {
     },
   ];
 
+  const SAMPLE = '\n\n*Sample post for demonstrations.*';
+  const posts: DemoPost[] = [
+    {
+      org: 'asit',
+      type: 'HIGHLIGHT',
+      title: 'IT Days 2026: Enter the System',
+      summary:
+        'Two days of games, talks and contests for CCIS students under one theme: outsmart, outplay, outlast. Thank you to every team, volunteer and adviser who made it happen.',
+      body: `## Two days, one theme
+
+IT Days brought together every year level of the BS Information Technology program for **esports, sports and tech talks**.
+
+- Day one: opening program, Mobile Legends bracket, talks
+- Day two: mix volleyball, finals and awarding${SAMPLE}`,
+      cover: { file: 'it-days.png', alt: 'IT Days 2026 poster: Enter the System, November 5 to 6' },
+      eventDate: ago(1),
+      publishedAt: manilaAt(ago(1), 18),
+      pinOrder: 1,
+    },
+    {
+      org: 'asit',
+      type: 'HIGHLIGHT',
+      title: 'Engineers sweep the Phantoms 2–0 in Mobile Legends',
+      summary:
+        'The IT Days esports bracket opened with a clean two-game sweep. The Engineers move on to the finals on day two.',
+      body: `The Engineers took both games against the Phantoms in the opening match of the IT Days esports bracket.${SAMPLE}`,
+      cover: { file: 'ml-game.jpg', alt: 'A student playing Mobile Legends on a phone held sideways' },
+      eventDate: ago(1),
+      publishedAt: manilaAt(ago(1), 20),
+      pinOrder: 2,
+    },
+    {
+      org: 'asit',
+      type: 'HIGHLIGHT',
+      title: 'Mix volleyball: Engineers win a three-set match',
+      summary:
+        'The Engineers beat the Phantoms 2–1 on the CCIS court after dropping the second set, in front of a full sideline of IT students.',
+      body: `A close three-set match on the CCIS court closed the IT Days sports events.${SAMPLE}`,
+      cover: {
+        file: 'volleyball.jpg',
+        alt: 'Mixed volleyball players on the CCIS court with students watching from the side',
+      },
+      eventDate: ago(1),
+      publishedAt: manilaAt(ago(1), 21),
+      pinOrder: 3,
+    },
+    {
+      org: 'asit',
+      type: 'HIGHLIGHT',
+      title: 'ASIT general assembly 2026',
+      summary:
+        'Officers presented the plans for the semester and welcomed first-year IT students to the organization.',
+      body: `Thank you to everyone who came to the general assembly.${SAMPLE}`,
+      cover: null,
+      eventDate: ago(19),
+      publishedAt: manilaAt(ago(18), 9),
+      pinOrder: 4,
+    },
+    {
+      org: 'asit',
+      type: 'UPDATE',
+      title: 'IT Days schedule and venues',
+      summary: 'Games run at the CCIS court and the AVR on November 5 and 6. See the full schedule.',
+      body: `**Day one:** opening program at 8 am, CCIS court.
+
+**Day two:** finals and awarding from 1 pm.${SAMPLE}`,
+      cover: null,
+      eventDate: null,
+      publishedAt: manilaAt(ago(6), 10),
+      pinOrder: null,
+    },
+    {
+      org: 'asit',
+      type: 'UPDATE',
+      title: 'Membership fee deadline moved',
+      summary: 'Pay at the CCIS lobby booth, Mondays to Thursdays, 9 am to 3 pm.',
+      body: `The new deadline is two weeks from today.${SAMPLE}`,
+      cover: null,
+      eventDate: null,
+      publishedAt: manilaAt(ago(12), 15),
+      pinOrder: null,
+    },
+    {
+      org: 'tag',
+      type: 'HIGHLIGHT',
+      title: 'Animation showcase: twelve short films',
+      summary: 'Members screened twelve short films made this semester, from stop-motion to 3D.',
+      body: `Thank you to everyone who came to the screening.${SAMPLE}`,
+      cover: null,
+      eventDate: ago(10),
+      publishedAt: manilaAt(ago(9), 17),
+      pinOrder: 1,
+    },
+    {
+      org: 'tag',
+      type: 'UPDATE',
+      title: 'Blender workshop sign-ups are open',
+      summary: 'Thirty seats for beginners. Bring a laptop with Blender installed.',
+      body: `Sign up at the TAG booth in the CCIS lobby.${SAMPLE}`,
+      cover: null,
+      eventDate: null,
+      publishedAt: manilaAt(ago(4), 11),
+      pinOrder: null,
+    },
+    {
+      org: 'iso',
+      type: 'HIGHLIGHT',
+      title: 'Systems analysis case competition',
+      summary: 'Six teams analysed a real enrollment process and pitched their redesigns to a panel.',
+      body: `Congratulations to every team.${SAMPLE}`,
+      cover: null,
+      eventDate: ago(15),
+      publishedAt: manilaAt(ago(14), 16),
+      pinOrder: 1,
+    },
+    {
+      org: 'iso',
+      type: 'UPDATE',
+      title: 'Officer elections: results',
+      summary: 'Thank you to everyone who voted. The new officers take office next week.',
+      body: `The full results are posted at the ISO office.${SAMPLE}`,
+      cover: null,
+      eventDate: null,
+      publishedAt: manilaAt(ago(30), 9),
+      pinOrder: null,
+    },
+  ];
+
   const audit: DemoAuditEntry[] = [
     ...(['asit-blocked', 'tag-blocked'] as const).map((key): DemoAuditEntry => ({
       action: 'project_block',
@@ -603,11 +747,12 @@ export function planDemoData(now: Date): DemoPlan {
   ];
 
   return {
-    organizations: [...new Set(projects.map((p) => p.org)), 'issc'],
+    organizations: [...new Set([...projects.map((p) => p.org), ...posts.map((p) => p.org)]), 'issc'],
     projects,
     freezes,
     appeals,
     announcements,
+    posts,
     notifications,
     audit,
     previousStandingsAt: new Date(now.getTime() - 7 * 24 * 60 * 60_000),

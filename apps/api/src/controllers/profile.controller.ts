@@ -22,7 +22,7 @@ function actorOf(req: Request, res: Response): Actor {
  * Raw image bodies cannot carry JSON, so "Acting as" comes in its own header,
  * percent-encoded (header values are Latin-1 only; names need not be).
  */
-function actingAsHeader(req: Request): string {
+export function actingAsHeader(req: Request): string {
   let value: string | undefined;
   try {
     value = decodeURIComponent(req.get(ACTING_AS_HEADER) ?? '');
@@ -37,7 +37,7 @@ function actingAsHeader(req: Request): string {
 }
 
 /** The raw image bytes (express.raw on the route); the service checks what they are. */
-function imageOf(req: Request, field: 'logo' | 'cover'): Buffer {
+export function imageOf(req: Request, field: string): Buffer {
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
     throw new AppError(400, ErrorCode.VALIDATION_ERROR, `${field}: Send a PNG, JPEG or WebP image`);
   }

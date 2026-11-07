@@ -170,7 +170,10 @@ export const demoQr = createTaskQr(Buffer.alloc(32, 5).toString('base64'));
  * Templated files are a stand-in naming their code (the real PDF: task-template-pdf.test.ts);
  * `templated` records what each was asked to show.
  */
-export function buildDemoService(db: Db, { now = () => DEMO_NOW, showBadge = true } = {}) {
+export function buildDemoService(
+  db: Db,
+  { now = () => DEMO_NOW, showBadge = true, postImages = false } = {},
+) {
   const templated: FilledTaskFacts[] = [];
   const storage = memoryStorage();
   const store = memoryLeaderboardStore();
@@ -194,6 +197,7 @@ export function buildDemoService(db: Db, { now = () => DEMO_NOW, showBadge = tru
     },
     fileFor: (type: ProjectTaskType) =>
       readFileSync(join(ASSETS, `${PROJECT_TASK_DOCUMENT_TYPES[type].slug}.pdf`)),
+    postImageFor: postImages ? (file) => readFileSync(join(ASSETS, 'posts', file)) : undefined,
     templates: {
       qr: demoQr,
       pdf: (facts) => {

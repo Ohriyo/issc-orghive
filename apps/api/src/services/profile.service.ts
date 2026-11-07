@@ -81,6 +81,7 @@ export function createProfileService({
   function invalidate(org: OrgRef) {
     return Promise.all([
       cache.deleteMatching(cacheKeys.organization(org.slug)),
+      cache.deleteMatching(cacheKeys.organizationPostsPattern(org.slug)),
       cache.deleteMatching('college:*'),
       cache.deleteMatching(cacheKeys.leaderboardOrganizations()),
     ]);

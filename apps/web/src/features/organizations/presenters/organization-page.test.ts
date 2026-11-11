@@ -8,6 +8,7 @@ const JPICE: OrganizationDetail = {
   slug: 'jpice',
   acronym: 'JPICE',
   name: 'Junior Philippine Institute of Civil Engineers',
+  tagline: null,
   description: 'The JPICE is a dynamic organization.',
   logoUrl: 'https://cdn.test/jpice.png',
   logoSrcSet: null,

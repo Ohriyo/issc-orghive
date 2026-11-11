@@ -5,19 +5,21 @@ import { chrome } from '@/navigation/trails';
 import { useOrgPlace } from '@/navigation/use-places';
 import { useOrgPostSections } from '@/features/posts/presenters/use-org-post-sections';
 import { useConstitution } from './presenters/use-constitution';
+import { useOrgShowcase } from './presenters/use-org-showcase';
 import { useOrganizationPage } from './presenters/use-organization-page';
 import { OrganizationView } from './views/organization-view';
 
-/** /orgs/:slug: an organization's profile and the way into its Paperworks. */
+/** /orgs/:slug: an organization's page, the same template for every organization. */
 export function OrganizationPage() {
   const { slug = '' } = useParams();
   const state = useOrganizationPage(slug);
   const constitution = useConstitution(slug);
   const posts = useOrgPostSections(slug);
+  const showcase = useOrgShowcase(slug);
   usePageChrome(chrome.organization(slug, useOrgPlace(slug)));
 
   if (state.status === 'not-found') return <OrganizationNotFound />;
-  return <OrganizationView {...state} constitution={constitution} posts={posts} />;
+  return <OrganizationView {...state} constitution={constitution} posts={posts} showcase={showcase} />;
 }
 
 export function OrganizationNotFound() {

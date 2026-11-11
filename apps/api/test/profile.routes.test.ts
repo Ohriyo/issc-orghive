@@ -80,6 +80,7 @@ async function scanClean(versionId: string) {
 }
 
 const PROFILE = {
+  tagline: 'Building communities, one project at a time.',
   description: 'Civil engineering students.',
   mission: 'Shape competent civil engineers.',
   vision: '',
@@ -231,6 +232,7 @@ describe('PUT /organizations/:slug/profile', () => {
     expect(saved.status).toBe(200);
     expect(saved.body).toMatchObject({
       official: { acronym: 'JPICE', type: 'SBO' },
+      tagline: 'Building communities, one project at a time.',
       mission: 'Shape competent civil engineers.',
       vision: null,
       officers: [
@@ -253,6 +255,7 @@ describe('PUT /organizations/:slug/profile', () => {
       { position: 'President', name: 'Ana Reyes' },
     ]);
     const detail = page.body as OrganizationDetail;
+    expect(detail.tagline).toBe('Building communities, one project at a time.');
     expect(detail.links.map((l) => l.kind)).toEqual(['facebook', 'instagram']);
     expect(JSON.stringify(page.body)).not.toContain('Ben Cruz');
   });
@@ -287,6 +290,20 @@ describe('PUT /organizations/:slug/profile', () => {
         })
       ).status,
     ).toBe(400);
+  });
+
+  it('400s a tagline over 160 characters and stores a blank one as none', async () => {
+    const long = await call('put', '/organizations/jpice/profile', 'owner', {
+      ...PROFILE,
+      tagline: 'x'.repeat(161),
+    });
+    expect(long.status).toBe(400);
+    const blank = await call('put', '/organizations/jpice/profile', 'owner', {
+      ...PROFILE,
+      tagline: '   ',
+    });
+    expect(blank.status).toBe(200);
+    expect((blank.body as { tagline: string | null }).tagline).toBeNull();
   });
 });
 

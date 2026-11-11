@@ -99,6 +99,8 @@ const PUBLIC: Record<string, string> = {
   'get /api/v1/handbook/:year/search': 'search inside one public edition',
   'get /api/v1/announcements': 'updates are public (DOMAIN_RULES.md)',
   'get /api/v1/announcements/:announcementId': 'updates are public (DOMAIN_RULES.md)',
+  'get /api/v1/organizations/:slug/showcase':
+    'the organization page: rank badge, completed projects, public task files and documents only',
   'get /api/v1/organizations/:slug/page':
     'the organization page; live posts only (visibility filter in the repository)',
   'get /api/v1/organizations/:slug/posts':

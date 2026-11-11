@@ -55,6 +55,8 @@ import { createPageTokenService } from '#src/services/page-token.service';
 import { createSearchService } from '#src/services/search.service';
 import { createAnnouncementService } from '#src/services/announcement.service';
 import { createOrgPostService } from '#src/services/org-post.service';
+import { createOrgShowcaseService } from '#src/services/org-showcase.service';
+import { createOrgShowcaseRepository } from '#src/repositories/org-showcase.repository';
 import { createOrgPostRepository } from '#src/repositories/org-post.repository';
 import { createClamavScanner } from '#src/lib/clamav';
 import { createAnnouncementRepository } from '#src/repositories/announcement.repository';
@@ -182,6 +184,7 @@ const recipients = createRecipients({ accounts, organizations });
 const projectSync = createProjectSync({
   projects,
   leaderboard: recompute,
+  cache,
   compliance: createCompliance({ freezes, recipients, notifications, audit }),
 });
 const financialFigures = createFinancialFiguresService({
@@ -307,6 +310,12 @@ const orgPosts = createOrgPostService({
   scanner: createClamavScanner({ host: config.CLAMAV_HOST, port: config.CLAMAV_PORT }),
   publicUrl,
   logger,
+});
+const orgShowcase = createOrgShowcaseService({
+  showcase: createOrgShowcaseRepository(db),
+  leaderboard,
+  semesters: semesterReader,
+  cache,
 });
 const taskFileDecisions = createTaskFileDecisionService({
   decisions: createTaskFileDecisionRepository(db),
@@ -538,6 +547,7 @@ const app = createApp({
     adminOrganizations,
     announcements,
     posts: orgPosts,
+    showcase: orgShowcase,
     complianceOverview,
     taskFileDecisions,
     reveals,

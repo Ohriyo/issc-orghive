@@ -7,10 +7,12 @@ import { uploadKeySchema } from './upload';
 
 /*
  * The organization profile (/dashboard/profile). The organization's own account edits its
- * description, mission, vision, images, contact details, links and officers. Its official
+ * tagline, description, mission, vision, images, contact details, links and officers. Its official
  * name, acronym, type and college belong to the ISSC account (/admin) and are only shown.
  */
 
+/** A one-line summary under the name on /orgs/:slug. */
+export const PROFILE_TAGLINE_MAX = 160;
 export const PROFILE_DESCRIPTION_MAX = 2000;
 export const PROFILE_STATEMENT_MAX = 1000;
 export const PROFILE_MAX_LINKS = 6;
@@ -104,6 +106,7 @@ export type ProfileOfficerInput = z.input<typeof profileOfficerSchema>;
 
 /** The editable fields, as the form holds them (without who is acting). */
 export const profileFieldsSchema = z.strictObject({
+  tagline: optionalText(PROFILE_TAGLINE_MAX, 'tagline'),
   description: optionalText(PROFILE_DESCRIPTION_MAX, 'description'),
   mission: optionalText(PROFILE_STATEMENT_MAX, 'mission'),
   vision: optionalText(PROFILE_STATEMENT_MAX, 'vision'),
@@ -149,6 +152,7 @@ export const organizationProfileSchema = z
       type: organizationTypeSchema,
       college: collegeRefSchema.nullable(),
     }),
+    tagline: z.string().nullable(),
     description: z.string().nullable(),
     mission: z.string().nullable(),
     vision: z.string().nullable(),

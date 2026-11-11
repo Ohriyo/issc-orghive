@@ -9,6 +9,7 @@ const profileSelect = {
   acronym: true,
   name: true,
   description: true,
+  tagline: true,
   mission: true,
   vision: true,
   contactEmail: true,
@@ -62,6 +63,7 @@ export function createProfileRepository(db: Db) {
           where: { id: organizationId },
           data: {
             description: fields.description,
+            tagline: fields.tagline,
             mission: fields.mission,
             vision: fields.vision,
             contactEmail: fields.contactEmail,

@@ -2,6 +2,7 @@ import type { Page, Route } from '@playwright/test';
 import type {
   AdminOrganization,
   AdminOrganizationTree,
+  OrgShowcase,
   Announcement,
   AnnouncementListResponse,
   Appeal,
@@ -124,6 +125,7 @@ const organizations: Record<string, OrganizationDetail> = {
     name: 'Institutional Supreme Student Council',
     logoUrl: null,
     logoSrcSet: null,
+    tagline: null,
     description:
       'The ISSC is the highest student governing body in the university. It represents all students and coordinates with the collegiate student councils.',
     parent: null,
@@ -140,6 +142,7 @@ const organizations: Record<string, OrganizationDetail> = {
   jpice: {
     id: '0195f3c0-0000-7000-8000-0000000000c2',
     ...sbos[3]!,
+    tagline: 'Shaping competent, socially responsible civil engineers.',
     description:
       'The JPICE is a dynamic organization committed to shaping competent and socially responsible civil engineering students.',
     parent: csc('CEA', CEA_REF.name),
@@ -173,6 +176,7 @@ const JPICE_PROFILE: OrganizationProfile = {
     type: 'SBO',
     college: CEA_REF,
   },
+  tagline: organizations.jpice!.tagline,
   description: organizations.jpice!.description,
   mission: organizations.jpice!.mission,
   vision: organizations.jpice!.vision,
@@ -186,6 +190,69 @@ const JPICE_PROFILE: OrganizationProfile = {
   logoUrl: null,
   coverUrl: null,
   updatedAt: '2026-10-20T08:00:00.000Z',
+};
+
+/** JPICE's rank badge, completed projects (one past the shown three) and public documents. */
+const JPICE_SHOWCASE: OrgShowcase = {
+  rank: { board: 'SBO', rank: 3, academicYear: '2026-2027', semester: 'first', status: 'provisional' },
+  projectSemesters: [
+    {
+      academicYear: '2026-2027',
+      semester: 'first',
+      projects: [
+        {
+          id: '0195f3c0-0000-7000-8000-000000000301',
+          title: 'CE Week 2026',
+          date: '2026-09-15',
+          location: 'CEA Building, NwSSU Main Campus',
+          beneficiaries: 'All civil engineering students',
+          files: [
+            { documentId: '0195f3c0-0000-7000-8000-0000000000d1', label: 'Project Proposal' },
+            { documentId: '0195f3c0-0000-7000-8000-0000000000d2', label: 'Activity Completion Report' },
+          ],
+        },
+        {
+          id: '0195f3c0-0000-7000-8000-000000000302',
+          title: 'Barangay drainage survey',
+          date: '2026-08-23',
+          location: 'Brgy. Bagacay and Brgy. Carayman, Calbayog City',
+          beneficiaries: 'Residents of two barangays',
+          files: [],
+        },
+      ],
+    },
+    {
+      academicYear: '2025-2026',
+      semester: 'second',
+      projects: [
+        {
+          id: '0195f3c0-0000-7000-8000-000000000303',
+          title: 'Board exam mock review',
+          date: '2026-03-02',
+          location: 'CEA Room 204',
+          beneficiaries: 'Graduating civil engineering students',
+          files: [],
+        },
+        {
+          id: '0195f3c0-0000-7000-8000-000000000304',
+          title: 'Surveying field day',
+          date: '2026-02-10',
+          location: 'NwSSU Main Campus grounds',
+          beneficiaries: 'Second-year civil engineering students',
+          files: [],
+        },
+      ],
+    },
+  ],
+  documents: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000d1',
+      title: 'CE Week 2026 accomplishment report',
+      typeName: 'Accomplishment report',
+      createdAt: '2026-09-25T02:00:00.000Z',
+    },
+  ],
+  publicDocumentCount: 24,
 };
 
 const TYPES: DocumentTypeListResponse = {
@@ -1761,6 +1828,15 @@ export async function stubApi(
       } satisfies HandbookSearchResponse);
     }
     if (admin && path === '/admin/handbook') return json(route, ADMIN_HANDBOOK);
+    if (path === '/organizations/jpice/showcase') return json(route, JPICE_SHOWCASE);
+    if (/^\/organizations\/[a-z0-9-]+\/showcase$/.test(path)) {
+      return json(route, {
+        rank: null,
+        projectSemesters: [],
+        documents: [],
+        publicDocumentCount: 0,
+      } satisfies OrgShowcase);
+    }
     if (path === '/organizations/jpice/page') {
       return json(route, {
         organization: organizations.jpice,

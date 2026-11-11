@@ -336,6 +336,8 @@ model Organization {
   slug                         String                        @unique
   acronym                      String
   name                         String
+  /// A one-line summary under the name on /orgs/:slug (up to 160 characters).
+  tagline                      String?
   description                  String?
   /// Object-storage key under `logos/`; that prefix is public-read and served via PUBLIC_ASSET_BASE_URL.
   logoKey                      String?                       @map("logo_key")

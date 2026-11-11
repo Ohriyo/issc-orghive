@@ -39,6 +39,7 @@ const JPICE_DETAIL: OrganizationDetail = {
   slug: 'jpice',
   acronym: 'JPICE',
   name: 'JPICE full name',
+  tagline: null,
   description: null,
   logoUrl: null,
   logoSrcSet: null,

@@ -165,6 +165,7 @@ const notifications = createNotificationService({
 const projectSync = createProjectSync({
   projects: projectRepo,
   leaderboard: recompute,
+  cache: createRedisCache(redis, logger),
   compliance: createCompliance({
     freezes: createOrgFreezeRepository(db),
     recipients: createRecipients({

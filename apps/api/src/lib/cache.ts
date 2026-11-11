@@ -26,6 +26,11 @@ export const cacheKeys = {
    */
   organization: (slug: string) => `org:${slug}:v2`,
   organizationDocuments: (slug: string, queryHash: string) => `org:${slug}:docs:${queryHash}`,
+  /**
+   * The organization page's completed projects and public documents. Under `docs:` so every
+   * document write (a task file included) clears it; a project completing clears it too.
+   */
+  organizationShowcase: (slug: string) => `org:${slug}:docs:showcase`,
   /** The organization page's post sections, post lists, one post and the RSS feed. */
   organizationPostPage: (slug: string) => `org:${slug}:post-page`,
   organizationPosts: (slug: string, queryHash: string) => `org:${slug}:posts:${queryHash}`,

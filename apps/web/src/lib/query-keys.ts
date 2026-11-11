@@ -19,6 +19,8 @@ export const queryKeys = {
     list: (slug: string, filters: Record<string, string | undefined>) =>
       ['documents', 'list', slug, filters] as const,
     detail: (id: string) => ['documents', 'detail', id] as const,
+    /** GET /organizations/:slug/showcase: rank badge, completed projects, public documents. */
+    showcase: (slug: string) => ['documents', 'showcase', slug] as const,
     types: ['documents', 'types'] as const,
     /** GET /organizations/:slug/constitution. Under 'documents': uploads refresh it. */
     constitution: (slug: string) => ['documents', 'constitution', slug] as const,

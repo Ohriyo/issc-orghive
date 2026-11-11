@@ -44,6 +44,7 @@ const PROFILE: OrganizationProfile = {
     type: 'SBO',
     college: { code: 'CEA', slug: 'cea', name: 'College of Engineering and Architecture' },
   },
+  tagline: null,
   description: 'Civil engineering students.',
   mission: 'Shape competent civil engineers.',
   vision: null,
@@ -142,6 +143,7 @@ describe('/dashboard/profile', () => {
         method: 'PUT',
         path: '/organizations/jpice/profile',
         body: {
+          tagline: null,
           description: 'Civil engineering students.',
           mission: 'Shape competent civil engineers.',
           vision: 'Engineers who build for the public good.',

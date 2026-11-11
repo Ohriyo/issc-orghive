@@ -43,6 +43,7 @@ export function createOrganizationService({
             college: org.college
               ? { code: org.college.code, slug: org.college.slug, name: org.college.name }
               : null,
+            tagline: org.tagline,
             mission: org.mission,
             vision: org.vision,
             contactEmail: org.contactEmail,

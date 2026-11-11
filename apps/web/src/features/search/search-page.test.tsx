@@ -24,6 +24,7 @@ const org = (slug: string, acronym: string, type: 'ISSC' | 'CSC' | 'SBO'): Organ
 const ISSC: OrganizationDetail = {
   ...org('issc', 'ISSC', 'ISSC'),
   id: '0195f3c0-0000-7000-8000-0000000000a1',
+  tagline: null,
   description: null,
   parent: null,
   college: null,

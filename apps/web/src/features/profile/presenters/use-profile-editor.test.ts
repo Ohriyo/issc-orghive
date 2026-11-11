@@ -17,6 +17,7 @@ const PROFILE: OrganizationProfile = {
     type: 'SBO',
     college: { code: 'CEA', slug: 'cea', name: 'College of Engineering and Architecture' },
   },
+  tagline: null,
   description: 'Civil engineering students.',
   mission: null,
   vision: null,
@@ -47,6 +48,7 @@ describe('toPreviewDetail', () => {
       ORG,
       PROFILE,
       {
+        tagline: '',
         description: '  ',
         mission: 'Shape engineers.',
         vision: '',

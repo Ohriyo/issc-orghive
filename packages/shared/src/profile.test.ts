@@ -7,6 +7,7 @@ import {
 } from './profile';
 
 const FIELDS = {
+  tagline: '  ',
   description: 'Civil engineering students.',
   mission: '',
   vision: '  ',
@@ -42,12 +43,18 @@ describe('profileFieldsSchema', () => {
   it('stores blank text as null and shows officers publicly by default', () => {
     expect(profileFieldsSchema.parse(FIELDS)).toEqual({
       ...FIELDS,
+      tagline: null,
       mission: null,
       vision: null,
       contactEmail: null,
       facebookUrl: null,
       officers: [{ position: 'President', name: 'Ana Reyes', isPublic: true }],
     });
+  });
+
+  it('keeps the tagline to one line of 160 characters', () => {
+    expect(profileFieldsSchema.safeParse({ ...FIELDS, tagline: 'x'.repeat(160) }).success).toBe(true);
+    expect(profileFieldsSchema.safeParse({ ...FIELDS, tagline: 'x'.repeat(161) }).success).toBe(false);
   });
 
   it('wants a Facebook page in its field and https links elsewhere, each once', () => {

@@ -22,6 +22,7 @@ const JPICE: PublicProfileRecord = {
   slug: 'jpice',
   acronym: 'JPICE',
   name: 'Junior Philippine Institute of Civil Engineers',
+  tagline: null,
   description: 'Civil engineering students',
   logoKey: 'logos/jpice-ab12.webp',
   logoWidths: [256, 128],
@@ -65,6 +66,7 @@ describe('organizationService.getBySlug', () => {
       slug: 'jpice',
       acronym: 'JPICE',
       name: JPICE.name,
+      tagline: null,
       description: 'Civil engineering students',
       logoUrl: 'https://cdn.test/logos/jpice-ab12.webp',
       logoSrcSet:

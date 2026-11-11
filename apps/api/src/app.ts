@@ -12,6 +12,7 @@ import { createOpenApiDocument } from '#src/openapi';
 import { adminRouter } from '#src/routes/admin.routes';
 import { announcementsRouter } from '#src/routes/announcements.routes';
 import { orgPostsRouter } from '#src/routes/org-posts.routes';
+import { orgShowcaseRouter } from '#src/routes/org-showcase.routes';
 import { complianceOverviewRouter } from '#src/routes/compliance-overview.routes';
 import { taskFileDecisionsRouter } from '#src/routes/task-file-decisions.routes';
 import { appealsRouter } from '#src/routes/appeals.routes';
@@ -37,6 +38,7 @@ import type { AccountRequestService } from '#src/services/account-request.servic
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { AnnouncementService } from '#src/services/announcement.service';
 import type { OrgPostService } from '#src/services/org-post.service';
+import type { OrgShowcaseService } from '#src/services/org-showcase.service';
 import type { ComplianceOverviewService } from '#src/services/compliance-overview.service';
 import type { TaskFileDecisionService } from '#src/services/task-file-decision.service';
 import type { ConstitutionService } from '#src/services/constitution.service';
@@ -98,6 +100,8 @@ export interface AppServices {
   announcements: AnnouncementService;
   /** Organization posts: updates and highlights on /orgs/:slug, and their moderation. */
   posts: OrgPostService;
+  /** The organization page's rank badge, completed projects and public documents. */
+  showcase: OrgShowcaseService;
   complianceOverview: ComplianceOverviewService;
   system: SystemService;
   superAdmins: SuperAdminService;
@@ -217,6 +221,7 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       webOrigin: config.WEB_ORIGIN,
     }),
   );
+  v1.use(orgShowcaseRouter({ showcase: services.showcase }));
   v1.use(
     complianceOverviewRouter({ overview: services.complianceOverview, tokens: services.tokens }),
   );

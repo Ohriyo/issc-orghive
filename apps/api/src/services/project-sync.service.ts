@@ -3,6 +3,7 @@ import type { ProjectRecord, ProjectRepository } from '#src/repositories/project
 import type { Compliance } from './compliance.service';
 import type { LeaderboardRecompute } from './leaderboard-recompute';
 import { planProject, type ProjectFacts } from './project-rules';
+import { cacheKeys, type Cache } from '#src/lib/cache';
 
 /** A task's file counts once it passed the virus scan (available) and was not deleted. */
 const FILED_STATUSES = new Set(['available', 'archived']);
@@ -45,6 +46,8 @@ export interface ProjectSyncDeps {
   compliance?: Pick<Compliance, 'statusChanged' | 'planApplied'>;
   /** A task's file passing the scan may move the standings (spec 5B). */
   leaderboard?: Pick<LeaderboardRecompute, 'forEventDates'>;
+  /** A completed project appears on /orgs/:slug: its cached showcase is cleared. */
+  cache?: Pick<Cache, 'deleteMatching'>;
   now?: () => Date;
 }
 
@@ -58,6 +61,7 @@ export function createProjectSync({
   projects,
   compliance,
   leaderboard,
+  cache,
   now = () => new Date(),
 }: ProjectSyncDeps) {
   async function sync(projectId: string): Promise<ProjectRecord | null> {
@@ -66,6 +70,9 @@ export function createProjectSync({
     const at = now();
     const plan = planProject(factsOf(record), at);
     const replaced = await projects.applyPlan(projectId, plan, at);
+    if (replaced && plan.status === 'completed') {
+      await cache?.deleteMatching(cacheKeys.organizationShowcase(record.organization.slug));
+    }
     if (compliance) {
       if (replaced) await compliance.statusChanged(record, replaced, plan);
       await compliance.planApplied(record, plan, at);

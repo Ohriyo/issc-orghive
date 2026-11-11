@@ -18,6 +18,9 @@ export interface OrganizationPageModel {
   seo: PageSeo;
   acronym: string;
   name: string;
+  /** One line under the name; null until the organization writes one. */
+  tagline: string | null;
+  slug: string;
   logoSrc?: string;
   logoSrcSet?: string;
   description: TextSegment[] | null;
@@ -66,6 +69,8 @@ export function toOrganizationPage(org: OrganizationDetail): OrganizationPageMod
     seo: organizationSeo(org),
     acronym: org.acronym,
     name: org.name,
+    tagline: org.tagline,
+    slug: org.slug,
     logoSrc: org.logoUrl ?? undefined,
     logoSrcSet: org.logoSrcSet ?? undefined,
     description: org.description ? emphasize(org.description, [org.acronym, org.name]) : null,
@@ -111,4 +116,12 @@ export function useOrganizationPage(slug: string): OrganizationPageState {
   }
   if (query.isError) return { status: 'error', retry: () => void query.refetch() };
   return { status: 'loading' };
+}
+
+/** "Maria Clara Santos" → "MS": the first and last name's initials, for the officer badge. */
+export function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter((w) => /\p{L}/u.test(w));
+  const first = words[0]?.match(/\p{L}/u)?.[0] ?? '';
+  const last = words.length > 1 ? (words.at(-1)?.match(/\p{L}/u)?.[0] ?? '') : '';
+  return (first + last).toUpperCase();
 }

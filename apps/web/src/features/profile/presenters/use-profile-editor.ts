@@ -124,6 +124,7 @@ export function errorMessage(error: unknown): string {
 /** The saved profile as the form holds it. */
 export function toFormValues(profile: OrganizationProfile): ProfileFieldsInput {
   return {
+    tagline: profile.tagline ?? '',
     description: profile.description ?? '',
     mission: profile.mission ?? '',
     vision: profile.vision ?? '',
@@ -162,6 +163,7 @@ export function toPreviewDetail(
     slug: profile.slug,
     acronym: profile.official.acronym,
     name: profile.official.name,
+    tagline: blank(values.tagline),
     description: blank(values.description),
     logoUrl: images.logo,
     logoSrcSet: null,
@@ -229,6 +231,7 @@ export function useProfileEditor(actingAs: ActingAsModel): ProfileEditorModel {
   const form = useForm<ProfileFieldsInput, unknown, ProfileFields>({
     resolver: zodResolver(profileFieldsSchema),
     defaultValues: {
+      tagline: '',
       description: '',
       mission: '',
       vision: '',

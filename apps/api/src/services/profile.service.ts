@@ -27,7 +27,7 @@ export interface ProfileServiceDeps {
 const invalid = (message: string) => new AppError(400, ErrorCode.VALIDATION_ERROR, message);
 
 /** The fields a save compares, for the audit entry's list of what changed. */
-const TEXT_FIELDS = ['description', 'mission', 'vision', 'contactEmail', 'facebookUrl'] as const;
+const TEXT_FIELDS = ['tagline', 'description', 'mission', 'vision', 'contactEmail', 'facebookUrl'] as const;
 
 function changedFields(before: ProfileRecord, input: UpdateProfileRequest): string[] {
   const changed: string[] = TEXT_FIELDS.filter((field) => before[field] !== input[field]);
@@ -59,6 +59,7 @@ export function createProfileService({
         college: record.college,
       },
       description: record.description,
+      tagline: record.tagline,
       mission: record.mission,
       vision: record.vision,
       contactEmail: record.contactEmail,

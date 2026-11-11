@@ -69,6 +69,9 @@ const unwiredServices: AppServices = {
   posts: new Proxy({} as AppServices['posts'], {
     get: (_t, key) => () => unwired(`posts.${String(key)}`),
   }),
+  showcase: new Proxy({} as AppServices['showcase'], {
+    get: (_t, key) => () => unwired(`showcase.${String(key)}`),
+  }),
   complianceOverview: new Proxy({} as AppServices['complianceOverview'], {
     get: (_t, key) => () => unwired(`complianceOverview.${String(key)}`),
   }),

@@ -181,7 +181,18 @@ Every organization's shared account (ISSC, CSCs and SBOs) writes **updates** and
 - **Limits:** title 120 characters, summary 280, body 10,000 (limited Markdown, rendered and sanitized on the server), up to 10 gallery images; every image needs alt text.
 - **Images** are scanned, re-encoded to WebP without metadata and stored publicly under content-hashed, unguessable `logos/posts/<slug>/` keys (not signed URLs): a draft's image is reachable only by someone given its URL.
 - Every write is audited with "Acting as" (`post_change`, deletes `delete`). "Acting as" is never shown on public pages.
-- Coming next (Phase 2 of the page template): a tagline (up to 160 characters); a leaderboard rank badge for the Top 10 (never the ISSC), kept as "final" until the next semester starts; Contact uses the email and links only; Highlights come first in the page's section nav.
+
+## Organization page (chosen by the project owner on 2026-11-06 and 2026-11-07)
+
+`/orgs/:slug` is one fixed template for every organization; organizations fill in its content, never its layout. In order: the header, Highlights (a band across the page), then About, Updates, Projects, Officers, Documents and Contact beside an "On this page" nav (a sticky chip bar on phones), with Highlights first in the nav.
+
+- **Header:** logo, acronym, full name, college, a **tagline** (a profile field, up to 160 characters), the email and links as icons, and the **rank badge**.
+- **Rank badge:** only a Top 10 place on the organization's own board (SBO or CSC); never the ISSC. It shows the current semester's standings, provisional or final; in the break after a semester ends, that semester's rank stays until the next one starts (`org-showcase-rules.ts` `badgeSemester`). It is read from the stored boards, never ranked in the request.
+- **Projects** are listed automatically: every **completed** project (title, event date, location, beneficiaries), newest first, grouped by the semester the calendar puts its event date in. Only its task files whose visibility is `public` are linked; a project with none says "No public documents for this project." The page shows three, then "Show N earlier projects".
+- **Documents:** the Constitution & By-laws, the three newest public documents (the constitution and handbook aside) and "Open Paperworks" with the count of public documents.
+- **Officers** are the profile's public officers; **Contact** is the email, the links and the college (no office field).
+- **Empty sections are left out** for visitors, except About (which says the description is not written yet) and Documents (which says the constitution is not uploaded). The organization's own account also sees a private "Fill in your page" checklist until each part is filled in.
+- `GET /organizations/:slug/showcase` (public) serves the rank, projects and documents; it is the same for every viewer, so the owner's private files never appear there. It is cached under `org:{slug}:docs:showcase`, cleared by every document write and when a project is completed.
 
 ## Open questions
 

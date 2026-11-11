@@ -11,6 +11,7 @@ const JPICE: OrganizationDetail = {
   slug: 'jpice',
   acronym: 'JPICE',
   name: 'Junior Philippine Institute of Civil Engineers',
+  tagline: null,
   description: 'The JPICE is a dynamic organization committed to civil engineering students.',
   logoUrl: 'https://cdn.test/logos/jpice.png',
   logoSrcSet: null,
@@ -67,13 +68,15 @@ describe('/orgs/:slug', () => {
     expect(heading).toHaveTextContent(JPICE.name);
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/organizations/jpice', expect.anything());
     expect(screen.getByText('JPICE', { selector: 'strong' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Paperworks' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: /^Open Paperworks/ })).toHaveAttribute(
       'href',
       '/orgs/jpice/paperworks',
     );
-    expect(
-      screen.getByRole('link', { name: 'College of Engineering and Architecture' }),
-    ).toHaveAttribute('href', '/colleges/cea');
+    for (const college of screen.getAllByRole('link', {
+      name: 'College of Engineering and Architecture',
+    })) {
+      expect(college).toHaveAttribute('href', '/colleges/cea');
+    }
   });
 
   it('says "Sample data" on an organization showing demo data, and only there', async () => {
@@ -99,7 +102,7 @@ describe('/orgs/:slug', () => {
   it('uses the organization logo as its Open Graph image', async () => {
     fetchMock.mockImplementation(() => json(JPICE));
     renderAt('/orgs/jpice');
-    await screen.findByRole('link', { name: 'Paperworks' });
+    await screen.findByRole('link', { name: /^Open Paperworks/ });
 
     expect(document.title).toBe('Junior Philippine Institute of Civil Engineers (JPICE) | Orghive');
     expect(metaContent('meta[name="description"]')).toBe(JPICE.description);
@@ -172,7 +175,7 @@ describe('/orgs/:slug profile sections', () => {
     renderAt('/orgs/jpice');
 
     expect(
-      await screen.findByRole('heading', { level: 2, name: 'About JPICE' }),
+      await screen.findByRole('heading', { level: 2, name: 'About' }),
     ).toBeInTheDocument();
     expect(screen.getByText('Shape competent civil engineers.')).toBeInTheDocument();
     expect(screen.getByText('Maria Clara Santos')).toBeInTheDocument();
@@ -293,5 +296,92 @@ describe('/orgs/:slug highlights and updates', () => {
     );
     expect(screen.queryByRole('heading', { name: 'Highlights' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Updates' })).toBeNull();
+  });
+});
+
+describe('/orgs/:slug template sections', () => {
+  const doc = (n: number) => `0195f3c0-0000-7000-8000-0000000002${String(n).padStart(2, '0')}`;
+  const project = (n: number, date: string) => ({
+    id: doc(n),
+    title: `Project ${n}`,
+    date,
+    location: 'CEA Building',
+    beneficiaries: 'Civil engineering students',
+    files: n === 1 ? [{ documentId: doc(50), label: 'Project Proposal' }] : [],
+  });
+  const SHOWCASE = {
+    rank: { board: 'SBO', rank: 3, academicYear: '2026-2027', semester: 'first', status: 'provisional' },
+    projectSemesters: [
+      {
+        academicYear: '2026-2027',
+        semester: 'first',
+        projects: [project(1, '2026-09-15'), project(2, '2026-09-01'), project(3, '2026-08-20')],
+      },
+      { academicYear: '2025-2026', semester: 'second', projects: [project(4, '2026-03-02')] },
+    ],
+    documents: [
+      { id: doc(60), title: 'CE Week report', typeName: 'Accomplishment report', createdAt: '2026-09-25T02:00:00.000Z' },
+    ],
+    publicDocumentCount: 24,
+  };
+
+  function stub(isOwner: boolean) {
+    fetchMock.mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith('/organizations/jpice/showcase')) return json(SHOWCASE);
+      if (url.endsWith('/organizations/jpice/page')) {
+        return json({
+          organization: JPICE,
+          highlights: [],
+          updates: [],
+          updatesTotal: 0,
+          viewer: { isOwner, canModerate: false },
+        });
+      }
+      if (url.endsWith('/organizations/jpice/constitution')) return json({ constitution: null });
+      return json({ ...JPICE, tagline: 'Building communities, one project at a time.' });
+    });
+  }
+
+  it('shows the tagline, the rank badge, projects by semester and the public documents', async () => {
+    stub(false);
+    renderAt('/orgs/jpice');
+
+    expect(await screen.findByText('Building communities, one project at a time.')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /3rd on the SBO leaderboard/ })).toHaveAttribute(
+      'href',
+      '/leaderboard',
+    );
+    expect(screen.getByRole('heading', { level: 3, name: '1st semester 2026-2027' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Project Proposal' })).toHaveAttribute(
+      'href',
+      `/documents/${doc(50)}`,
+    );
+    expect(screen.getAllByText('No public documents for this project.')).toHaveLength(2);
+    expect(screen.queryByRole('heading', { name: 'Project 4' })).toBeNull();
+    screen.getByRole('button', { name: /Show 1 earlier project/ }).click();
+    expect(await screen.findByRole('heading', { name: 'Project 4' })).toBeInTheDocument();
+
+    expect(screen.getByRole('link', { name: 'View CE Week report' })).toHaveAttribute(
+      'href',
+      `/documents/${doc(60)}`,
+    );
+    expect(screen.getByRole('link', { name: 'Open Paperworks (24 public files)' })).toHaveAttribute(
+      'href',
+      '/orgs/jpice/paperworks',
+    );
+    const nav = screen.getAllByRole('navigation', { name: 'On this page' })[0]!;
+    expect(nav).toHaveTextContent(/About.*Projects.*Documents.*Contact/);
+    expect(screen.queryByRole('heading', { name: 'Fill in your page' })).toBeNull();
+  });
+
+  it('tells the own account what is left to fill in', async () => {
+    stub(true);
+    renderAt('/orgs/jpice');
+    expect(await screen.findByRole('heading', { name: 'Fill in your page' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Upload: Upload your Constitution & By-laws' })).toHaveAttribute(
+      'href',
+      '/dashboard/profile#constitution',
+    );
   });
 });

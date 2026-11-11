@@ -33,6 +33,7 @@ const organizationSelect = {
  */
 const publicProfileSelect = {
   ...organizationSelect,
+  tagline: true,
   mission: true,
   vision: true,
   contactEmail: true,

@@ -82,7 +82,11 @@ export function HighlightCarousel({ highlights, org, seeAllHref }: HighlightCaro
   const current = highlights[selected];
 
   return (
-    <section aria-labelledby={headingId} className="overflow-hidden pt-section pb-8">
+    <section
+      id="highlights"
+      aria-labelledby={headingId}
+      className="scroll-mt-[var(--header-h)] overflow-hidden pt-section pb-8"
+    >
       <Container>
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <h2 id={headingId} className="text-h2 font-bold text-balance text-ink">

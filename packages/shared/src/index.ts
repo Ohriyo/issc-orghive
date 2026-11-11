@@ -20,6 +20,7 @@ export * from './search';
 export * from './admin';
 export * from './announcement';
 export * from './org-post';
+export * from './org-showcase';
 export * from './compliance-overview';
 export * from './csv';
 export * from './system';

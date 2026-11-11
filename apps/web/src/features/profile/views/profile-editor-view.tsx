@@ -1,6 +1,11 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Lock, Plus, Trash2 } from 'lucide-react';
-import { LOGO_MIN_WIDTH, PROFILE_DESCRIPTION_MAX, PROFILE_STATEMENT_MAX } from '@orghive/shared';
+import {
+  LOGO_MIN_WIDTH,
+  PROFILE_DESCRIPTION_MAX,
+  PROFILE_STATEMENT_MAX,
+  PROFILE_TAGLINE_MAX,
+} from '@orghive/shared';
 import { ActingAsField } from '@/components/acting-as-field';
 import { Container } from '@/components/container';
 import { TextAreaField } from '@/components/form-fields';
@@ -334,11 +339,21 @@ function About({ model }: { model: ReadyProfileEditor }) {
         About
       </h2>
       <div className="mt-6 flex flex-col gap-6">
+        <TextField
+          label="Tagline"
+          maxLength={PROFILE_TAGLINE_MAX}
+          hint={
+            counter(values.tagline, PROFILE_TAGLINE_MAX) ??
+            'One line under your name at the top of your page.'
+          }
+          error={errors.tagline?.message}
+          {...form.register('tagline')}
+        />
         <TextAreaField
           label="Description"
           rows={4}
           maxLength={PROFILE_DESCRIPTION_MAX}
-          hint={counter(values.description, PROFILE_DESCRIPTION_MAX) ?? 'Shown beside your logo at the top of your page.'}
+          hint={counter(values.description, PROFILE_DESCRIPTION_MAX) ?? 'Opens the About section of your page.'}
           error={errors.description?.message}
           {...form.register('description')}
         />

@@ -17,6 +17,7 @@ function record(overrides: Partial<ProfileRecord> = {}): ProfileRecord {
     type: 'SBO',
     acronym: 'JPICE',
     name: 'Junior Philippine Institute of Civil Engineers',
+    tagline: null,
     description: 'Civil engineering students.',
     mission: null,
     vision: null,
@@ -77,6 +78,7 @@ describe('profileService.get', () => {
 
 describe('profileService.save', () => {
   const input = {
+    tagline: null,
     description: 'Civil engineering students.',
     mission: 'Shape engineers.',
     vision: null,

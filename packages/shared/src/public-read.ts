@@ -94,6 +94,8 @@ export type PublicOfficer = z.infer<typeof publicOfficerSchema>;
 export const organizationDetailSchema = organizationSummarySchema
   .extend({
     id: z.uuid(),
+    /** A one-line summary under the name, up to PROFILE_TAGLINE_MAX characters. */
+    tagline: z.string().nullable(),
     description: z.string().nullable(),
     parent: organizationSummarySchema.nullable(),
     college: collegeRefSchema.nullable(),

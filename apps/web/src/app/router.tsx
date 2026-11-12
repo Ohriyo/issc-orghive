@@ -299,6 +299,14 @@ function systemRoutes(): RouteObject[] {
       lazy: async () => ({ Component: (await systemPages()).SystemOverviewPage }),
     },
     {
+      path: 'system/health',
+      lazy: async () => ({ Component: (await systemPages()).SystemHealthPage }),
+    },
+    {
+      path: 'system/metrics',
+      lazy: async () => ({ Component: (await systemPages()).SystemMetricsPage }),
+    },
+    {
       path: 'system/users',
       lazy: async () => ({ Component: (await systemPages()).SystemUsersPage }),
     },

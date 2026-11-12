@@ -3,6 +3,7 @@ import { LOGO_MAX_BYTES, LOGO_MIME_TYPES } from '@orghive/shared';
 import { createAccountAdminController } from '#src/controllers/account-admin.controller';
 import { createDemoDataController } from '#src/controllers/demo-data.controller';
 import { createSystemController } from '#src/controllers/system.controller';
+import { createSystemHealthController } from '#src/controllers/system-health.controller';
 import { requireAuth, type AccessVerifier } from '#src/middleware/require-auth';
 import {
   auditSystemReads,
@@ -18,6 +19,9 @@ import type { SuperAdminService } from '#src/services/super-admin.service';
 import type { SupportService } from '#src/services/support.service';
 import type { SystemService } from '#src/services/system.service';
 import type { SystemSettingsService } from '#src/services/system-settings.service';
+import type { SystemAlertService } from '#src/services/system-alert.service';
+import type { SystemHealthService } from '#src/services/system-health.service';
+import type { SystemMetricsService } from '#src/services/system-metrics.service';
 
 export interface SystemRouterDeps {
   system: SystemService;
@@ -31,6 +35,12 @@ export interface SystemRouterDeps {
   settings: Pick<SystemSettingsService, 'get' | 'update'>;
   /** Demo data: counted, then removed before deployment. */
   demoData: Pick<DemoDataService, 'preview' | 'remove' | 'status'>;
+  /** Live checks of every service Orghive depends on. */
+  health: Pick<SystemHealthService, 'check'>;
+  /** Charts and slow lists from the 1-minute snapshots. */
+  metrics: Pick<SystemMetricsService, 'read'>;
+  /** Open alerts, for the console banner. */
+  alerts: Pick<SystemAlertService, 'listOpen'>;
   tokens: AccessVerifier;
 }
 
@@ -49,6 +59,9 @@ export function systemRouter({
   imports,
   settings,
   demoData,
+  health,
+  metrics,
+  alerts,
   tokens,
 }: SystemRouterDeps): Router {
   const router = Router();
@@ -61,6 +74,7 @@ export function systemRouter({
     imports,
   );
   const demoController = createDemoDataController(demoData);
+  const healthController = createSystemHealthController(health, metrics, alerts);
   const stepUp = requireStepUp(superAdmins);
 
   router.use(requireAuth(tokens), requireSuperAdmin(system), auditSystemReads(system));
@@ -70,6 +84,10 @@ export function systemRouter({
   });
 
   router.get('/overview', controller.overview);
+  // Polled with the background header: not audited each time, and not session activity.
+  router.get('/health', healthController.getHealth);
+  router.get('/metrics', healthController.getMetrics);
+  router.get('/alerts', healthController.getAlerts);
   router.get('/users', consoleController.list);
   router.get('/users/:userId', consoleController.detail);
   router.patch('/users/:userId', consoleController.update);

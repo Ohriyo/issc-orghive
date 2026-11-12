@@ -113,6 +113,9 @@ const unwiredServices: AppServices = {
   demoData: new Proxy({} as AppServices['demoData'], {
     get: (_t, key) => () => unwired(`demoData.${String(key)}`),
   }),
+  systemHealth: { check: () => unwired('systemHealth') },
+  systemMetrics: { read: () => unwired('systemMetrics') },
+  systemAlerts: { listOpen: () => unwired('systemAlerts') },
 };
 
 export function buildTestApp(

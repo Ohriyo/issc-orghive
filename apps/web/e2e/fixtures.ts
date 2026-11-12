@@ -45,6 +45,9 @@ import type {
   PublicLeaderboardRow,
   SystemAccountRequestList,
   SystemSettings,
+  SystemAlerts,
+  SystemHealth,
+  SystemMetrics,
   TestDataPreview,
 } from '@orghive/shared';
 import { DEFAULT_TASK_KEYWORDS } from '@orghive/shared';
@@ -194,7 +197,13 @@ const JPICE_PROFILE: OrganizationProfile = {
 
 /** JPICE's rank badge, completed projects (one past the shown three) and public documents. */
 const JPICE_SHOWCASE: OrgShowcase = {
-  rank: { board: 'SBO', rank: 3, academicYear: '2026-2027', semester: 'first', status: 'provisional' },
+  rank: {
+    board: 'SBO',
+    rank: 3,
+    academicYear: '2026-2027',
+    semester: 'first',
+    status: 'provisional',
+  },
   projectSemesters: [
     {
       academicYear: '2026-2027',
@@ -208,7 +217,10 @@ const JPICE_SHOWCASE: OrgShowcase = {
           beneficiaries: 'All civil engineering students',
           files: [
             { documentId: '0195f3c0-0000-7000-8000-0000000000d1', label: 'Project Proposal' },
-            { documentId: '0195f3c0-0000-7000-8000-0000000000d2', label: 'Activity Completion Report' },
+            {
+              documentId: '0195f3c0-0000-7000-8000-0000000000d2',
+              label: 'Activity Completion Report',
+            },
           ],
         },
         {
@@ -545,6 +557,186 @@ const SYSTEM_SETTINGS: SystemSettings = {
   checksUpdatedAt: null,
   finalAfterDays: 7,
   finalAfterDaysUpdatedAt: null,
+  alertCooldownMinutes: 30,
+  alertCooldownUpdatedAt: null,
+};
+
+/** /system/health: mostly green, one amber and one red, so every badge is drawn. */
+const SYSTEM_HEALTH: SystemHealth = {
+  status: 'down',
+  generatedAt: '2026-10-19T08:00:00.000Z',
+  checks: [
+    {
+      id: 'api',
+      status: 'ok',
+      summary: 'Answering requests.',
+      checkedAt: '2026-10-19T08:00:00.000Z',
+      facts: [
+        { label: 'Up for', value: 93_784, unit: 'seconds' },
+        { label: 'Memory', value: 182_000_000, unit: 'bytes' },
+        { label: 'Event-loop delay, 5 min', value: 14, unit: 'ms' },
+      ],
+    },
+    {
+      id: 'postgres',
+      status: 'ok',
+      summary: 'Answering queries.',
+      checkedAt: '2026-10-19T08:00:00.000Z',
+      facts: [
+        { label: 'Latency', value: 3, unit: 'ms' },
+        { label: 'Connections', value: '7 of 100', unit: 'text' },
+        { label: 'Database size', value: 48_000_000, unit: 'bytes' },
+      ],
+    },
+    {
+      id: 'redis',
+      status: 'ok',
+      summary: 'Answering.',
+      checkedAt: '2026-10-19T08:00:00.000Z',
+      facts: [
+        { label: 'Latency', value: 1, unit: 'ms' },
+        { label: 'Memory', value: 5_200_000, unit: 'bytes' },
+        { label: 'Cache hit rate, 1 h', value: 0.86, unit: 'percent' },
+      ],
+    },
+    {
+      id: 'storage',
+      status: 'ok',
+      summary: 'Reachable.',
+      checkedAt: '2026-10-19T08:00:00.000Z',
+      facts: [
+        { label: 'Stored originals', value: 1_240_000_000, unit: 'bytes' },
+        { label: 'Files', value: 1_284, unit: 'count' },
+      ],
+    },
+    {
+      id: 'worker',
+      status: 'warn',
+      summary: 'Some jobs failed. They stay in their queue for a look.',
+      checkedAt: '2026-10-19T08:00:00.000Z',
+      facts: [
+        { label: 'Last heartbeat', value: '2026-10-19T07:59:40.000Z', unit: 'datetime' },
+        { label: 'Jobs waiting', value: 2, unit: 'count' },
+        { label: 'Failed jobs', value: 3, unit: 'count' },
+        { label: 'Oldest waiting since', value: null, unit: 'datetime' },
+      ],
+    },
+    {
+      id: 'clamav',
+      status: 'ok',
+      summary: 'Running with current signatures.',
+      checkedAt: '2026-10-19T08:00:00.000Z',
+      facts: [
+        { label: 'Engine', value: 'ClamAV 1.4.6', unit: 'text' },
+        { label: 'Signatures from', value: '2026-10-19T02:24:27.000Z', unit: 'datetime' },
+      ],
+    },
+    {
+      id: 'email',
+      status: 'ok',
+      summary: 'The mail relay accepts connections.',
+      checkedAt: '2026-10-19T08:00:00.000Z',
+      facts: [],
+    },
+    {
+      id: 'disk',
+      status: 'down',
+      summary: 'The disk is almost full. Free space now.',
+      checkedAt: '2026-10-19T08:00:00.000Z',
+      facts: [
+        { label: 'Used', value: 0.91, unit: 'percent' },
+        { label: 'Free', value: 9_000_000_000, unit: 'bytes' },
+        { label: 'Size', value: 100_000_000_000, unit: 'bytes' },
+      ],
+    },
+  ],
+  storageByOrganization: [
+    {
+      slug: 'jpice',
+      acronym: 'JPICE',
+      name: 'Junior Philippine Institute of Civil Engineers',
+      bytes: 640_000_000,
+      files: 512,
+    },
+    {
+      slug: 'csc-cea',
+      acronym: 'CSC-CEA',
+      name: 'Collegiate Student Council of CEA',
+      bytes: 410_000_000,
+      files: 388,
+    },
+    {
+      slug: 'issc',
+      acronym: 'ISSC',
+      name: 'Institutional Supreme Student Council',
+      bytes: 190_000_000,
+      files: 384,
+    },
+  ],
+};
+
+/** /system/metrics for the last hour: steady traffic with a short spike. */
+const SYSTEM_METRICS: SystemMetrics = {
+  range: '1h',
+  bucketMinutes: 1,
+  points: Array.from({ length: 61 }, (_, i) => ({
+    at: new Date(Date.parse('2026-10-19T07:00:00.000Z') + i * 60_000).toISOString(),
+    requestsPerMinute: 40 + (i % 7) * 3 + (i > 40 && i < 46 ? 60 : 0),
+    p95Ms: 180 + (i % 5) * 20 + (i > 40 && i < 46 ? 900 : 0),
+    errorRate: i > 40 && i < 46 ? 0.02 : 0,
+    clientErrorRate: 0.03,
+    queueWaiting: i % 9,
+    storageBytes: 1_200_000_000 + i * 600_000,
+  })),
+  activeUsers: [
+    { day: '2026-10-13', users: 18 },
+    { day: '2026-10-14', users: 22 },
+    { day: '2026-10-15', users: 25 },
+    { day: '2026-10-16', users: 19 },
+    { day: '2026-10-17', users: 7 },
+    { day: '2026-10-18', users: 5 },
+    { day: '2026-10-19', users: 21 },
+  ],
+  slowestEndpoints: [
+    {
+      route: 'POST /api/v1/projects/:projectId/tasks/:type/template',
+      requests: 14,
+      avgMs: 820,
+      p95Ms: 1_900,
+      maxMs: 2_600,
+    },
+    { route: 'GET /api/v1/search', requests: 410, avgMs: 140, p95Ms: 420, maxMs: 980 },
+    {
+      route: 'GET /api/v1/documents/:documentId/viewer',
+      requests: 1_220,
+      avgMs: 60,
+      p95Ms: 180,
+      maxMs: 640,
+    },
+  ],
+  slowQueries: [
+    {
+      at: '2026-10-19T07:43:00.000Z',
+      route: 'GET /api/v1/search',
+      durationMs: 812,
+      query:
+        'SELECT "public"."documents"."id", ts_rank("public"."documents"."search_vector", websearch_to_tsquery($1)) FROM "public"."documents" WHERE …',
+    },
+  ],
+  totals: { requests: 3_412, errorRate: 0.0021, p95Ms: 240 },
+  generatedAt: '2026-10-19T08:00:00.000Z',
+};
+
+/** One open alert: the banner shows on every console page. */
+const SYSTEM_ALERTS: SystemAlerts = {
+  alerts: [
+    {
+      id: '0195f3c0-0000-7000-8000-0000000000a1',
+      kind: 'disk_full',
+      message: 'The disk is 91% full.',
+      openedAt: '2026-10-19T07:40:00.000Z',
+    },
+  ],
 };
 
 const ADMIN_SEMESTERS: AdminSemestersResponse = {
@@ -787,6 +979,8 @@ const SUPER_ADMIN: AuthResponse = {
 /** /system screens, checked with the super admin session. */
 export const SYSTEM_ROUTES = [
   '/system/overview',
+  '/system/health',
+  '/system/metrics',
   '/system/users',
   '/system/users/new',
   '/system/users/0195f3c0-0000-7000-8000-000000000001',
@@ -1688,6 +1882,9 @@ export async function stubApi(
     if (superAdmin && path === '/system/audit-logs') return json(route, SYSTEM_AUDIT);
     if (superAdmin && path === '/system/me/security') return json(route, SYSTEM_SECURITY);
     if (superAdmin && path === '/system/settings') return json(route, SYSTEM_SETTINGS);
+    if (superAdmin && path === '/system/health') return json(route, SYSTEM_HEALTH);
+    if (superAdmin && path === '/system/metrics') return json(route, SYSTEM_METRICS);
+    if (superAdmin && path === '/system/alerts') return json(route, SYSTEM_ALERTS);
     if (admin && path === '/auth/refresh') return json(route, ADMIN);
     if (admin && path === '/admin/organizations') return json(route, ADMIN_TREE);
     if (admin && path === '/admin/financial-figures') return json(route, ADMIN_FIGURES);
@@ -1870,7 +2067,12 @@ export async function stubApi(
         editedAt: null,
         previous: null,
         next: { slug: 'bridge-design-contest', title: 'Regional bridge-design contest, 2nd place' },
-        organization: { slug: 'jpice', acronym: 'JPICE', name: 'Junior Philippine Institute of Civil Engineers', logoUrl: null },
+        organization: {
+          slug: 'jpice',
+          acronym: 'JPICE',
+          name: 'Junior Philippine Institute of Civil Engineers',
+          logoUrl: null,
+        },
         moderation: null,
         viewer: { isOwner: false, canModerate: false },
       });

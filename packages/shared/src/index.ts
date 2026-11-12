@@ -25,6 +25,7 @@ export * from './compliance-overview';
 export * from './csv';
 export * from './system';
 export * from './system-accounts';
+export * from './system-health';
 export * from './reveal';
 export * from './account-request';
 export * from './account-csv';

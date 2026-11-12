@@ -76,11 +76,17 @@ export function createRedis(url: string): Redis {
  * Redis-backed cache. A Redis failure never fails the request: reads fall through
  * to `load` and the error is logged (without the value).
  */
-export function createRedisCache(redis: Redis, logger: Logger): Cache {
+export function createRedisCache(
+  redis: Redis,
+  logger: Logger,
+  /** Each lookup's result, for the cache hit rate on /system/health. */
+  onLookup?: (hit: boolean) => void,
+): Cache {
   return {
     async getOrSet<T>(key: string, ttlSeconds: number, load: () => Promise<T | null>) {
       try {
         const hit = await redis.get(key);
+        onLookup?.(hit !== null);
         if (hit !== null) return JSON.parse(hit) as T;
       } catch (err) {
         logger.warn({ err, key }, 'Cache read failed; loading from source');

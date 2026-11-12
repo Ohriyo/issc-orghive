@@ -130,6 +130,51 @@ function FinalAfterDays({ days }: { days: FinalAfterDaysModel }) {
   );
 }
 
+/** How long after an alert email the same kind of alert stays quiet. */
+function AlertCooldown({ cooldown }: { cooldown: FinalAfterDaysModel }) {
+  return (
+    <section aria-labelledby="alert-cooldown-heading" className={PANEL}>
+      <h2 id="alert-cooldown-heading" className="text-h3 font-bold text-ink">
+        System alerts: email cooldown
+      </h2>
+      <p className="mt-2 max-w-prose text-body text-ink">
+        When an alert opens (failing requests, slow responses, the worker down, a full disk, old
+        virus signatures), every super admin gets an email. The same kind of alert is not emailed
+        again for this many minutes, so one that flaps open and shut sends one email. The banner in
+        the console always shows what is open.
+      </p>
+      <form
+        noValidate
+        className="mt-5 flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          cooldown.save();
+        }}
+      >
+        <FormAlert message={cooldown.error ?? undefined} />
+        <div className="flex flex-wrap items-end gap-4">
+          <TextField
+            label="Minutes between emails (5 to 1,440)"
+            hint={cooldown.lastChange}
+            inputMode="numeric"
+            autoComplete="off"
+            className="w-full max-w-xs"
+            value={cooldown.value}
+            onChange={(event) => cooldown.onChange(event.target.value)}
+            disabled={cooldown.saving}
+          />
+          <PillButton type="submit" disabled={cooldown.saving || !cooldown.dirty}>
+            {cooldown.saving ? 'Saving…' : 'Save'}
+          </PillButton>
+        </div>
+        <p aria-live="polite" className="text-small text-ink-muted empty:hidden">
+          {cooldown.saved ? 'Saved. The next alert follows it.' : null}
+        </p>
+      </form>
+    </section>
+  );
+}
+
 /** /system/settings: the leaderboard's late value (spec 5C) and the task file checks. */
 export function SettingsView({ model }: { model: SystemSettingsModel }) {
   if (model.status === 'loading') {
@@ -195,6 +240,7 @@ export function SettingsView({ model }: { model: SystemSettingsModel }) {
       </section>
       <FinalAfterDays days={model.finalAfterDays} />
       <CheckSettings checks={model.checks} />
+      <AlertCooldown cooldown={model.alertCooldown} />
     </div>
   );
 }

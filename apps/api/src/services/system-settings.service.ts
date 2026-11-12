@@ -1,5 +1,7 @@
 import type { z } from 'zod';
 import {
+  alertCooldownMinutesSchema,
+  DEFAULT_ALERT_COOLDOWN_MINUTES,
   DEFAULT_FINAL_AFTER_DAYS,
   DEFAULT_LATE_POINTS,
   finalAfterDaysSchema,
@@ -21,6 +23,7 @@ export const SETTING_KEYS = {
   finalAfterDays: 'leaderboard.finalAfterDays',
   taskKeywords: 'integrity.taskKeywords',
   nearDuplicateBits: 'integrity.nearDuplicateBits',
+  alertCooldownMinutes: 'alerts.cooldownMinutes',
 } as const;
 
 export interface SystemSettingsServiceDeps {
@@ -61,6 +64,12 @@ export function createSystemSettingsService({
     read(SETTING_KEYS.taskKeywords, taskKeywordsSchema, DEFAULT_TASK_KEYWORDS);
   const nearBitsSetting = () =>
     read(SETTING_KEYS.nearDuplicateBits, nearDuplicateBitsSchema, DEFAULT_NEAR_DUPLICATE_BITS);
+  const cooldownSetting = () =>
+    read(
+      SETTING_KEYS.alertCooldownMinutes,
+      alertCooldownMinutesSchema,
+      DEFAULT_ALERT_COOLDOWN_MINUTES,
+    );
 
   /** Saves and audits one setting when it changed; true when it did. */
   async function change<T extends number | TaskKeywords>(
@@ -86,11 +95,12 @@ export function createSystemSettingsService({
 
   return {
     async get(): Promise<SystemSettings> {
-      const [late, keywords, nearBits, finalAfterDays] = await Promise.all([
+      const [late, keywords, nearBits, finalAfterDays, cooldown] = await Promise.all([
         latePointsSetting(),
         keywordsSetting(),
         nearBitsSetting(),
         finalAfterDaysSetting(),
+        cooldownSetting(),
       ]);
       return {
         leaderboardLatePoints: late.value,
@@ -100,7 +110,14 @@ export function createSystemSettingsService({
         checksUpdatedAt: later(keywords.updatedAt, nearBits.updatedAt)?.toISOString() ?? null,
         finalAfterDays: finalAfterDays.value,
         finalAfterDaysUpdatedAt: finalAfterDays.updatedAt?.toISOString() ?? null,
+        alertCooldownMinutes: cooldown.value,
+        alertCooldownUpdatedAt: cooldown.updatedAt?.toISOString() ?? null,
       };
+    },
+
+    /** Minutes before the same kind of system alert is emailed again. */
+    async alertCooldownMinutes(): Promise<number> {
+      return (await cooldownSetting()).value;
     },
 
     /** Points for a late implemented project, 0 to 1. */
@@ -150,6 +167,16 @@ export function createSystemSettingsService({
       if (patch.nearDuplicateBits !== undefined) {
         const before = (await nearBitsSetting()).value;
         await change(SETTING_KEYS.nearDuplicateBits, before, patch.nearDuplicateBits, actorId, ctx);
+      }
+      if (patch.alertCooldownMinutes !== undefined) {
+        const before = (await cooldownSetting()).value;
+        await change(
+          SETTING_KEYS.alertCooldownMinutes,
+          before,
+          patch.alertCooldownMinutes,
+          actorId,
+          ctx,
+        );
       }
       return this.get();
     },

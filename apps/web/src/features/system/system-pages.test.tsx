@@ -325,6 +325,7 @@ function serve(refresh: AuthResponse = session()) {
         revealExpiresAt: done ? '2026-10-27T08:00:00.000Z' : null,
       });
     }
+    if (path === '/system/alerts') return json({ alerts: [] });
     if (path === '/system/account-requests/count') return json({ open: 1 });
     if (path === '/system/account-requests') return json({ items: [REQUEST], openCount: 1 });
     if (path === `/system/account-requests/${REQUEST_ID}`) return json(REQUEST);

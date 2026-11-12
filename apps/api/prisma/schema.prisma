@@ -380,8 +380,8 @@ model Organization {
   uploadIntents   UploadIntent[]
   documents       Document[]
   announcements   Announcement[]
-  posts           OrgPost[]       @relation("OrgPostOrganization")
-  postsHidden     OrgPost[]       @relation("OrgPostHiddenBy")
+  posts           OrgPost[]             @relation("OrgPostOrganization")
+  postsHidden     OrgPost[]             @relation("OrgPostHiddenBy")
   auditLogs       AuditLog[]
   projects        Project[]
   freezes         OrgFreeze[]
@@ -1382,4 +1382,53 @@ model DocumentPageText {
   @@id([versionId, page])
   @@index([searchVector], type: Gin)
   @@map("document_page_texts")
+}
+
+/// One minute of one process's measurements, for /system/metrics. Kept 7 days (the worker's
+/// daily prune). API processes write request figures; the worker writes queues and sizes.
+model SystemMetric {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  /// The minute measured (its start, UTC).
+  minute         DateTime
+  /// "api:<host>:<pid>" for an API process, "worker" for the worker.
+  source         String
+  requests       Int      @default(0)
+  clientErrors   Int      @default(0) @map("client_errors")
+  serverErrors   Int      @default(0) @map("server_errors")
+  p50Ms          Float?   @map("p50_ms")
+  p95Ms          Float?   @map("p95_ms")
+  p99Ms          Float?   @map("p99_ms")
+  eventLoopLagMs Float?   @map("event_loop_lag_ms")
+  rssBytes       BigInt?  @map("rss_bytes")
+  cpuPercent     Float?   @map("cpu_percent")
+  cacheHits      Int      @default(0) @map("cache_hits")
+  cacheMisses    Int      @default(0) @map("cache_misses")
+  queueWaiting   Int?     @map("queue_waiting")
+  queueFailed    Int?     @map("queue_failed")
+  storageBytes   BigInt?  @map("storage_bytes")
+  databaseBytes  BigInt?  @map("database_bytes")
+  /// Per route: [{ route, count, totalMs, maxMs, p95Ms }].
+  routes         Json?
+  /// Queries over SLOW_QUERY_MS: [{ route, durationMs, query }]. SQL text only, never values.
+  slowQueries    Json?    @map("slow_queries")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([minute, source])
+  @@index([minute])
+  @@map("system_metrics")
+}
+
+/// A console alert (/system): open until its condition clears. One open alert per kind (a
+/// partial unique index in the migration), so API instances never open it twice.
+model SystemAlert {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  kind       String
+  message    String
+  openedAt   DateTime  @default(now()) @map("opened_at")
+  resolvedAt DateTime? @map("resolved_at")
+  /// When its email went to the super admins; null when the cooldown held it back.
+  notifiedAt DateTime? @map("notified_at")
+
+  @@index([kind, openedAt])
+  @@map("system_alerts")
 }

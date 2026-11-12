@@ -23,6 +23,7 @@ import {
   createBullPreviewQueue,
   createBullQueue,
   createBullReportQueue,
+  createBullSystemQueue,
   createQueueConnection,
   DOCUMENT_QUEUE,
   EMAILS_PER_SECOND,
@@ -31,13 +32,19 @@ import {
   NOTIFICATION_QUEUE,
   PREVIEW_QUEUE,
   REPORT_QUEUE,
+  queueStates,
+  SYSTEM_QUEUE,
   type DocumentJob,
   type IntegrityJob,
   type LeaderboardJob,
   type NotificationJob,
   type PreviewJob,
   type ReportJob,
+  type SystemJob,
 } from '#src/lib/queue';
+import { WORKER_HEARTBEAT_MS, writeWorkerHeartbeat } from '#src/lib/system-probes';
+import { createSystemMetricsRepository } from '#src/repositories/system-metrics.repository';
+import { createSystemMetricsService } from '#src/services/system-metrics.service';
 import { createChromiumRenderer } from '#src/lib/report-pdf';
 import { createS3Storage } from '#src/lib/storage';
 import { createLogger } from '#src/logger';
@@ -109,6 +116,10 @@ const COMPLIANCE_EVERY_MS = 60 * 60 * 1000;
  */
 const LEADERBOARD_DAILY_CRON = '0 0 0 * * *';
 const MANILA_TZ = 'Asia/Manila';
+/** The worker's minute for /system/metrics: queues, stored bytes, database size. */
+const COLLECT_METRICS_EVERY_MS = 60_000;
+/** Minutes older than 7 days go at 03:00 Manila, when nobody is uploading. */
+const PRUNE_METRICS_CRON = '0 0 3 * * *';
 
 let config: Config;
 try {
@@ -280,6 +291,20 @@ const reports = createReportService({
   logger,
 });
 
+const systemQueue = createBullSystemQueue(connection);
+const systemMetrics = createSystemMetricsService({ metrics: createSystemMetricsRepository(db) });
+const watchedQueues = [
+  { name: 'documents', queue: jobs.queue },
+  { name: 'previews', queue: previewQueue.queue },
+  { name: 'integrity', queue: integrityQueue.queue },
+  { name: 'notifications', queue: notificationQueue.queue },
+  { name: 'reports', queue: reportQueue.queue },
+  { name: 'leaderboard', queue: leaderboardQueue.queue },
+  { name: 'system', queue: systemQueue.queue },
+];
+let cpuMark = process.cpuUsage();
+let wallMark = performance.now();
+
 /** Scheduled organization posts go live within a minute of publishAt (an instant; the editor picks it in Manila time). */
 const PUBLISH_DUE_POSTS_EVERY_MS = 60_000;
 const publishDuePosts = createScheduledPostPublisher({
@@ -383,6 +408,30 @@ async function handlePreview(job: Job<PreviewJob['data'], unknown, PreviewJob['n
   return previews.renderVersion(versionId, { lastAttempt });
 }
 
+async function handleSystem(job: Job<SystemJob['data'], unknown, SystemJob['name']>) {
+  switch (job.name) {
+    case 'collect-metrics': {
+      const cpu = process.cpuUsage(cpuMark);
+      const elapsedMs = Math.max(1, performance.now() - wallMark);
+      cpuMark = process.cpuUsage();
+      wallMark = performance.now();
+      await systemMetrics.recordWorkerMinute({
+        queues: () => queueStates(watchedQueues),
+        rssBytes: process.memoryUsage.rss(),
+        cpuPercent: Math.round(((cpu.user + cpu.system) / 1000 / elapsedMs) * 1000) / 10,
+      });
+      return null;
+    }
+    case 'prune-metrics': {
+      const removed = await systemMetrics.prune();
+      logger.info({ removed }, 'Old metrics pruned');
+      return { removed };
+    }
+    default:
+      throw new UnrecoverableError(`Unknown job ${String(job.name)}`);
+  }
+}
+
 async function handleReport(job: Job<ReportJob['data'], unknown, ReportJob['name']>) {
   const { reportId } = job.data as { reportId?: unknown };
   if (typeof reportId !== 'string') throw new UnrecoverableError('Job has no reportId');
@@ -414,6 +463,8 @@ const leaderboardWorker = new Worker(LEADERBOARD_QUEUE, handleLeaderboard, {
   connection,
   concurrency: 1,
 });
+// The minute snapshot and the prune: quick, one at a time, never behind a scan.
+const systemWorker = new Worker(SYSTEM_QUEUE, handleSystem, { connection, concurrency: 1 });
 for (const w of [
   worker,
   mailWorker,
@@ -421,6 +472,7 @@ for (const w of [
   integrityWorker,
   reportWorker,
   leaderboardWorker,
+  systemWorker,
 ]) {
   w.on('failed', (job, err) => {
     logger.error({ err, jobId: job?.id, attempts: job?.attemptsMade }, 'Job failed');
@@ -449,6 +501,25 @@ await leaderboardQueue.queue.upsertJobScheduler(
   { pattern: LEADERBOARD_DAILY_CRON, tz: MANILA_TZ },
   { name: 'daily', data: {} },
 );
+await systemQueue.queue.upsertJobScheduler(
+  'collect-metrics',
+  { every: COLLECT_METRICS_EVERY_MS },
+  { name: 'collect-metrics', data: {}, opts: { removeOnComplete: 100, removeOnFail: 100 } },
+);
+await systemQueue.queue.upsertJobScheduler(
+  'prune-metrics',
+  { pattern: PRUNE_METRICS_CRON, tz: MANILA_TZ },
+  { name: 'prune-metrics', data: {} },
+);
+
+// The API reads this to tell whether the worker runs (/system/health, the worker alert).
+const beat = () =>
+  writeWorkerHeartbeat(redis, new Date()).catch((err: unknown) =>
+    logger.warn({ err }, 'Worker heartbeat not written'),
+  );
+await beat();
+const heartbeat = setInterval(() => void beat(), WORKER_HEARTBEAT_MS);
+
 logger.info(
   {
     queues: [
@@ -458,6 +529,7 @@ logger.info(
       INTEGRITY_QUEUE,
       REPORT_QUEUE,
       LEADERBOARD_QUEUE,
+      SYSTEM_QUEUE,
     ],
   },
   'Worker started',
@@ -465,7 +537,9 @@ logger.info(
 
 async function shutdown(signal: string) {
   logger.info({ signal }, 'Worker shutting down');
+  clearInterval(heartbeat);
   await Promise.allSettled([
+    systemWorker.close(),
     worker.close(),
     mailWorker.close(),
     previewWorker.close(),
@@ -481,6 +555,7 @@ async function shutdown(signal: string) {
     ocr.terminate(),
     reportQueue.queue.close(),
     leaderboardQueue.queue.close(),
+    systemQueue.queue.close(),
     connection.quit(),
     redis.quit(),
     db.$disconnect(),

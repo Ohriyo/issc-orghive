@@ -22,6 +22,11 @@ import { createSessionGuard } from '#src/services/session-guard';
 import { createSystemService } from '#src/services/system.service';
 import { createSystemSettingRepository } from '#src/repositories/system-setting.repository';
 import { createSystemSettingsService } from '#src/services/system-settings.service';
+import { createSystemMetricsRepository } from '#src/repositories/system-metrics.repository';
+import { createSystemAlertRepository } from '#src/repositories/system-alert.repository';
+import { createSystemMetricsService } from '#src/services/system-metrics.service';
+import { createSystemHealthService } from '#src/services/system-health.service';
+import { createSystemAlertService } from '#src/services/system-alert.service';
 import { memoryCache } from '#src/lib/cache';
 import { createPublicUrl } from '#src/lib/public-url';
 import { createAccountAdminRepository } from '#src/repositories/account-admin.repository';
@@ -179,6 +184,11 @@ export function buildAuthApp(
   const audit = createAuditLogRepository(db);
   const passwords = createArgon2Hasher({ cost: TEST_ARGON2_COST });
   const systemReads = createSystemRepository(db);
+  const metricsReads = createSystemMetricsRepository(db);
+  const systemSettings = createSystemSettingsService({
+    settings: createSystemSettingRepository(db),
+    audit,
+  });
   const superAdmins = createSuperAdminService({
     users,
     recoveryCodes: createRecoveryCodeRepository(db),
@@ -314,9 +324,38 @@ export function buildAuthApp(
       },
       superAdmins,
       system,
-      systemSettings: createSystemSettingsService({
-        settings: createSystemSettingRepository(db),
-        audit,
+      systemSettings,
+      // /system/health, /metrics and /alerts on the test database; the outside services
+      // (Redis, storage, ClamAV, SMTP, disk) are healthy fakes.
+      systemHealth: createSystemHealthService({
+        probes: {
+          redis: () => Promise.resolve({ latencyMs: 1, usedMemoryBytes: 1024, maxMemoryBytes: 0 }),
+          storage: () => Promise.resolve(),
+          clamav: () => Promise.resolve({ engine: 'ClamAV test', signaturesAt: new Date() }),
+          smtp: () => Promise.resolve(),
+          disk: () => Promise.resolve({ totalBytes: 100, freeBytes: 60, usedRatio: 0.4 }),
+          workerHeartbeat: () => Promise.resolve(new Date()),
+          queues: () => Promise.resolve([]),
+        },
+        metrics: metricsReads,
+        logger,
+        cacheMs: 0,
+      }),
+      systemMetrics: createSystemMetricsService({ metrics: metricsReads, now }),
+      systemAlerts: createSystemAlertService({
+        alerts: createSystemAlertRepository(db),
+        metrics: metricsReads,
+        probes: {
+          workerHeartbeat: () => Promise.resolve(new Date()),
+          diskUsedRatio: () => Promise.resolve(0.4),
+          clamavSignaturesAt: () => Promise.resolve(new Date()),
+        },
+        settings: systemSettings,
+        superAdmins: systemReads,
+        mailer,
+        logger,
+        webOrigin: TEST_WEB_ORIGIN,
+        now,
       }),
       ...(demoData && { demoData }),
     },

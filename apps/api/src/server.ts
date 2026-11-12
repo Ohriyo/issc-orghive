@@ -3,6 +3,22 @@ import { createLogger } from '#src/logger';
 import { createApp } from '#src/app';
 import { createRedis, createRedisCache } from '#src/lib/cache';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
+import { hostname } from 'node:os';
+import { createMetrics, currentRoute } from '#src/lib/metrics';
+import {
+  createSmtpProbe,
+  createStorageProbe,
+  probeClamav,
+  probeDisk,
+  probeRedis,
+  readWorkerHeartbeat,
+} from '#src/lib/system-probes';
+import { createSystemMetricsRepository } from '#src/repositories/system-metrics.repository';
+import { createSystemAlertRepository } from '#src/repositories/system-alert.repository';
+import { createSystemMetricsService, minuteOf } from '#src/services/system-metrics.service';
+import { createSystemHealthService } from '#src/services/system-health.service';
+import { createSystemAlertService } from '#src/services/system-alert.service';
 import {
   createRedisLeaderboardEvents,
   subscribeLeaderboardChanges,
@@ -10,12 +26,15 @@ import {
 import { createRedisLeaderboardStore } from '#src/lib/leaderboard-store';
 import { createLeaderboardStream } from '#src/lib/leaderboard-stream';
 import {
+  createBullIntegrityQueue,
   createBullLeaderboardQueue,
   createBullNotificationQueue,
   createBullPreviewQueue,
   createBullQueue,
   createBullReportQueue,
+  createBullSystemQueue,
   createQueueConnection,
+  queueStates,
 } from '#src/lib/queue';
 import { createChromiumRenderer } from '#src/lib/report-pdf';
 import { createS3Storage } from '#src/lib/storage';
@@ -132,7 +151,21 @@ try {
 }
 
 const logger = createLogger(config);
-const db = createDb(config.DATABASE_URL);
+/** This process's name in system_metrics: one row per API instance per minute. */
+const metricsSource = `api:${hostname()}:${process.pid}`;
+const metrics = createMetrics({ labels: { instance: metricsSource } });
+const db = createDb(config.DATABASE_URL, {
+  onQuery: ({ durationMs, sql }) => {
+    const route = currentRoute();
+    if (metrics.recordQuery({ route, durationMs, query: sql })) {
+      // SQL text with placeholders only: parameter values never reach the log.
+      logger.warn(
+        { route, durationMs: Math.round(durationMs), query: sql.slice(0, 300) },
+        'Slow database query',
+      );
+    }
+  },
+});
 const demoReads = createDemoDataRepository(db);
 // Demo data must never go live (docs/DEPLOYMENT.md): production refuses to start with it.
 if (
@@ -149,7 +182,7 @@ if (
 const redis = createRedis(config.REDIS_URL);
 redis.on('error', (err) => logger.warn({ err }, 'Redis connection error'));
 
-const cache = createRedisCache(redis, logger);
+const cache = createRedisCache(redis, logger, (hit) => metrics.recordCacheLookup(hit));
 const publicUrl = createPublicUrl(config.PUBLIC_ASSET_BASE_URL);
 const organizations = createOrganizationRepository(db);
 const accounts = createAccountRepository(db);
@@ -396,12 +429,50 @@ const superAdmins = createSuperAdminService({
   mailer,
   logger,
 });
+// Read-only handles: the API never adds to these two, it only counts them.
+const integrityQueue = createBullIntegrityQueue(queueConnection);
+const systemQueue = createBullSystemQueue(queueConnection);
 const queues = [
   { name: 'documents', queue: jobs.queue },
+  { name: 'previews', queue: previewQueue.queue },
+  { name: 'integrity', queue: integrityQueue.queue },
   { name: 'notifications', queue: notificationQueue.queue },
   { name: 'reports', queue: reportQueue.queue },
   { name: 'leaderboard', queue: leaderboardQueue.queue },
+  { name: 'system', queue: systemQueue.queue },
 ];
+
+// /system/health, /system/metrics and the console's alerts.
+const metricsReads = createSystemMetricsRepository(db);
+const systemMetrics = createSystemMetricsService({ metrics: metricsReads });
+const clamav = () => probeClamav(config.CLAMAV_HOST, config.CLAMAV_PORT);
+const systemHealth = createSystemHealthService({
+  probes: {
+    redis: () => probeRedis(redis),
+    storage: createStorageProbe(config),
+    clamav,
+    smtp: createSmtpProbe(config),
+    disk: () => probeDisk(),
+    workerHeartbeat: () => readWorkerHeartbeat(redis),
+    queues: () => queueStates(queues),
+  },
+  metrics: metricsReads,
+  logger,
+});
+const systemAlerts = createSystemAlertService({
+  alerts: createSystemAlertRepository(db),
+  metrics: metricsReads,
+  probes: {
+    workerHeartbeat: () => readWorkerHeartbeat(redis),
+    diskUsedRatio: async () => (await probeDisk()).usedRatio,
+    clamavSignaturesAt: async () => (await clamav()).signaturesAt,
+  },
+  settings: systemSettings,
+  superAdmins: systemReads,
+  mailer,
+  logger,
+  webOrigin: config.WEB_ORIGIN,
+});
 
 // The API only reports and removes demo data; db:seed:demo writes it.
 const demoData = createDemoDataService({
@@ -447,19 +518,14 @@ const app = createApp({
       accounts: accountAdminReads,
       refreshTokens,
       audit,
-      queues: () =>
-        Promise.all(
-          queues.map(async ({ name, queue }) => {
-            const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
-            return {
-              name,
-              waiting: counts.waiting ?? 0,
-              active: counts.active ?? 0,
-              delayed: counts.delayed ?? 0,
-              failed: counts.failed ?? 0,
-            };
-          }),
-        ),
+      queues: async () =>
+        (await queueStates(queues)).map(({ name, waiting, active, delayed, failed }) => ({
+          name,
+          waiting,
+          active,
+          delayed,
+          failed,
+        })),
       logger,
     }),
     colleges: createCollegeService({
@@ -601,8 +667,60 @@ const app = createApp({
     semesters: semesterCalendar,
     disqualifications,
     demoData,
+    systemHealth,
+    systemMetrics,
+    systemAlerts,
   },
+  metrics,
 });
+
+/**
+ * Each minute, on the minute: this process's last minute goes to system_metrics, then the
+ * alerts are evaluated. Neither ever stops the API: failures are logged.
+ */
+async function recordMinute() {
+  const minute = new Date(minuteOf(new Date()).getTime() - 60_000);
+  await systemMetrics
+    .recordApiMinute(metricsSource, minute, metrics.takeSnapshot())
+    .catch((err: unknown) => logger.warn({ err }, 'Metrics snapshot not saved'));
+  await systemAlerts
+    .evaluate()
+    .catch((err: unknown) => logger.warn({ err }, 'Alert check failed'));
+}
+let minuteTimer: NodeJS.Timeout | undefined;
+const firstMinute = setTimeout(
+  () => {
+    void recordMinute();
+    minuteTimer = setInterval(() => void recordMinute(), 60_000);
+    minuteTimer.unref();
+  },
+  60_000 - (Date.now() % 60_000) + 1_000,
+);
+firstMinute.unref();
+
+// Prometheus scrapes this on an internal port only (never the public one).
+const metricsServer = config.METRICS_PORT
+  ? createServer((req, res) => {
+      if (req.method !== 'GET' || req.url !== '/metrics') {
+        res.writeHead(404).end();
+        return;
+      }
+      metrics.registry
+        .metrics()
+        .then((body) => {
+          res.writeHead(200, { 'Content-Type': metrics.registry.contentType }).end(body);
+        })
+        .catch((err: unknown) => {
+          logger.warn({ err }, 'Metrics endpoint failed');
+          res.writeHead(500).end();
+        });
+    }).listen(config.METRICS_PORT, config.METRICS_HOST, () => {
+      logger.info(
+        { host: config.METRICS_HOST, port: config.METRICS_PORT },
+        'Internal metrics endpoint listening',
+      );
+    })
+  : null;
 
 const server = app.listen(config.PORT, () => {
   logger.info({ port: config.PORT, env: config.NODE_ENV }, 'API listening');
@@ -615,6 +733,10 @@ function shutdown(signal: string) {
   logger.info({ signal }, 'Shutting down');
   // Open streams would keep server.close waiting; browsers reconnect to another instance.
   leaderboardStream.closeAll();
+  clearTimeout(firstMinute);
+  clearInterval(minuteTimer);
+  metricsServer?.close();
+  metrics.stop();
   server.close(() => {
     void Promise.allSettled([
       // QUIT is allowed on a subscribed connection.
@@ -626,6 +748,8 @@ function shutdown(signal: string) {
       notificationQueue.queue.close(),
       reportQueue.queue.close(),
       leaderboardQueue.queue.close(),
+      integrityQueue.queue.close(),
+      systemQueue.queue.close(),
       queueConnection.quit(),
     ]).then(() => process.exit(0));
   });

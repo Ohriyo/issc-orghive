@@ -25,6 +25,8 @@ const DEFAULTS: SystemSettings = {
   checksUpdatedAt: null,
   finalAfterDays: 7,
   finalAfterDaysUpdatedAt: null,
+  alertCooldownMinutes: 30,
+  alertCooldownUpdatedAt: null,
 };
 
 function json(body: unknown, status = 200) {
@@ -199,6 +201,16 @@ describe('SettingsView', () => {
       value: '7',
       onChange: vi.fn(),
       lastChange: 'The default (7 days)',
+      error: null,
+      saving: false,
+      saved: false,
+      dirty: false,
+      save: vi.fn(),
+    },
+    alertCooldown: {
+      value: '30',
+      onChange: vi.fn(),
+      lastChange: 'The default (30 minutes)',
       error: null,
       saving: false,
       saved: false,

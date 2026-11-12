@@ -20,6 +20,12 @@ export const PREVIEW_QUEUE = 'previews';
 export const INTEGRITY_QUEUE = 'integrity';
 /** Leaderboard recomputes (docs/PROJECT_WORKFLOW_SPEC.md, section 5), one at a time. */
 export const LEADERBOARD_QUEUE = 'leaderboard';
+/**
+ * The worker's own upkeep for /system/metrics: the 1-minute snapshot and the daily prune.
+ * Apart from the scans, so a backlog of uploads never delays the minute being measured.
+ */
+export const SYSTEM_QUEUE = 'system';
+export type SystemJob = { name: 'collect-metrics' | 'prune-metrics'; data: Record<string, never> };
 
 export type DocumentJob =
   /** Check, scan and process one uploaded version. */
@@ -232,4 +238,40 @@ export function createBullLeaderboardQueue(connection: Redis): LeaderboardQueue 
       );
     },
   };
+}
+
+/** One queue's state for /system/health and the worker's minute. */
+export interface QueueState {
+  name: string;
+  waiting: number;
+  active: number;
+  delayed: number;
+  failed: number;
+  /** When the longest-waiting job was queued; null when nothing waits. */
+  oldestWaitingAt: Date | null;
+}
+
+/** Counts of each queue, and how long its oldest waiting job has waited. */
+export async function queueStates(queues: readonly { name: string; queue: Queue }[]): Promise<QueueState[]> {
+  return Promise.all(
+    queues.map(async ({ name, queue }) => {
+      const [counts, oldest] = await Promise.all([
+        queue.getJobCounts('waiting', 'active', 'delayed', 'failed'),
+        queue.getJobs(['waiting'], 0, 0, true),
+      ]);
+      const first = oldest[0];
+      return {
+        name,
+        waiting: counts.waiting ?? 0,
+        active: counts.active ?? 0,
+        delayed: counts.delayed ?? 0,
+        failed: counts.failed ?? 0,
+        oldestWaitingAt: first ? new Date(first.timestamp) : null,
+      };
+    }),
+  );
+}
+
+export function createBullSystemQueue(connection: Redis): { queue: Queue } {
+  return { queue: new Queue(SYSTEM_QUEUE, { connection }) };
 }

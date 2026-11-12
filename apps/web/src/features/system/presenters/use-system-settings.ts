@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  alertCooldownMinutesSchema,
+  DEFAULT_ALERT_COOLDOWN_MINUTES,
   DEFAULT_FINAL_AFTER_DAYS,
   DEFAULT_LATE_POINTS,
   finalAfterDaysSchema,
@@ -69,6 +71,8 @@ export type SystemSettingsModel =
       save: () => void;
       checks: CheckSettingsModel;
       finalAfterDays: FinalAfterDaysModel;
+      /** Minutes before the same kind of system alert is emailed again. */
+      alertCooldown: FinalAfterDaysModel;
     };
 
 /**
@@ -83,6 +87,8 @@ export function useSystemSettings(): SystemSettingsModel {
   const [checksError, setChecksError] = useState<string | null>(null);
   const [daysDraft, setDaysDraft] = useState<string | null>(null);
   const [daysError, setDaysError] = useState<string | null>(null);
+  const [cooldownDraft, setCooldownDraft] = useState<string | null>(null);
+  const [cooldownError, setCooldownError] = useState<string | null>(null);
   const key = [...queryKeys.system.all, 'settings'] as const;
   const query = useQuery({
     queryKey: key,
@@ -107,6 +113,15 @@ export function useSystemSettings(): SystemSettingsModel {
     },
     onError: (err) => setDaysError(messageOf(err)),
   });
+  const cooldownMutation = useMutation({
+    mutationFn: (alertCooldownMinutes: number) =>
+      api.patch('/system/settings', { alertCooldownMinutes }, { schema: systemSettingsSchema }),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(key, settings);
+      setCooldownDraft(null);
+    },
+    onError: (err) => setCooldownError(messageOf(err)),
+  });
   const mutation = useMutation({
     mutationFn: (leaderboardLatePoints: number) =>
       api.patch('/system/settings', { leaderboardLatePoints }, { schema: systemSettingsSchema }),
@@ -128,6 +143,10 @@ export function useSystemSettings(): SystemSettingsModel {
   const daysValue = daysDraft ?? String(saved.finalAfterDays);
   const daysParsed = finalAfterDaysSchema.safeParse(
     daysValue.trim() === '' ? NaN : Number(daysValue),
+  );
+  const cooldownValue = cooldownDraft ?? String(saved.alertCooldownMinutes);
+  const cooldownParsed = alertCooldownMinutesSchema.safeParse(
+    cooldownValue.trim() === '' ? NaN : Number(cooldownValue),
   );
   const editChecks = (next: CheckSettingsDraft) => {
     setChecksDraft(next);
@@ -179,6 +198,31 @@ export function useSystemSettings(): SystemSettingsModel {
           return;
         }
         daysMutation.mutate(daysParsed.data);
+      },
+    },
+    alertCooldown: {
+      value: cooldownValue,
+      onChange: (next) => {
+        setCooldownDraft(next);
+        setCooldownError(null);
+        cooldownMutation.reset();
+      },
+      lastChange: saved.alertCooldownUpdatedAt
+        ? `Changed ${formatDateTime(saved.alertCooldownUpdatedAt)}`
+        : `The default (${DEFAULT_ALERT_COOLDOWN_MINUTES} minutes)`,
+      error: cooldownError,
+      saving: cooldownMutation.isPending,
+      saved: cooldownMutation.isSuccess,
+      dirty:
+        cooldownDraft !== null &&
+        cooldownParsed.success &&
+        cooldownParsed.data !== saved.alertCooldownMinutes,
+      save: () => {
+        if (!cooldownParsed.success) {
+          setCooldownError(cooldownParsed.error.issues[0]?.message ?? 'Use a number of minutes');
+          return;
+        }
+        cooldownMutation.mutate(cooldownParsed.data);
       },
     },
     checks: {

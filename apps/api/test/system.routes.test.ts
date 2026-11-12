@@ -99,6 +99,9 @@ const READS = [
   '/api/v1/system/audit-logs',
   '/api/v1/system/me/security',
   '/api/v1/system/settings',
+  '/api/v1/system/health',
+  '/api/v1/system/metrics',
+  '/api/v1/system/alerts',
 ];
 
 describe('/system role matrix', () => {

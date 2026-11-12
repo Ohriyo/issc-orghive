@@ -5,8 +5,10 @@ import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import type { Config } from '#src/config';
 import type { LeaderboardStream } from '#src/lib/leaderboard-stream';
+import type { Metrics } from '#src/lib/metrics';
 import type { Logger } from '#src/logger';
 import { createErrorHandler, notFoundHandler } from '#src/middleware/error-handler';
+import { metricsMiddleware } from '#src/middleware/metrics';
 import type { RateLimitStoreFactory } from '#src/middleware/rate-limit';
 import { createOpenApiDocument } from '#src/openapi';
 import { adminRouter } from '#src/routes/admin.routes';
@@ -67,6 +69,9 @@ import type { SuperAdminService } from '#src/services/super-admin.service';
 import type { SupportService } from '#src/services/support.service';
 import type { SystemService } from '#src/services/system.service';
 import type { SystemSettingsService } from '#src/services/system-settings.service';
+import type { SystemHealthService } from '#src/services/system-health.service';
+import type { SystemMetricsService } from '#src/services/system-metrics.service';
+import type { SystemAlertService } from '#src/services/system-alert.service';
 import type { UploadService } from '#src/services/upload.service';
 
 export interface AppServices {
@@ -131,6 +136,12 @@ export interface AppServices {
   myStanding: Pick<MyStandingService, 'forUser'>;
   /** Demo data: the public "Sample data" chip and its removal in /system. */
   demoData: Pick<DemoDataService, 'preview' | 'remove' | 'status'>;
+  /** /system/health: live checks of every service Orghive depends on. */
+  systemHealth: Pick<SystemHealthService, 'check'>;
+  /** /system/metrics: charts and slow lists from the 1-minute snapshots. */
+  systemMetrics: Pick<SystemMetricsService, 'read'>;
+  /** /system/alerts: the console banner. */
+  systemAlerts: Pick<SystemAlertService, 'listOpen'>;
 }
 
 export interface AppDeps {
@@ -139,12 +150,16 @@ export interface AppDeps {
   services: AppServices;
   /** Redis in the app; omitted in tests that do not exercise rate limits (in-memory). */
   rateLimitStore?: RateLimitStoreFactory;
+  /** Request timing for /system/metrics; omitted in tests that do not measure. */
+  metrics?: Pick<Metrics, 'recordRequest'>;
 }
 
-export function createApp({ config, logger, services, rateLimitStore }: AppDeps): Express {
+export function createApp({ config, logger, services, rateLimitStore, metrics }: AppDeps): Express {
   const app = express();
   // req.ip must be the client, not a proxy, for per-IP login limits (see TRUST_PROXY).
   app.set('trust proxy', config.TRUST_PROXY);
+  // First, so every response is timed, errors included.
+  if (metrics) app.use(metricsMiddleware(metrics));
 
   app.use(helmet());
   app.use(cors({ origin: config.WEB_ORIGIN, credentials: true }));
@@ -253,6 +268,9 @@ export function createApp({ config, logger, services, rateLimitStore }: AppDeps)
       imports: services.accountImports,
       settings: services.systemSettings,
       demoData: services.demoData,
+      health: services.systemHealth,
+      metrics: services.systemMetrics,
+      alerts: services.systemAlerts,
       tokens: services.tokens,
     }),
   );

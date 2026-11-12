@@ -85,6 +85,8 @@ describe('systemSettingsService', () => {
       checksUpdatedAt: null,
       finalAfterDays: 7,
       finalAfterDaysUpdatedAt: null,
+      alertCooldownMinutes: 30,
+      alertCooldownUpdatedAt: null,
     });
   });
 
@@ -164,5 +166,30 @@ describe('systemSettingsService: the task file checks (spec section 6)', () => {
 
     await service.update('admin', { nearDuplicateBits: 3 }, CTX);
     expect(settings.set).toHaveBeenLastCalledWith('integrity.nearDuplicateBits', 3, 'admin');
+  });
+});
+
+describe('systemSettingsService: the alert cooldown', () => {
+  it('defaults to 30 minutes, reads a stored value, and audits a change without a recompute', async () => {
+    expect(await setup().service.alertCooldownMinutes()).toBe(30);
+
+    const { service, settings, audit, onLatePointsChanged } = setup({
+      'alerts.cooldownMinutes': { value: 60, updatedAt: LATER },
+    });
+    expect(await service.alertCooldownMinutes()).toBe(60);
+    expect(await service.get()).toMatchObject({
+      alertCooldownMinutes: 60,
+      alertCooldownUpdatedAt: LATER.toISOString(),
+    });
+
+    await service.update('admin-1', { alertCooldownMinutes: 120 }, CTX);
+    expect(settings.set).toHaveBeenCalledWith('alerts.cooldownMinutes', 120, 'admin-1');
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'system_setting_change',
+        metadata: { key: 'alerts.cooldownMinutes', before: 60, after: 120 },
+      }),
+    );
+    expect(onLatePointsChanged).not.toHaveBeenCalled();
   });
 });

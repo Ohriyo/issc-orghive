@@ -6,6 +6,7 @@ import { academicYearOf, manilaDate } from './manila-time';
 import { slugSchema } from './organization';
 import { collegeRefSchema, organizationSummarySchema } from './public-read';
 import { semesterOf } from './report';
+import { alertCooldownMinutesSchema } from './system-health';
 
 /*
  * The leaderboard (docs/PROJECT_WORKFLOW_SPEC.md, section 5 "Leaderboard rules"). Money is
@@ -177,6 +178,10 @@ export const systemSettingsSchema = z
     finalAfterDays: finalAfterDaysSchema,
     /** When it last changed; null while it is the default. */
     finalAfterDaysUpdatedAt: z.iso.datetime().nullable(),
+    /** Minutes before the same kind of system alert is emailed again. */
+    alertCooldownMinutes: alertCooldownMinutesSchema,
+    /** When it last changed; null while it is the default. */
+    alertCooldownUpdatedAt: z.iso.datetime().nullable(),
   })
   .meta({ id: 'SystemSettings' });
 export type SystemSettings = z.infer<typeof systemSettingsSchema>;
@@ -188,6 +193,7 @@ export const updateSystemSettingsRequestSchema = z
     taskKeywords: taskKeywordsSchema,
     nearDuplicateBits: nearDuplicateBitsSchema,
     finalAfterDays: finalAfterDaysSchema,
+    alertCooldownMinutes: alertCooldownMinutesSchema,
   })
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, 'Change at least one setting');

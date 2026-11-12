@@ -32,6 +32,12 @@ import { TestDataView } from './views/test-data-view';
 import { DemoDataBanner } from './views/demo-data-banner';
 import { SettingsView } from './views/settings-view';
 import { useSystemSettings } from './presenters/use-system-settings';
+import { useSystemAlerts } from './presenters/use-system-alerts';
+import { useSystemHealth } from './presenters/use-system-health';
+import { useSystemMetrics } from './presenters/use-system-metrics';
+import { AlertBanner } from './views/alert-banner';
+import { HealthRefreshButton, HealthView } from './views/health-view';
+import { MetricsView, RangePicker } from './views/metrics-view';
 import { BulkCreateButton, CreateAccountButton, UsersView } from './views/users-view';
 
 /** Signed in (with MFA confirmed), then super admins only; everyone else sees why not. */
@@ -50,12 +56,16 @@ function Gated({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** The console's layout, with the open account requests' badge and the demo data banner. */
-function Console({ children, ...props }: Omit<SystemLayoutProps, 'requestCount'>) {
+/**
+ * The console's layout, with the open account requests' badge, the open system alerts and
+ * the demo data banner.
+ */
+function Console({ children, ...props }: Omit<SystemLayoutProps, 'requestCount' | 'banner'>) {
   const requestCount = useOpenRequestCount();
+  const alerts = useSystemAlerts();
   const demo = useDemoData();
   return (
-    <SystemLayout {...props} requestCount={requestCount}>
+    <SystemLayout {...props} requestCount={requestCount} banner={<AlertBanner alerts={alerts} />}>
       <DemoDataBanner model={demo} />
       {children}
     </SystemLayout>
@@ -112,6 +122,50 @@ function Overview() {
     >
       <OverviewView state={state} />
     </Console>
+  );
+}
+
+function Health() {
+  usePageChrome(chrome.system('Health'));
+  const state = useSystemHealth();
+  return (
+    <Console
+      title="Health"
+      description="Every service Orghive depends on, checked live."
+      actions={<HealthRefreshButton state={state} />}
+    >
+      <HealthView state={state} />
+    </Console>
+  );
+}
+
+function Metrics() {
+  usePageChrome(chrome.system('Metrics'));
+  const state = useSystemMetrics();
+  return (
+    <Console
+      title="Metrics"
+      description="Traffic, speed, errors and growth, from 1-minute snapshots kept for 7 days."
+      actions={<RangePicker range={state.range} onChange={state.setRange} />}
+    >
+      <MetricsView state={state} />
+    </Console>
+  );
+}
+
+export function SystemHealthPage() {
+  return (
+    <Gated>
+      <Health />
+    </Gated>
+  );
+}
+
+export function SystemMetricsPage() {
+  return (
+    <Gated>
+      <Metrics />
+    </Gated>
   );
 }
 

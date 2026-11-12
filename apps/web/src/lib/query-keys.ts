@@ -98,6 +98,9 @@ export const queryKeys = {
     supportDocuments: (slug: string) => ['system', 'support', slug] as const,
     testData: ['system', 'test-data'] as const,
     demoData: ['system', 'demo-data'] as const,
+    health: ['system', 'health'] as const,
+    metrics: (range: string) => ['system', 'metrics', range] as const,
+    alerts: ['system', 'alerts'] as const,
   },
   /**
    * The public leaderboard (docs/PROJECT_WORKFLOW_SPEC.md, section 5). `semester` is

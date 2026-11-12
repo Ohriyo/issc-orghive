@@ -119,6 +119,13 @@ const envSchema = z
      */
     ALLOW_DEMO_DATA: z.stringbool().default(false),
 
+    /**
+     * The internal Prometheus endpoint (`GET /metrics`), on its own port. Unset: not served.
+     * Bound to METRICS_HOST, loopback by default: never publish this port.
+     */
+    METRICS_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+    METRICS_HOST: z.string().min(1).default('127.0.0.1'),
+
     SMTP_HOST: z.string().min(1),
     SMTP_PORT: z.coerce.number().int().min(1).max(65535),
     SMTP_FROM: z.email(),

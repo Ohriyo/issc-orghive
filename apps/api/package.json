@@ -33,6 +33,7 @@
     "@orghive/shared": "workspace:*",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
+    "@prometheus-io/client": "^0.16.1",
     "@tesseract.js-data/eng": "1.0.0",
     "@tesseract.js-data/fil": "1.0.0",
     "argon2": "^0.45.1",

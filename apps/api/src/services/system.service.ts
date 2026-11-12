@@ -1,5 +1,8 @@
 import {
+  AUDIT_EXPORT_MAX_ROWS,
   ErrorCode,
+  toCsv,
+  type SystemAuditExportQuery,
   type SystemAuditListResponse,
   type SystemAuditQuery,
   type SystemOverview,
@@ -13,8 +16,9 @@ import {
   type AccountAdminRepository,
 } from '#src/repositories/account-admin.repository';
 import type { RefreshTokenRepository } from '#src/repositories/refresh-token.repository';
-import type { SystemRepository } from '#src/repositories/system.repository';
+import type { SystemAuditRecord, SystemRepository } from '#src/repositories/system.repository';
 import { toAuditEntry, toSystemUser } from '#src/services/account-admin.service';
+import type { ConsoleActor } from '#src/services/account-admin.service';
 import type { RequestContext } from '#src/services/auth.service';
 import {
   decideAccountChange,
@@ -68,6 +72,37 @@ function snapshot(account: AccountState) {
     disabledAt: account.disabledAt?.toISOString() ?? null,
     mfaEnabled: account.mfaEnabledAt !== null,
   };
+}
+
+const AUDIT_CSV_HEADER = [
+  'Time (UTC)',
+  'Action',
+  'Actor',
+  'Actor email',
+  'Acting as',
+  'Entity type',
+  'Entity id',
+  'Organization id',
+  'IP',
+  'User agent',
+  'Details',
+];
+
+/** One audit entry as a CSV row; toCsv guards every cell against formula injection. */
+function auditCsvRow(record: SystemAuditRecord) {
+  return [
+    record.createdAt.toISOString(),
+    record.action,
+    record.actor?.name ?? 'System',
+    record.actor?.email ?? null,
+    record.actingAs,
+    record.entityType,
+    record.entityId,
+    record.organizationId,
+    record.ip,
+    record.userAgent,
+    record.metadata === null ? null : JSON.stringify(record.metadata),
+  ];
 }
 
 /** Splits the extra row the repository fetched into `nextCursor`. */
@@ -180,6 +215,32 @@ export function createSystemService(deps: SystemServiceDeps) {
       const take = limit ?? DEFAULT_PAGE;
       const { items, nextCursor } = page(await system.listAuditLogs(query, take), take);
       return { items: items.map(toAuditEntry), nextCursor };
+    },
+
+    /**
+     * The filtered audit log as CSV, newest first, at most AUDIT_EXPORT_MAX_ROWS rows
+     * (`truncated` says when more matched). The export itself is audited, with its filters.
+     */
+    async exportAuditLogs(
+      actor: ConsoleActor,
+      filters: SystemAuditExportQuery,
+    ): Promise<{ csv: string; rows: number; truncated: boolean }> {
+      const records = await system.exportAuditLogs(filters, AUDIT_EXPORT_MAX_ROWS);
+      const truncated = records.length > AUDIT_EXPORT_MAX_ROWS;
+      const rows = records.slice(0, AUDIT_EXPORT_MAX_ROWS);
+      await audit.record({
+        action: 'audit_export',
+        actorId: actor.userId,
+        entityType: 'audit_log',
+        metadata: { filters, rows: rows.length, truncated },
+        ip: actor.ctx.ip,
+        userAgent: actor.ctx.userAgent,
+      });
+      return {
+        csv: toCsv([AUDIT_CSV_HEADER, ...rows.map(auditCsvRow)]),
+        rows: rows.length,
+        truncated,
+      };
     },
 
     /** Deactivate (signs them out everywhere) or reactivate. Never yourself, never the last. */

@@ -101,6 +101,11 @@ export const queryKeys = {
     health: ['system', 'health'] as const,
     metrics: (range: string) => ['system', 'metrics', range] as const,
     alerts: ['system', 'alerts'] as const,
+    queues: ['system', 'queues'] as const,
+    queueJobs: (queue: string, state: string, page: number) =>
+      ['system', 'queues', queue, state, page] as const,
+    securityCenter: (range: string) => ['system', 'security-center', range] as const,
+    cache: ['system', 'cache'] as const,
   },
   /**
    * The public leaderboard (docs/PROJECT_WORKFLOW_SPEC.md, section 5). `semester` is

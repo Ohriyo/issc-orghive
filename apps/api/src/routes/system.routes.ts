@@ -4,6 +4,7 @@ import { createAccountAdminController } from '#src/controllers/account-admin.con
 import { createDemoDataController } from '#src/controllers/demo-data.controller';
 import { createSystemController } from '#src/controllers/system.controller';
 import { createSystemHealthController } from '#src/controllers/system-health.controller';
+import { createSystemToolsController } from '#src/controllers/system-tools.controller';
 import { requireAuth, type AccessVerifier } from '#src/middleware/require-auth';
 import {
   auditSystemReads,
@@ -14,6 +15,10 @@ import type { AccountAdminService } from '#src/services/account-admin.service';
 import type { AccountImportService } from '#src/services/account-import.service';
 import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
+import type { CacheAdminService } from '#src/services/cache-admin.service';
+import type { EmailTestService } from '#src/services/email-test.service';
+import type { QueueAdminService } from '#src/services/queue-admin.service';
+import type { SecurityCenterService } from '#src/services/security-center.service';
 import type { DemoDataService } from '#src/services/demo-data.service';
 import type { SuperAdminService } from '#src/services/super-admin.service';
 import type { SupportService } from '#src/services/support.service';
@@ -41,6 +46,13 @@ export interface SystemRouterDeps {
   metrics: Pick<SystemMetricsService, 'read'>;
   /** Open alerts, for the console banner. */
   alerts: Pick<SystemAlertService, 'listOpen'>;
+  /** Background queues: jobs, retries, pause and resume. */
+  queues: QueueAdminService;
+  /** Failed sign-ins, holds, rate limit hits, admin actions and quarantine. */
+  securityCenter: Pick<SecurityCenterService, 'read'>;
+  /** Cache key counts and flushing a namespace. */
+  cacheAdmin: CacheAdminService;
+  emailTest: Pick<EmailTestService, 'send'>;
   tokens: AccessVerifier;
 }
 
@@ -62,6 +74,10 @@ export function systemRouter({
   health,
   metrics,
   alerts,
+  queues,
+  securityCenter,
+  cacheAdmin,
+  emailTest,
   tokens,
 }: SystemRouterDeps): Router {
   const router = Router();
@@ -75,6 +91,13 @@ export function systemRouter({
   );
   const demoController = createDemoDataController(demoData);
   const healthController = createSystemHealthController(health, metrics, alerts);
+  const tools = createSystemToolsController({
+    queues,
+    security: securityCenter,
+    cache: cacheAdmin,
+    email: emailTest,
+    system,
+  });
   const stepUp = requireStepUp(superAdmins);
 
   router.use(requireAuth(tokens), requireSuperAdmin(system), auditSystemReads(system));
@@ -123,6 +146,18 @@ export function systemRouter({
   router.get('/settings', controller.getSettings);
   router.patch('/settings', controller.updateSettings);
   router.get('/audit-logs', controller.listAuditLogs);
+  router.get('/audit-logs/export', tools.exportAuditLogs);
+  // Job queues: retrying or removing one failed job is routine; pausing a queue is not.
+  router.get('/queues', tools.listQueues);
+  router.get('/queues/:queue/jobs', tools.listJobs);
+  router.post('/queues/:queue/jobs/:jobId/retry', tools.retryJob);
+  router.post('/queues/:queue/jobs/:jobId/remove', tools.removeJob);
+  router.post('/queues/:queue/pause', stepUp, tools.pauseQueue);
+  router.post('/queues/:queue/resume', stepUp, tools.resumeQueue);
+  router.get('/security-center', tools.securityCenter);
+  router.get('/cache', tools.cacheStats);
+  router.post('/cache/flush', stepUp, tools.flushCache);
+  router.post('/email-test', tools.sendTestEmail);
   router.get('/me/security', controller.security);
   router.post('/me/recovery-codes', stepUp, controller.regenerateRecoveryCodes);
   router.post('/step-up', controller.stepUp);

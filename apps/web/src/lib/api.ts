@@ -152,6 +152,12 @@ async function request(path: string, init: RequestInit, json: unknown, raw?: Blo
   return response;
 }
 
+/** A GET whose answer is a file (an audit log export), with its headers. */
+export async function apiGetFile(path: string): Promise<{ blob: Blob; headers: Headers }> {
+  const response = await request(path, { method: 'GET' }, undefined);
+  return { blob: await response.blob(), headers: response.headers };
+}
+
 /** A POST whose answer is a file (a task template), not JSON. */
 export async function apiPostForBlob(path: string, json?: unknown): Promise<Blob> {
   const response = await request(path, { method: 'POST' }, json);

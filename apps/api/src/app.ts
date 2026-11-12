@@ -39,6 +39,10 @@ import type { AccountImportService } from '#src/services/account-import.service'
 import type { AccountRequestService } from '#src/services/account-request.service';
 import type { AdminOrganizationService } from '#src/services/admin-organization.service';
 import type { AnnouncementService } from '#src/services/announcement.service';
+import type { CacheAdminService } from '#src/services/cache-admin.service';
+import type { EmailTestService } from '#src/services/email-test.service';
+import type { QueueAdminService } from '#src/services/queue-admin.service';
+import type { SecurityCenterService } from '#src/services/security-center.service';
 import type { OrgPostService } from '#src/services/org-post.service';
 import type { OrgShowcaseService } from '#src/services/org-showcase.service';
 import type { ComplianceOverviewService } from '#src/services/compliance-overview.service';
@@ -142,6 +146,14 @@ export interface AppServices {
   systemMetrics: Pick<SystemMetricsService, 'read'>;
   /** /system/alerts: the console banner. */
   systemAlerts: Pick<SystemAlertService, 'listOpen'>;
+  /** /system/queues: background jobs, retries, pause and resume. */
+  queueAdmin: QueueAdminService;
+  /** /system/security-center: failed sign-ins, holds, rate limits, quarantine. */
+  securityCenter: Pick<SecurityCenterService, 'read'>;
+  /** /system/cache: key counts and flushing a namespace. */
+  cacheAdmin: CacheAdminService;
+  /** /system/email-test */
+  emailTest: Pick<EmailTestService, 'send'>;
 }
 
 export interface AppDeps {
@@ -271,6 +283,10 @@ export function createApp({ config, logger, services, rateLimitStore, metrics }:
       health: services.systemHealth,
       metrics: services.systemMetrics,
       alerts: services.systemAlerts,
+      queues: services.queueAdmin,
+      securityCenter: services.securityCenter,
+      cacheAdmin: services.cacheAdmin,
+      emailTest: services.emailTest,
       tokens: services.tokens,
     }),
   );

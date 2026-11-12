@@ -116,6 +116,14 @@ const unwiredServices: AppServices = {
   systemHealth: { check: () => unwired('systemHealth') },
   systemMetrics: { read: () => unwired('systemMetrics') },
   systemAlerts: { listOpen: () => unwired('systemAlerts') },
+  queueAdmin: new Proxy({} as AppServices['queueAdmin'], {
+    get: (_t, key) => () => unwired(`queueAdmin.${String(key)}`),
+  }),
+  securityCenter: { read: () => unwired('securityCenter') },
+  cacheAdmin: new Proxy({} as AppServices['cacheAdmin'], {
+    get: (_t, key) => () => unwired(`cacheAdmin.${String(key)}`),
+  }),
+  emailTest: { send: () => unwired('emailTest') },
 };
 
 export function buildTestApp(

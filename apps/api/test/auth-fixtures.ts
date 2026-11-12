@@ -8,6 +8,14 @@ import { createSecretBox, generateSecretBoxKey } from '#src/lib/secret-box';
 import { createRedisSuperAdminStore } from '#src/lib/super-admin-store';
 import { createTotp } from '#src/lib/totp';
 import { redisRateLimitStore } from '#src/middleware/rate-limit';
+import { createRedisCacheAdmin } from '#src/lib/cache-admin';
+import { memoryQueueAdmin } from '#src/lib/queue-admin';
+import { createRateLimitHitReader } from '#src/lib/rate-limit-hits';
+import { createSecurityCenterRepository } from '#src/repositories/security-center.repository';
+import { createCacheAdminService } from '#src/services/cache-admin.service';
+import { createEmailTestService } from '#src/services/email-test.service';
+import { createQueueAdminService } from '#src/services/queue-admin.service';
+import { createSecurityCenterService } from '#src/services/security-center.service';
 import { createAuditLogRepository } from '#src/repositories/audit-log.repository';
 import { createAccountRepository } from '#src/repositories/account.repository';
 import { createPasswordResetTokenRepository } from '#src/repositories/password-reset-token.repository';
@@ -166,6 +174,7 @@ export function buildAuthApp(
     now,
     emailDomains = [],
     demoData,
+    queueSeed = { documents: [], previews: [] },
   }: {
     keys?: ReturnType<typeof testKeys>;
     trustProxy?: boolean | number;
@@ -174,10 +183,13 @@ export function buildAuthApp(
     demoData?: AppServices['demoData'];
     /** ACCOUNT_EMAIL_DOMAINS for the /system account forms. */
     emailDomains?: string[];
+    /** The jobs in each fake queue, for /system/queues. */
+    queueSeed?: Parameters<typeof memoryQueueAdmin>[0];
   } = {},
 ) {
   const tokens = createTokenService(keys);
   const mailer = memoryMailer();
+  const queueAdmin = memoryQueueAdmin(queueSeed);
   const logger = pino({ level: 'silent' });
   const users = createUserRepository(db);
   const refreshTokens = createRefreshTokenRepository(db);
@@ -358,11 +370,22 @@ export function buildAuthApp(
         now,
       }),
       ...(demoData && { demoData }),
+      // /system tools: the real Redis-backed cache counts and rate limit hits on the test
+      // Redis; the queues are an in-memory fake (no worker runs in route tests).
+      queueAdmin: createQueueAdminService({ queues: queueAdmin, audit, now }),
+      securityCenter: createSecurityCenterService({
+        security: createSecurityCenterRepository(db),
+        rateLimitHits: createRateLimitHitReader(redis),
+        logger,
+        now,
+      }),
+      cacheAdmin: createCacheAdminService({ cache: createRedisCacheAdmin(redis), audit, now }),
+      emailTest: createEmailTestService({ mailer, users, audit, logger, now }),
     },
     { TRUST_PROXY: trustProxy },
     redisRateLimitStore(redis),
   );
-  return { app, tokens, mailer, keys, queued, cache };
+  return { app, tokens, mailer, keys, queued, cache, queueAdmin };
 }
 
 /** The refresh token from a response's Set-Cookie, or undefined when cleared. */

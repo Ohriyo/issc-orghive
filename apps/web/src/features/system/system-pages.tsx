@@ -39,6 +39,13 @@ import { AlertBanner } from './views/alert-banner';
 import { HealthRefreshButton, HealthView } from './views/health-view';
 import { MetricsView, RangePicker } from './views/metrics-view';
 import { BulkCreateButton, CreateAccountButton, UsersView } from './views/users-view';
+import { useCacheTools } from './presenters/use-cache-tools';
+import { useEmailTest } from './presenters/use-email-test';
+import { useQueueManager } from './presenters/use-queue-manager';
+import { useSecurityCenter } from './presenters/use-security-center';
+import { QueuesRefreshButton, QueuesView } from './views/queues-view';
+import { SecurityCenterRefreshButton, SecurityCenterView } from './views/security-center-view';
+import { ToolsView } from './views/tools-view';
 
 /** Signed in (with MFA confirmed), then super admins only; everyone else sees why not. */
 function SystemGate({ children }: { children: React.ReactNode }) {
@@ -268,7 +275,10 @@ function Audit() {
   usePageChrome(chrome.system('Audit log'));
   const model = useSystemAudit();
   return (
-    <Console title="Audit log" description="Newest first. Times are Manila time.">
+    <Console
+      title="Audit log"
+      description="Newest first. Times are Manila time. Export what the filters match as CSV."
+    >
       <AuditView model={model} />
     </Console>
   );
@@ -368,6 +378,69 @@ export function SystemSecurityPage() {
   return (
     <Gated>
       <Security />
+    </Gated>
+  );
+}
+
+function Queues() {
+  usePageChrome(chrome.system('Queues'));
+  const model = useQueueManager();
+  return (
+    <Console
+      title="Queues"
+      description="Background jobs the worker runs. Retry or remove failed ones; pausing a queue needs a code."
+      actions={<QueuesRefreshButton model={model} />}
+    >
+      <QueuesView model={model} />
+    </Console>
+  );
+}
+
+function SecurityCenter() {
+  usePageChrome(chrome.system('Security center'));
+  const model = useSecurityCenter();
+  return (
+    <Console
+      title="Security center"
+      description="Failed sign-ins, holds, rate limits, super admin actions and quarantined files."
+      actions={<SecurityCenterRefreshButton model={model} />}
+    >
+      <SecurityCenterView model={model} />
+    </Console>
+  );
+}
+
+function Tools() {
+  usePageChrome(chrome.system('Tools'));
+  const cache = useCacheTools();
+  const email = useEmailTest();
+  return (
+    <Console title="Tools" description="The cache, and a test of outgoing email.">
+      <ToolsView cache={cache} email={email} />
+    </Console>
+  );
+}
+
+export function SystemQueuesPage() {
+  return (
+    <Gated>
+      <Queues />
+    </Gated>
+  );
+}
+
+export function SystemSecurityCenterPage() {
+  return (
+    <Gated>
+      <SecurityCenter />
+    </Gated>
+  );
+}
+
+export function SystemToolsPage() {
+  return (
+    <Gated>
+      <Tools />
     </Gated>
   );
 }

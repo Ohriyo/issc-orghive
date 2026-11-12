@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { RECOVERY_CODE_COUNT, totpCodeSchema } from './auth';
+import { slugSchema } from './organization';
 
 /*
  * /system: the super admin console (CLAUDE.md, "System roles"). Every route needs an
@@ -89,6 +90,10 @@ export type SetSystemRoleRequest = z.infer<typeof setSystemRoleRequestSchema>;
 export const systemAuditQuerySchema = z.object({
   ...pageQuery,
   actorId: z.uuid().optional(),
+  /** Part of the actor's name or email, any case. */
+  actor: z.string().trim().min(1).max(120).optional(),
+  /** The organization the entry is about, by slug. */
+  organization: slugSchema.optional(),
   action: z.string().trim().max(64).optional(),
   entityType: z.string().trim().max(64).optional(),
   entityId: z.string().trim().max(64).optional(),

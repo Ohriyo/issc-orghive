@@ -308,7 +308,7 @@ describe('/system/metrics', () => {
 });
 
 describe('the console sidebar', () => {
-  it('groups the sections, with Health and Metrics under Monitor', async () => {
+  it('groups the sections, with Health, Metrics, Queues and Security center under Monitor', async () => {
     renderAt('/system/health');
     const nav = await screen.findByRole('navigation', { name: 'System console' });
     const monitor = within(nav).getByRole('list', { name: 'Monitor' });
@@ -316,13 +316,17 @@ describe('the console sidebar', () => {
       within(monitor)
         .getAllByRole('link')
         .map((l) => l.textContent),
-    ).toEqual(['Overview', 'Health', 'Metrics']);
+    ).toEqual(['Overview', 'Health', 'Metrics', 'Queues', 'Security center']);
     expect(within(monitor).getByRole('link', { name: 'Health' })).toHaveAttribute(
       'aria-current',
       'page',
     );
     expect(within(nav).getByRole('list', { name: 'Accounts' })).toBeInTheDocument();
-    expect(within(nav).getByRole('list', { name: 'System' })).toBeInTheDocument();
+    const system = within(nav).getByRole('list', { name: 'System' });
+    expect(within(system).getByRole('link', { name: 'Tools' })).toHaveAttribute(
+      'href',
+      '/system/tools',
+    );
     expect(within(nav).getByText(/Every action here is audited/)).toBeInTheDocument();
   });
 });

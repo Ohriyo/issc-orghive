@@ -1,39 +1,91 @@
+import { Download } from 'lucide-react';
 import { SelectField } from '@/components/form-fields';
 import { PillButton } from '@/components/pill-button';
 import { TextField } from '@/components/text-field';
 import { SectionError } from '@/components/section-error';
 import type { SystemAuditModel } from '../presenters/use-system-audit';
+import { SECONDARY } from './system-dialogs';
 import { SystemLoading } from './system-layout';
 
 /**
- * /system/audit: one row per event. Details (before and after values, routes, user agent)
+ * /system/audit: filters, a CSV export of what they match, and one row per event. Details (before and after values, routes, user agent)
  * open in place, so the list stays dense.
  */
 export function AuditView({ model }: { model: SystemAuditModel }) {
   const { filters, list } = model;
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+      <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <legend className="sr-only">Filter the audit log</legend>
         <SelectField
           label="Action"
-          className="sm:max-w-xs sm:flex-1"
           placeholder="All actions"
           options={filters.options}
           value={filters.action}
           onChange={(event) => filters.setAction(event.target.value)}
         />
+        <SelectField
+          label="Organization"
+          placeholder="All organizations"
+          options={filters.organizationOptions}
+          value={filters.organization}
+          onChange={(event) => filters.setOrganization(event.target.value)}
+        />
+        <TextField
+          label="Actor"
+          type="search"
+          className="min-w-0"
+          placeholder="Part of a name or email"
+          maxLength={120}
+          value={filters.actor}
+          onChange={(event) => filters.setActor(event.target.value)}
+        />
         <TextField
           label="Acting as"
           type="search"
-          className="min-w-0 sm:max-w-xs sm:flex-1"
+          className="min-w-0"
           placeholder="Part of a name"
           maxLength={80}
           value={filters.actingAs}
           onChange={(event) => filters.setActingAs(event.target.value)}
         />
+        <TextField
+          label="From (Manila date)"
+          type="date"
+          className="min-w-0"
+          value={filters.fromDay}
+          onChange={(event) => filters.setFromDay(event.target.value)}
+        />
+        <TextField
+          label="To (Manila date)"
+          type="date"
+          className="min-w-0"
+          value={filters.toDay}
+          error={filters.dateError ?? undefined}
+          onChange={(event) => filters.setToDay(event.target.value)}
+        />
+      </fieldset>
+      <div className="flex flex-wrap items-center sm:justify-end gap-x-6 gap-y-3">
+        {filters.filtered ? (
+          <button type="button" className={SECONDARY} onClick={filters.clear}>
+            Clear filters
+          </button>
+        ) : null}
+        <PillButton
+          variant="light"
+          onClick={model.export.run}
+          disabled={model.export.running || model.export.disabled}
+        >
+          <Download aria-hidden="true" />
+          {model.export.running ? 'Exporting…' : 'Export CSV'}
+        </PillButton>
       </div>
 
-      {list.status === 'loading' ? (
+      {list.status === 'invalid' ? (
+        <p className="rounded-xl bg-white px-5 py-6 text-body text-ink-muted ring-1 ring-border">
+          {list.message} Change one of the dates to see events.
+        </p>
+      ) : list.status === 'loading' ? (
         <SystemLoading label="Loading the audit log" />
       ) : list.status === 'error' ? (
         <SectionError message="The audit log could not be loaded." onRetry={list.retry} />

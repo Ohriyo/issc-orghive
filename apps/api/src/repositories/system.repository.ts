@@ -17,7 +17,7 @@ const accountSelect = {
   mfaEnabledAt: true,
 } satisfies Prisma.UserSelect;
 
-const auditSelect = {
+export const auditSelect = {
   id: true,
   createdAt: true,
   action: true,
@@ -32,6 +32,38 @@ const auditSelect = {
 } satisfies Prisma.AuditLogSelect;
 
 export type SystemAuditRecord = Prisma.AuditLogGetPayload<{ select: typeof auditSelect }>;
+
+export type AuditFilters = Omit<SystemAuditQuery, 'limit' | 'cursor'>;
+
+const EXPORT_BATCH = 1000;
+
+/** The audit log filters as a where clause; null when `action` is not a known action. */
+function auditWhere({
+  actorId,
+  actor,
+  organization,
+  action,
+  entityType,
+  entityId,
+  actingAs,
+  from,
+  to,
+}: AuditFilters): Prisma.AuditLogWhereInput | null {
+  if (action && !Object.hasOwn(AuditAction, action)) return null;
+  const contains = (text: string) => ({ contains: text, mode: 'insensitive' as const });
+  return {
+    ...(actorId && { actorId }),
+    ...(actor && { actor: { OR: [{ name: contains(actor) }, { email: contains(actor) }] } }),
+    ...(organization && { organization: { slug: organization } }),
+    ...(action && { action: action as AuditAction }),
+    ...(entityType && { entityType }),
+    ...(entityId && { entityId }),
+    ...(actingAs && { actingAs: contains(actingAs) }),
+    ...((from ?? to) && {
+      createdAt: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) },
+    }),
+  };
+}
 
 const ACTIVE_SUPER_ADMIN = {
   systemRole: 'SUPER_ADMIN',
@@ -113,35 +145,40 @@ export function createSystemRepository(db: Db) {
 
     /** One more than `take`. An unknown `action` matches nothing. */
     async listAuditLogs(
-      {
-        actorId,
-        action,
-        entityType,
-        entityId,
-        actingAs,
-        from,
-        to,
-        cursor,
-      }: Omit<SystemAuditQuery, 'limit'>,
+      { cursor, ...filters }: Omit<SystemAuditQuery, 'limit'>,
       take: number,
     ): Promise<SystemAuditRecord[]> {
-      if (action && !Object.hasOwn(AuditAction, action)) return [];
+      const where = auditWhere(filters);
+      if (!where) return [];
       return db.auditLog.findMany({
-        where: {
-          ...(actorId && { actorId }),
-          ...(action && { action: action as AuditAction }),
-          ...(entityType && { entityType }),
-          ...(entityId && { entityId }),
-          ...(actingAs && { actingAs: { contains: actingAs, mode: 'insensitive' as const } }),
-          ...((from ?? to) && {
-            createdAt: { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) },
-          }),
-          ...(cursor && { id: { lt: cursor } }),
-        },
+        where: { ...where, ...(cursor && { id: { lt: cursor } }) },
         orderBy: { id: 'desc' },
         take: take + 1,
         select: auditSelect,
       });
+    },
+
+    /**
+     * Every entry the filters match, newest first, up to `max + 1` (one more tells the caller
+     * the export was cut short). Read in batches so one query never holds them all.
+     */
+    async exportAuditLogs(filters: AuditFilters, max: number): Promise<SystemAuditRecord[]> {
+      const where = auditWhere(filters);
+      if (!where) return [];
+      const rows: SystemAuditRecord[] = [];
+      let cursor: string | undefined;
+      while (rows.length <= max) {
+        const batch = await db.auditLog.findMany({
+          where: { ...where, ...(cursor && { id: { lt: cursor } }) },
+          orderBy: { id: 'desc' },
+          take: Math.min(EXPORT_BATCH, max + 1 - rows.length),
+          select: auditSelect,
+        });
+        rows.push(...batch);
+        if (batch.length < EXPORT_BATCH) break;
+        cursor = batch.at(-1)!.id;
+      }
+      return rows;
     },
 
     /*

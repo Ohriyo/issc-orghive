@@ -194,6 +194,15 @@ Every organization's shared account (ISSC, CSCs and SBOs) writes **updates** and
 - **Empty sections are left out** for visitors, except About (which says the description is not written yet) and Documents (which says the constitution is not uploaded). The organization's own account also sees a private "Fill in your page" checklist until each part is filled in.
 - `GET /organizations/:slug/showcase` (public) serves the rank, projects and documents; it is the same for every viewer, so the owner's private files never appear there. It is cached under `org:{slug}:docs:showcase`, cleared by every document write and when a project is completed.
 
+## System console tools (chosen by the project owner on 2026-11-12)
+
+Phase 1 of the `/system` tools. Every route is `requireSuperAdmin` and audited; the ones marked step-up need a TOTP code from the last 5 minutes.
+- **Queues (`/system/queues`):** every BullMQ queue's counts (waiting, running, delayed, failed, completed) and its jobs by state. Only a **failed** job is retried or removed (`queue_job_retry`, `queue_job_remove`); a waiting or running job belongs to the worker. Pausing or resuming a whole queue needs a step-up (`queue_pause`, `queue_resume`). BullMQ talks through one port, `lib/queue-admin.ts`; the rules live in `queue-admin.service.ts`.
+- **Security center (`/system/security-center`, read-only):** failed sign-ins (`login_failed`, `mfa_failed`) by IP and by account over 24 hours or 7 days (an email with no account is grouped as typed), accounts on hold, super admin lockouts, rate limit hits (every 429, counted per hour, limiter and IP in Redis under `rlhits:` for 8 days, `lib/rate-limit-hits.ts`), the latest super admin actions (page views left out) and quarantined files. A private file's title stays hidden (`supportTitleOf`). Releasing or permanently deleting a quarantined file comes in phase 3.
+- **Audit log (`/system/audit`):** filters by action, organization (slug), actor (part of a name or email), "Acting as" and Manila dates. **Export CSV** (`GET /system/audit-logs/export`) takes the same filters, newest first, at most 10,000 rows (`X-Orghive-Truncated: 1` when more matched), every cell guarded against formulas (`toCsv`). The export itself is audited (`audit_export`, with its filters and row count).
+- **Cache (`/system/tools`):** key counts per namespace and flushing one after a step-up (`cache_flush`, with the count). Only the patterns in `CACHE_NAMESPACE_PATTERNS` (`cache-admin.service.ts`) are ever counted or deleted; sessions (`sa:`), rate limits (`rl:`, `rlhits:`), Reveals, the published leaderboard boards and the queues share the Redis and are never touched.
+- **Test email (`/system/tools`):** one message straight through the SMTP relay (not the notification queue), to the super admin's own address unless another is given, with a 15-second limit. The result (delivered, or what the relay said) is shown and audited (`email_test`).
+
 ## Open questions
 
 ### Documents

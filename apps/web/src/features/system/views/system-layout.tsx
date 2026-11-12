@@ -1,5 +1,8 @@
 import {
   CalendarClock,
+  Layers,
+  ShieldAlert,
+  Wrench,
   ChartLine,
   FlaskConical,
   Gauge,
@@ -31,6 +34,8 @@ const GROUPS: readonly { label: string; sections: readonly Section[] }[] = [
       { to: '/system/overview', label: 'Overview', icon: Gauge },
       { to: '/system/health', label: 'Health', icon: HeartPulse },
       { to: '/system/metrics', label: 'Metrics', icon: ChartLine },
+      { to: '/system/queues', label: 'Queues', icon: Layers },
+      { to: '/system/security-center', label: 'Security center', icon: ShieldAlert },
     ],
   },
   {
@@ -46,6 +51,7 @@ const GROUPS: readonly { label: string; sections: readonly Section[] }[] = [
     label: 'System',
     sections: [
       { to: '/system/settings', label: 'Settings', icon: SlidersHorizontal },
+      { to: '/system/tools', label: 'Tools', icon: Wrench },
       { to: '/system/test-data', label: 'Test data', icon: FlaskConical },
       { to: '/system/audit', label: 'Audit log', icon: ScrollText },
       { to: '/system/security', label: 'My security', icon: KeyRound },

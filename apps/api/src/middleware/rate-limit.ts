@@ -9,18 +9,26 @@ import {
 import { RedisStore, type RedisReply } from 'rate-limit-redis';
 import type { Redis } from 'ioredis';
 import { ErrorCode, forgotPasswordRequestSchema, loginRequestSchema } from '@orghive/shared';
+import { recordRateLimitHit } from '#src/lib/rate-limit-hits';
 import { REFRESH_COOKIE } from '#src/lib/refresh-cookie';
 
-/** Builds a store per limiter. Redis in the app (shared across API instances); memory when omitted. */
-export type RateLimitStoreFactory = (prefix: string) => Store;
+/**
+ * Builds a store per limiter. Redis in the app (shared across API instances); memory when
+ * omitted. `onLimited` is told of every refused request, for the /system security center.
+ */
+export type RateLimitStoreFactory = ((prefix: string) => Store) & {
+  onLimited?: (limiter: string, ip: string) => void;
+};
 
 export function redisRateLimitStore(redis: Redis): RateLimitStoreFactory {
-  return (prefix) =>
+  const factory: RateLimitStoreFactory = (prefix) =>
     new RedisStore({
       prefix: `rl:${prefix}:`,
       sendCommand: (command: string, ...args: string[]) =>
         redis.call(command, ...args) as Promise<RedisReply>,
     });
+  factory.onLimited = (limiter, ip) => recordRateLimitHit(redis, limiter, ip);
+  return factory;
 }
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
@@ -44,6 +52,7 @@ function limiter(
     passOnStoreError: false,
     ...(store && { store: store(prefix) }),
     handler: (req, res, _next, opts) => {
+      store?.onLimited?.(prefix, clientIp(req));
       const resetTime = (req as Request & { rateLimit?: RateLimitInfo }).rateLimit?.resetTime;
       const minutes = resetTime
         ? Math.max(1, Math.ceil((resetTime.getTime() - Date.now()) / 60_000))

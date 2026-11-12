@@ -2,6 +2,10 @@ import type { Page, Route } from '@playwright/test';
 import type {
   AdminOrganization,
   AdminOrganizationTree,
+  CacheStats,
+  QueueJobList,
+  QueueList,
+  SecurityCenter,
   OrgShowcase,
   Announcement,
   AnnouncementListResponse,
@@ -992,6 +996,9 @@ export const SYSTEM_ROUTES = [
   '/system/audit',
   '/system/security',
   '/system/settings',
+  '/system/queues',
+  '/system/security-center',
+  '/system/tools',
 ] as const;
 
 const STAMP = '2026-10-19T08:00:00.000Z';
@@ -1207,6 +1214,182 @@ const TEST_DATA: TestDataPreview = {
       createdAt: STAMP,
     },
   ],
+};
+
+/** /system/queues: one queue paused, one with a failed job and a long error. */
+const SYSTEM_QUEUES: QueueList = {
+  queues: [
+    {
+      name: 'documents',
+      paused: false,
+      waiting: 3,
+      active: 1,
+      delayed: 0,
+      failed: 1,
+      completed: 240,
+    },
+    {
+      name: 'previews',
+      paused: true,
+      waiting: 12,
+      active: 0,
+      delayed: 0,
+      failed: 0,
+      completed: 88,
+    },
+    {
+      name: 'integrity',
+      paused: false,
+      waiting: 0,
+      active: 0,
+      delayed: 0,
+      failed: 0,
+      completed: 31,
+    },
+    {
+      name: 'notifications',
+      paused: false,
+      waiting: 0,
+      active: 0,
+      delayed: 2,
+      failed: 0,
+      completed: 1520,
+    },
+  ],
+  generatedAt: STAMP,
+};
+
+const SYSTEM_QUEUE_JOBS: QueueJobList = {
+  queue: SYSTEM_QUEUES.queues[0]!,
+  state: 'failed',
+  page: 0,
+  pageSize: 25,
+  total: 1,
+  items: [
+    {
+      id: '1042',
+      name: 'process-version',
+      data: { versionId: '0195f3c0-0000-7000-8000-00000000a001' },
+      attemptsMade: 3,
+      maxAttempts: 3,
+      failedReason:
+        'connect ECONNREFUSED 127.0.0.1:3310 while streaming the file to ClamAV for its scan (attempt 3 of 3)',
+      queuedAt: STAMP,
+      startedAt: STAMP,
+      finishedAt: STAMP,
+    },
+  ],
+};
+
+/** /system/security-center: a little of everything, with long emails and IPv6. */
+const SYSTEM_SECURITY_CENTER: SecurityCenter = {
+  range: '24h',
+  since: '2026-10-18T08:00:00.000Z',
+  failedLogins: {
+    total: 9,
+    byIp: [
+      { ip: '2001:db8:85a3:0000:0000:8a2e:0370:7334', count: 6, lastAt: STAMP },
+      { ip: '198.51.100.7', count: 3, lastAt: STAMP },
+    ],
+    byAccount: [
+      {
+        userId: ACCOUNT_ID,
+        email: 'jpice.officers.account@nwssu.edu.ph',
+        organization: 'JPICE',
+        count: 5,
+        lastAt: STAMP,
+      },
+      {
+        userId: null,
+        email: 'somebody.who.does.not.exist@nwssu.edu.ph',
+        organization: null,
+        count: 4,
+        lastAt: STAMP,
+      },
+    ],
+  },
+  lockedAccounts: [
+    {
+      userId: ACCOUNT_ID,
+      email: 'psme@nwssu.edu.ph',
+      organization: 'PSME',
+      lockedAt: STAMP,
+      reason: 'End of term: no incoming officer in charge assigned yet',
+    },
+  ],
+  superAdminLockouts: [],
+  rateLimitHits: {
+    total: 4,
+    byLimiter: [
+      { limiter: 'login-ip', hits: 3 },
+      { limiter: 'pages', hits: 1 },
+    ],
+    byIp: [
+      { ip: '2001:db8:85a3:0000:0000:8a2e:0370:7334', hits: 4, limiters: ['login-ip', 'pages'] },
+    ],
+  },
+  recentAdminActions: [],
+  quarantined: {
+    total: 2,
+    items: [
+      {
+        documentId: '0195f3c0-0000-7000-8000-00000000d001',
+        organization: { acronym: 'JPICE', slug: 'jpice' },
+        title: 'Accomplishment Report: Engineering Week 2026 seminar series',
+        kind: 'virus',
+        reason: 'Win.Test.EICAR_HDB-1',
+        mimeType: 'application/pdf',
+        sizeBytes: 2_400_000,
+        uploadedAt: STAMP,
+        quarantinedAt: STAMP,
+      },
+      {
+        documentId: '0195f3c0-0000-7000-8000-00000000d002',
+        organization: { acronym: 'PSME', slug: 'psme' },
+        title: null,
+        kind: 'task_check',
+        reason: 'No valid task code on any page',
+        mimeType: 'application/pdf',
+        sizeBytes: 640_000,
+        uploadedAt: STAMP,
+        quarantinedAt: null,
+      },
+    ],
+  },
+  generatedAt: STAMP,
+};
+
+const SYSTEM_CACHE: CacheStats = {
+  namespaces: [
+    {
+      id: 'organizations',
+      label: 'Organizations',
+      description:
+        'Organization pages, their document lists, posts, showcase, constitution and the Student Handbook.',
+      keys: 214,
+    },
+    {
+      id: 'colleges',
+      label: 'Colleges',
+      description: 'The college list and college pages.',
+      keys: 8,
+    },
+    {
+      id: 'search',
+      label: 'Search',
+      description: 'Search results and their generation counter.',
+      keys: 57,
+    },
+    {
+      id: 'semesters',
+      label: 'Semester calendar',
+      description: 'The semester dates the ISSC set.',
+      keys: 0,
+    },
+  ],
+  totalKeys: 1830,
+  usedMemoryBytes: 18 * 1024 * 1024,
+  generatedAt: STAMP,
 };
 
 const SYSTEM_AUDIT: SystemAuditListResponse = {
@@ -1885,6 +2068,14 @@ export async function stubApi(
     if (superAdmin && path === '/system/health') return json(route, SYSTEM_HEALTH);
     if (superAdmin && path === '/system/metrics') return json(route, SYSTEM_METRICS);
     if (superAdmin && path === '/system/alerts') return json(route, SYSTEM_ALERTS);
+    if (superAdmin && path === '/system/queues') return json(route, SYSTEM_QUEUES);
+    if (superAdmin && /^\/system\/queues\/[a-z-]+\/jobs$/.test(path)) {
+      return json(route, SYSTEM_QUEUE_JOBS);
+    }
+    if (superAdmin && path === '/system/security-center') {
+      return json(route, { ...SYSTEM_SECURITY_CENTER, recentAdminActions: SYSTEM_AUDIT.items });
+    }
+    if (superAdmin && path === '/system/cache') return json(route, SYSTEM_CACHE);
     if (admin && path === '/auth/refresh') return json(route, ADMIN);
     if (admin && path === '/admin/organizations') return json(route, ADMIN_TREE);
     if (admin && path === '/admin/financial-figures') return json(route, ADMIN_FIGURES);

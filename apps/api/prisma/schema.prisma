@@ -213,6 +213,19 @@ enum AuditAction {
   system_setting_change
   /// A super admin removed the demo data (db:unseed:demo's logic); metadata has the counts.
   demo_data_remove
+  /// A super admin retried or removed a failed background job; metadata has `queue`, `jobId`
+  /// and `name`.
+  queue_job_retry
+  queue_job_remove
+  /// A super admin paused or resumed a background queue; metadata has `queue`.
+  queue_pause
+  queue_resume
+  /// A super admin flushed one cache namespace; metadata has `namespace` and `deleted`.
+  cache_flush
+  /// A super admin sent a test email; metadata has `to`, `delivered` and the error, if any.
+  email_test
+  /// A super admin exported the audit log as CSV; metadata has the filters and `rows`.
+  audit_export
 }
 
 /// System-level role: SUPER_ADMIN is the developer's personal console account, the only

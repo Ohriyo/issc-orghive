@@ -39,6 +39,14 @@ import {
 import { createChromiumRenderer } from '#src/lib/report-pdf';
 import { createS3Storage } from '#src/lib/storage';
 import { createSmtpMailer } from '#src/lib/mailer';
+import { createRedisCacheAdmin } from '#src/lib/cache-admin';
+import { createBullQueueAdmin } from '#src/lib/queue-admin';
+import { createRateLimitHitReader } from '#src/lib/rate-limit-hits';
+import { createSecurityCenterRepository } from '#src/repositories/security-center.repository';
+import { createCacheAdminService } from '#src/services/cache-admin.service';
+import { createEmailTestService } from '#src/services/email-test.service';
+import { createQueueAdminService } from '#src/services/queue-admin.service';
+import { createSecurityCenterService } from '#src/services/security-center.service';
 import { createArgon2Hasher } from '#src/lib/password';
 import { createPublicUrl } from '#src/lib/public-url';
 import { redisRateLimitStore } from '#src/middleware/rate-limit';
@@ -429,7 +437,7 @@ const superAdmins = createSuperAdminService({
   mailer,
   logger,
 });
-// Read-only handles: the API never adds to these two, it only counts them.
+// Handles the API never adds to: it counts them, and /system/queues retries and pauses.
 const integrityQueue = createBullIntegrityQueue(queueConnection);
 const systemQueue = createBullSystemQueue(queueConnection);
 const queues = [
@@ -670,6 +678,14 @@ const app = createApp({
     systemHealth,
     systemMetrics,
     systemAlerts,
+    queueAdmin: createQueueAdminService({ queues: createBullQueueAdmin(queues), audit }),
+    securityCenter: createSecurityCenterService({
+      security: createSecurityCenterRepository(db),
+      rateLimitHits: createRateLimitHitReader(redis),
+      logger,
+    }),
+    cacheAdmin: createCacheAdminService({ cache: createRedisCacheAdmin(redis), audit }),
+    emailTest: createEmailTestService({ mailer, users, audit, logger }),
   },
   metrics,
 });

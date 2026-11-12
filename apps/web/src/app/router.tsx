@@ -347,6 +347,18 @@ function systemRoutes(): RouteObject[] {
       lazy: async () => ({ Component: (await systemPages()).SystemAuditPage }),
     },
     {
+      path: 'system/queues',
+      lazy: async () => ({ Component: (await systemPages()).SystemQueuesPage }),
+    },
+    {
+      path: 'system/security-center',
+      lazy: async () => ({ Component: (await systemPages()).SystemSecurityCenterPage }),
+    },
+    {
+      path: 'system/tools',
+      lazy: async () => ({ Component: (await systemPages()).SystemToolsPage }),
+    },
+    {
       path: 'system/security',
       lazy: async () => ({ Component: (await systemPages()).SystemSecurityPage }),
     },

@@ -28,7 +28,7 @@ const userRecord = (account: AccountState): AccountRecord => ({
   officerTerms: [],
 });
 
-function setup(accounts: AccountState[]) {
+function setup(accounts: AccountState[], exportRows = 2) {
   const byId = new Map(accounts.map((a) => [a.id, { ...a }]));
   const audit: AuditEntry[] = [];
   const revokeAllForUser = vi.fn(() => Promise.resolve());
@@ -84,6 +84,22 @@ function setup(accounts: AccountState[]) {
           metadata: ['not', 'an', 'object'],
         },
       ]),
+    exportAuditLogs: (_filters: unknown, max: number) =>
+      Promise.resolve(
+        Array.from({ length: Math.min(exportRows, max + 1) }, (_, i) => ({
+          id: `log${i}`,
+          createdAt: T0,
+          action: 'upload' as const,
+          actor: i === 0 ? { id: 'a', name: 'JPICE', email: 'jpice@nwssu.test' } : null,
+          entityType: 'document',
+          entityId: 'd1',
+          organizationId: null,
+          ip: '203.0.113.9',
+          userAgent: 'vitest',
+          actingAs: i === 0 ? '=HYPERLINK("x")' : null,
+          metadata: i === 0 ? { title: 'Report, final' } : null,
+        })),
+      ),
   } as unknown as SystemRepository;
 
   const service = createSystemService({
@@ -222,6 +238,32 @@ describe('systemService reads', () => {
       items: [expect.objectContaining({ id: 'log1', action: 'login', metadata: null })],
       nextCursor: null,
     });
+  });
+
+  it('exports the filtered audit log as CSV, guarded against formulas, and audits it', async () => {
+    const s = setup([]);
+    const result = await s.service.exportAuditLogs({ userId: ACTOR, ctx }, { action: 'upload' });
+    expect(result).toMatchObject({ rows: 2, truncated: false });
+    const lines = result.csv.trimEnd().split('\r\n');
+    expect(lines[0]).toBe(
+      'Time (UTC),Action,Actor,Actor email,Acting as,Entity type,Entity id,Organization id,IP,User agent,Details',
+    );
+    // A formula-like "Acting as" becomes text; JSON details are quoted as one cell.
+    expect(lines[1]).toContain(`"'=HYPERLINK(""x"")"`);
+    expect(lines[1]).toContain(`"{""title"":""Report, final""}"`);
+    expect(lines[2]).toContain(',System,');
+    expect(s.audit.at(-1)).toMatchObject({
+      action: 'audit_export',
+      actorId: ACTOR,
+      metadata: { filters: { action: 'upload' }, rows: 2, truncated: false },
+    });
+  });
+
+  it('cuts an export at the row limit and says so', async () => {
+    const s = setup([], 10_005);
+    const result = await s.service.exportAuditLogs({ userId: ACTOR, ctx }, {});
+    expect(result).toMatchObject({ rows: 10_000, truncated: true });
+    expect(result.csv.trimEnd().split('\r\n')).toHaveLength(10_001);
   });
 
   it('records console reads', async () => {
